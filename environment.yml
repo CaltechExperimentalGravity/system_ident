@@ -1,0 +1,27 @@
+# Development environment for ligo-sysid.
+#
+# Compiled scientific libraries come from conda-forge (optimized BLAS, no
+# source builds); the package itself and the pure-Python dev/dashboard extras
+# are installed editable via pip, so pyproject.toml stays the single source of
+# truth for dependencies.
+#
+# Create (run from the repo root, so `-e .` resolves):
+#     conda env create -f environment.yml
+#     conda activate sysid
+#
+# Verified with python 3.12, numpy 2.4, scipy 1.17, control 0.10.
+name: sysid
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  # Compiled scientific stack. scipy must be >= 1.14, where integrate.trapezoid
+  # replaces the removed integrate.trapz used by the legacy sysIDlib reference.
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - control
+  - pip:
+      - -e .[dev,dashboard]

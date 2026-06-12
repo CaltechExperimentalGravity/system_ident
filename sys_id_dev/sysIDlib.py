@@ -180,7 +180,7 @@ def get_Fisher_from_psd(freq, par_dict,
     gamma = np.zeros([n_par, n_par])
     for i in range(n_par):
         for j in range(i, n_par, 1):
-            gamma[i, j] = 2.*integ.trapz(
+            gamma[i, j] = 2.*integ.trapezoid(
                 np.real(np.conj(dG_dpar[i, :])*dG_dpar[j, :])*Pxx/Pyy,
                 freq)
 
@@ -286,7 +286,7 @@ def get_opt_exc_Pxx(freq, par_dict,
     if Pxx is None:
         Pxx = np.ones(n_bin)  
         
-    Px_tot_temp = integ.trapz(Pxx, freq)
+    Px_tot_temp = integ.trapezoid(Pxx, freq)
     Pxx *= Px_tot/Px_tot_temp
 
     cnt = 0
@@ -298,7 +298,7 @@ def get_opt_exc_Pxx(freq, par_dict,
                                    return_gamma=True)
 
         Pxx = Pxx*nu
-        Px_tot_temp = integ.trapz(Pxx, freq)
+        Px_tot_temp = integ.trapezoid(Pxx, freq)
         Pxx *= Px_tot/Px_tot_temp
 
         Pxx_rec[cnt, :] = Pxx
