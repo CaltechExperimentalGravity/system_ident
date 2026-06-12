@@ -1,0 +1,61 @@
+---
+title: "Single resonance (SHO)"
+---
+
+The smallest complete run: design an optimal excitation for one resonance, show
+it tightens the parameters versus a flat drive of equal power, and recover the
+model from a noisy measurement.
+
+```{python}
+import numpy as np
+import matplotlib.pyplot as plt
+from system_ident.model import TFModel
+from system_ident.fisher import parameter_covariance
+from system_ident.design.pintelon import optimal_excitation
+from system_ident.estimators.invfreqs import InvfreqsEstimator
+
+true = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)   # 1 Hz, Q=20
+prior = TFModel.from_resonances([(0.95, 18.0)], gain=1.1)  # slightly wrong
+
+freq = np.linspace(0.2, 3.0, 400)
+Pyy = np.ones_like(freq)
+Px_tot = 1.0
+
+Pxx_opt = optimal_excitation(freq, prior, Pyy, Px_tot, n_iter=3)
+Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+```
+
+Designed excitation vs the plant:
+
+```{python}
+#| fig-cap: "The optimal drive concentrates power at the resonance."
+fig, ax = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
+ax[0].semilogy(freq, np.abs(true.eval(freq))); ax[0].set_ylabel("|G(f)|")
+ax[1].plot(freq, np.sqrt(Pxx_opt), label="optimal")
+ax[1].plot(freq, np.sqrt(Pxx_flat), "--", label="flat (equal power)")
+ax[1].set_xlabel("Frequency [Hz]"); ax[1].set_ylabel("drive ASD"); ax[1].legend()
+plt.show()
+```
+
+Same power, lower uncertainty — compare the worst-parameter variance:
+
+```{python}
+T_tot = 256.0
+cov_opt = parameter_covariance(freq, true, Pxx_opt, Pyy, T_tot)
+cov_flat = parameter_covariance(freq, true, Pxx_flat, Pyy, T_tot)
+print(f"max param variance  flat: {np.max(np.diag(cov_flat)):.3e}")
+print(f"max param variance  opt : {np.max(np.diag(cov_opt)):.3e}")
+```
+
+Recover the model from a 2%-noise measurement:
+
+```{python}
+rng = np.random.default_rng(0)
+H = true.eval(freq)
+H_err = np.abs(H) * 0.02
+H_meas = H + (rng.standard_normal(freq.size) + 1j*rng.standard_normal(freq.size)) * H_err/np.sqrt(2)
+
+fit = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
+print("true den:", np.round(true.den, 3))
+print("fit  den:", np.round(fit.den, 3))
+```
