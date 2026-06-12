@@ -93,6 +93,7 @@ class SysIDLoop:
         band = (f_all >= float(m["freq_min"])) & (f_all <= float(m["freq_max"]))
         freq = f_all[band]
 
+        t_ramp = float(m.get("t_ramp", 0.0))
         n_iter = int(config["strategy"].get("n_design_iter", 3))
         target = float(config["stop_criteria"]["uncertainty_target"])
         max_iter = int(config["stop_criteria"].get("max_iter", 5))
@@ -140,18 +141,20 @@ class SysIDLoop:
                         uncertainties[d] = self._measure_dof(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, design_iter, rng,
-                            result, accum[d], info[d],
+                            result, accum[d], info[d], t_ramp=t_ramp,
                         )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                 else:
                     self._inject_all(dofs, exc, models, Pyy, freq, fs,
-                                     total_dur, px_total, design_iter, rng)
+                                     total_dur, px_total, design_iter, rng,
+                                     t_ramp=t_ramp)
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, design_iter, rng,
                             result, accum[d], info[d], reuse_injection=True,
+                            t_ramp=t_ramp,
                         )
 
                 if all(u <= target for u in uncertainties.values()):
@@ -170,7 +173,7 @@ class SysIDLoop:
     def _measure_dof(
         self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
         total_dur, px_total, n_iter, rng, result, accum, info,
-        reuse_injection=False,
+        reuse_injection=False, t_ramp=0.0,
     ) -> float:
         # honour an operator STOP issued between segments (e.g. from the
         # dashboard, which calls watchdog.abort() out of band)
@@ -180,7 +183,8 @@ class SysIDLoop:
         Pxx = self.designer.design(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
 
         if not reuse_injection:
-            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng)
+            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
+                                        t_ramp=t_ramp)
             self.backend.inject(exc_ch, drive, fs)
 
         seg = self.backend.read([rb_ch, exc_ch], total_dur)
@@ -234,10 +238,11 @@ class SysIDLoop:
         })
 
     def _inject_all(self, dofs, exc, models, Pyy, freq, fs, total_dur,
-                    px_total, n_iter, rng):
+                    px_total, n_iter, rng, t_ramp=0.0):
         for d in dofs:
             Pxx = self.designer.design(freq, models[d], Pyy[d], px_total, n_iter=n_iter)
-            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng)
+            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
+                                        t_ramp=t_ramp)
             self.backend.inject(exc[d], drive, fs)
 
     @staticmethod

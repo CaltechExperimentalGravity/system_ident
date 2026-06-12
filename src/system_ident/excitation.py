@@ -25,6 +25,7 @@ def timeseries_from_asd(
     freq: np.ndarray,
     asd: np.ndarray,
     seed: int | np.random.Generator | None = None,
+    t_ramp: float = 0.0,
 ) -> np.ndarray:
     """Generate a coloured-noise drive matching the tabulated ASD.
 
@@ -40,6 +41,10 @@ def timeseries_from_asd(
         amplitude.
     seed:
         Seed or ``numpy`` ``Generator`` for reproducibility.
+    t_ramp:
+        Duration [s] of the cosine-taper transition at each end of the waveform
+        (Tukey window).  ``0`` (default) leaves the waveform untapered, preserving
+        existing behaviour exactly.
 
     Returns
     -------
@@ -66,4 +71,11 @@ def timeseries_from_asd(
     spec *= desired_asd * np.sqrt(fs / 2.0)
 
     data = np.fft.irfft(spec)
-    return data[N // 2 : N // 2 + N]
+    result = data[N // 2 : N // 2 + N]
+
+    if t_ramp > 0.0:
+        # alpha so that t_ramp seconds are tapered on each end
+        alpha = min(1.0, 2.0 * t_ramp * fs / N)
+        result = result * sig.windows.tukey(N, alpha)
+
+    return result

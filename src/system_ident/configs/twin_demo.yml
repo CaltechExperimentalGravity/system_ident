@@ -25,6 +25,7 @@ measurement:
   segment_duration: 64.0
   n_segments: 4
   px_total: 1.0
+  t_ramp: 4.0
 
 strategy:
   estimator: invfreqs
