@@ -1,8 +1,8 @@
-# ligo_sysid
+# system_ident
 
 Real-time, optimal-excitation **system identification for LIGO suspensions**.
 
-`ligo_sysid` consolidates the proven research code in this repository — the
+`system_ident` consolidates the proven research code in this repository — the
 `sys_id_dev/sysIDlib.py` engine, the `Plant_Model` 3-DoF suspension, the
 `Optimal_Controls` estimators, and the `CDS_Interface` Foton export — into one
 installable tool that runs iterative system identification of a 3-DoF
@@ -45,5 +45,5 @@ scientific-Python stack.
 ## Usage (target interface)
 
 ```bash
-ligo-sysid run configs/three_dof_twin.yml --twin
+system_ident run configs/three_dof_twin.yml --twin
 ```

@@ -5,13 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ligo_sysid.backends.twin import TwinBackend
-from ligo_sysid.design.pintelon import PintelonSchoukensDesigner
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator
-from ligo_sysid.loop import SysIDLoop
-from ligo_sysid.model import TFModel
-from ligo_sysid.plant import SuspensionPlant, double_pendulum
-from ligo_sysid.safety import SafetyLimits, Watchdog
+from system_ident.backends.twin import TwinBackend
+from system_ident.design.pintelon import PintelonSchoukensDesigner
+from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.loop import SysIDLoop
+from system_ident.model import TFModel
+from system_ident.plant import SuspensionPlant, double_pendulum
+from system_ident.safety import SafetyLimits, Watchdog
 
 FS = 32.0
 

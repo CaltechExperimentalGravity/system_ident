@@ -7,12 +7,12 @@ in later build steps.
 import numpy as np
 import pytest
 
-import ligo_sysid
-from ligo_sysid import ChannelBackend, Estimator, InputDesigner, TFModel
+import system_ident
+from system_ident import ChannelBackend, Estimator, InputDesigner, TFModel
 
 
 def test_version():
-    assert isinstance(ligo_sysid.__version__, str)
+    assert isinstance(system_ident.__version__, str)
 
 
 def test_public_interfaces_are_abstract():
@@ -35,33 +35,33 @@ def test_submodules_import():
     import importlib
 
     for name in [
-        "ligo_sysid.model",
-        "ligo_sysid.fisher",
-        "ligo_sysid.excitation",
-        "ligo_sysid.safety",
-        "ligo_sysid.loop",
-        "ligo_sysid.config",
-        "ligo_sysid.cli",
-        "ligo_sysid.estimators.invfreqs",
-        "ligo_sysid.estimators.weighted_ls",
-        "ligo_sysid.estimators.gml",
-        "ligo_sysid.estimators.vectfit",
-        "ligo_sysid.design.pintelon",
-        "ligo_sysid.design.sho",
-        "ligo_sysid.backends.twin",
-        "ligo_sysid.backends.cds",
-        "ligo_sysid.export.foton",
-        "ligo_sysid.dashboard.server",
-        "ligo_sysid.dashboard.ws",
+        "system_ident.model",
+        "system_ident.fisher",
+        "system_ident.excitation",
+        "system_ident.safety",
+        "system_ident.loop",
+        "system_ident.config",
+        "system_ident.cli",
+        "system_ident.estimators.invfreqs",
+        "system_ident.estimators.weighted_ls",
+        "system_ident.estimators.gml",
+        "system_ident.estimators.vectfit",
+        "system_ident.design.pintelon",
+        "system_ident.design.sho",
+        "system_ident.backends.twin",
+        "system_ident.backends.cds",
+        "system_ident.export.foton",
+        "system_ident.dashboard.server",
+        "system_ident.dashboard.ws",
     ]:
         importlib.import_module(name)
 
 
 def test_cli_version(capsys):
-    # `ligo-sysid --version` exits 0 and prints the version.
-    from ligo_sysid.cli import main
+    # `system_ident --version` exits 0 and prints the version.
+    from system_ident.cli import main
 
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert ligo_sysid.__version__ in capsys.readouterr().out
+    assert system_ident.__version__ in capsys.readouterr().out

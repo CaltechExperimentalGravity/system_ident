@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-import ligo_sysid
-from ligo_sysid.config import RunConfig
-from ligo_sysid.dashboard import server, ws
-from ligo_sysid.loop import SysIDLoop
-from ligo_sysid.safety import SafetyAbort
+import system_ident
+from system_ident.config import RunConfig
+from system_ident.dashboard import server, ws
+from system_ident.loop import SysIDLoop
+from system_ident.safety import SafetyAbort
 
-DEMO = Path(ligo_sysid.__file__).parent / "configs" / "twin_demo.yml"
+DEMO = Path(system_ident.__file__).parent / "configs" / "twin_demo.yml"
 HAVE_FASTAPI = importlib.util.find_spec("fastapi") is not None
 
 

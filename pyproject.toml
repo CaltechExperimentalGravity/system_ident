@@ -3,10 +3,10 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ligo-sysid"
+name = "system_ident"
 version = "0.0.1"
 description = "Real-time, optimal-excitation system identification for LIGO suspensions (3-DoF: POS/Pitch/Yaw), with a digital-twin backend and a live operational dashboard."
-readme = "src/ligo_sysid/README.md"
+readme = "src/system_ident/README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "LIGO SysID contributors" }]
@@ -30,13 +30,13 @@ cds = []
 dev = ["pytest", "pytest-cov"]
 
 [project.scripts]
-ligo-sysid = "ligo_sysid.cli:main"
+system_ident = "system_ident.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ligo_sysid = ["py.typed", "configs/*.yml"]
+system_ident = ["py.typed", "configs/*.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

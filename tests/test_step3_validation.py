@@ -14,9 +14,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ligo_sysid.design.pintelon import PintelonSchoukensDesigner, optimal_excitation
-from ligo_sysid.fisher import dispersion
-from ligo_sysid.plant import double_pendulum
+from system_ident.design.pintelon import PintelonSchoukensDesigner, optimal_excitation
+from system_ident.fisher import dispersion
+from system_ident.plant import double_pendulum
 
 
 def _demo_setup():

@@ -1,7 +1,7 @@
 """The ``Estimator`` strategy interface.
 
 An estimator takes a measured frequency response (with per-point uncertainty)
-and a prior model, and returns an updated :class:`~ligo_sysid.model.TFModel`.
+and a prior model, and returns an updated :class:`~system_ident.model.TFModel`.
 Swapping estimators must not require touching the sysID loop, so the loop only
 ever talks to this interface.
 """

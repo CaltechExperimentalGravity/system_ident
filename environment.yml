@@ -1,4 +1,4 @@
-# Development environment for ligo-sysid.
+# Development environment for system_ident.
 #
 # Compiled scientific libraries come from conda-forge (optimized BLAS, no
 # source builds); the package itself and the pure-Python dev/dashboard extras

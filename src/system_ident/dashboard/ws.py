@@ -6,8 +6,8 @@ output RMS) to the browser, and receives a STOP control message back. No
 polling.
 
 This module is dependency-free (no fastapi/websockets) so it can be imported
-and tested anywhere; the transport lives in :mod:`ligo_sysid.dashboard.server`.
-The snapshot is the contract between :meth:`ligo_sysid.loop.SysIDLoop._emit`
+and tested anywhere; the transport lives in :mod:`system_ident.dashboard.server`.
+The snapshot is the contract between :meth:`system_ident.loop.SysIDLoop._emit`
 and the browser.
 """
 

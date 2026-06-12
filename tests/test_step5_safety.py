@@ -8,16 +8,16 @@ import numpy as np
 import pytest
 import yaml
 
-from ligo_sysid.backends.twin import TwinBackend
-from ligo_sysid.plant import SuspensionPlant, double_pendulum
-from ligo_sysid.safety import SafetyAbort, SafetyLimits, Watchdog
+from system_ident.backends.twin import TwinBackend
+from system_ident.plant import SuspensionPlant, double_pendulum
+from system_ident.safety import SafetyAbort, SafetyLimits, Watchdog
 
 FS = 32.0
 EXC = {"C1:EXC_POS": "POS"}
 RB = {"C1:RESP_POS": "POS"}
 CONFIG_PATH = (
     Path(__file__).resolve().parents[1]
-    / "src" / "ligo_sysid" / "configs" / "three_dof_twin.yml"
+    / "src" / "system_ident" / "configs" / "three_dof_twin.yml"
 )
 
 

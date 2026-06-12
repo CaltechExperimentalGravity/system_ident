@@ -3,9 +3,9 @@
 The hub and HTML are dependency-free and testable anywhere. ``fastapi`` /
 ``uvicorn`` are imported lazily inside :func:`create_app` / :func:`serve`, so
 importing this module (and the headless / ``--no-dashboard`` paths) never
-requires the dashboard extra. Install it with ``pip install ligo-sysid[dashboard]``.
+requires the dashboard extra. Install it with ``pip install system_ident[dashboard]``.
 
-Wiring: pass ``SnapshotHub.publish`` as the :class:`~ligo_sysid.loop.SysIDLoop`
+Wiring: pass ``SnapshotHub.publish`` as the :class:`~system_ident.loop.SysIDLoop`
 ``listener``; every iteration is fanned out to all connected browsers. The
 browser's STOP button triggers ``on_stop`` (typically ``watchdog.abort``), which
 the loop notices between segments and shuts down through the safe-state handoff.
@@ -18,7 +18,7 @@ from typing import Callable
 from .ws import SNAPSHOT_FIELDS, to_json, validate_snapshot
 
 _INSTALL_HINT = (
-    "the dashboard extra is not installed; run `pip install ligo-sysid[dashboard]` "
+    "the dashboard extra is not installed; run `pip install system_ident[dashboard]` "
     "(fastapi + uvicorn + websockets)"
 )
 
@@ -58,7 +58,7 @@ def render_html() -> str:
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ligo-sysid live</title>
+  <title>system_ident live</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 1rem; }}
@@ -69,7 +69,7 @@ def render_html() -> str:
   </style>
 </head>
 <body>
-  <h1>ligo-sysid &mdash; live system identification</h1>
+  <h1>system_ident &mdash; live system identification</h1>
   <p><span id="status">connecting&hellip;</span>
      &nbsp; <button id="stop">STOP</button></p>
   <div id="bode" class="plot"></div>
@@ -115,7 +115,7 @@ def create_app(hub: SnapshotHub, on_stop: Callable[[], None] | None = None):
 
     from .ws import parse_control
 
-    app = FastAPI(title="ligo-sysid dashboard")
+    app = FastAPI(title="system_ident dashboard")
     html = render_html()
 
     @app.get("/", response_class=HTMLResponse)

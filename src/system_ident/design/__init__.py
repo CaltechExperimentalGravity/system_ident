@@ -1,8 +1,8 @@
 """Input-design strategies — pluggable ways to compute the next excitation.
 
-The second genuinely-swappable axis (alongside :mod:`ligo_sysid.estimators`).
+The second genuinely-swappable axis (alongside :mod:`system_ident.estimators`).
 Concrete strategies wrap existing repo code behind
-:class:`~ligo_sysid.design.base.InputDesigner`.
+:class:`~system_ident.design.base.InputDesigner`.
 """
 
 from .base import InputDesigner

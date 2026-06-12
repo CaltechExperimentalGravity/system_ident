@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator, invfreqs
-from ligo_sysid.plant import double_pendulum
+from system_ident.estimators.invfreqs import InvfreqsEstimator, invfreqs
+from system_ident.plant import double_pendulum
 
 
 def _demo_freq():

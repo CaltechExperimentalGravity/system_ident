@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish full HTML docs for `ligo-sysid` (pedagogy + API reference + executed worked examples), built and deployed by GitHub Actions with pytest as a gate.
+**Goal:** Publish full HTML docs for `system_ident` (pedagogy + API reference + executed worked examples), built and deployed by GitHub Actions with pytest as a gate.
 
 **Architecture:** A Quarto website project under `docs/`. quartodoc auto-generates the API reference from the package's docstrings; Jupyter executes the worked-example pages at build time so they embed real figures (and act as integration smoke tests). One GitHub Actions workflow runs `test` → `build-docs` → `deploy-docs` (deploy is main-only and gated on tests), publishing to GitHub Pages via the official Pages actions.
 
@@ -99,7 +99,7 @@ project:
     - index.qmd
 
 website:
-  title: "ligo-sysid"
+  title: "system_ident"
   description: "Optimal-excitation system identification for LIGO suspensions."
   navbar:
     left:
@@ -120,7 +120,7 @@ jupyter: python3
 
 ````markdown
 ---
-title: "ligo-sysid"
+title: "system_ident"
 ---
 
 Real-time, optimal-excitation **system identification for LIGO suspensions** —
@@ -140,17 +140,17 @@ pip install -e ".[docs]"           # to build these docs
 ## 60-second quickstart (digital twin)
 
 ```bash
-ligo-sysid run src/ligo_sysid/configs/twin_demo.yml --twin --yes
+system_ident run src/system_ident/configs/twin_demo.yml --twin --yes
 # -> DONE (target reached); per-DoF fractional uncertainty ~1e-9
 ```
 
 Or from Python:
 
 ```python
-from ligo_sysid.config import RunConfig
-from ligo_sysid.loop import SysIDLoop
+from system_ident.config import RunConfig
+from system_ident.loop import SysIDLoop
 
-rc = RunConfig.load("src/ligo_sysid/configs/twin_demo.yml")
+rc = RunConfig.load("src/system_ident/configs/twin_demo.yml")
 backend = rc.build_twin_backend(seed=0)
 loop = SysIDLoop(backend, rc.build_estimator(), rc.build_designer(),
                  rc.build_watchdog(backend))
@@ -206,7 +206,7 @@ project:
     - reference/*.qmd
 
 website:
-  title: "ligo-sysid"
+  title: "system_ident"
   description: "Optimal-excitation system identification for LIGO suspensions."
   navbar:
     left:
@@ -231,7 +231,7 @@ format:
 jupyter: python3
 
 quartodoc:
-  package: ligo_sysid
+  package: system_ident
   dir: reference
   title: API Reference
   style: pkgdown
@@ -368,7 +368,7 @@ engine, so the validated math is reused without translation.
 Construct one however is natural:
 
 ```python
-from ligo_sysid.model import TFModel
+from system_ident.model import TFModel
 
 # from (f0 [Hz], Q) resonances + a gain (optionally with zeros)
 g1 = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
@@ -406,8 +406,8 @@ optimal excitation (Pintelon & Schoukens §5.4.2).
 #| fig-cap: "Optimal excitation vs a flat drive of equal power, for a 1 Hz resonance."
 import numpy as np
 import matplotlib.pyplot as plt
-from ligo_sysid.model import TFModel
-from ligo_sysid.design.pintelon import optimal_excitation
+from system_ident.model import TFModel
+from system_ident.design.pintelon import optimal_excitation
 
 freq = np.linspace(0.2, 3.0, 400)
 model = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
@@ -454,7 +454,7 @@ The loop stops when every DoF reaches the fractional-uncertainty target, the
 iteration budget is spent, or the watchdog aborts.
 
 ```python
-from ligo_sysid.loop import SysIDLoop
+from system_ident.loop import SysIDLoop
 result = SysIDLoop(backend, estimator, designer, watchdog).run(config, priors, seed=0)
 print(result.done, {d: round(m.den[1], 3) for d, m in result.models.items()})
 ```
@@ -487,7 +487,7 @@ safety:
   ramp_down_secs: 2.0
 ```
 
-The CLI (`ligo-sysid run <config> --twin`) requires a confirm-before-inject step
+The CLI (`system_ident run <config> --twin`) requires a confirm-before-inject step
 for hardware, and serves a live dashboard (transfer function, coherence, designed
 excitation, convergence) with a **STOP** button that calls the same safe handoff
 when the `[dashboard]` extra is installed.
@@ -550,10 +550,10 @@ model from a noisy measurement.
 ```{python}
 import numpy as np
 import matplotlib.pyplot as plt
-from ligo_sysid.model import TFModel
-from ligo_sysid.fisher import parameter_covariance
-from ligo_sysid.design.pintelon import optimal_excitation
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator
+from system_ident.model import TFModel
+from system_ident.fisher import parameter_covariance
+from system_ident.design.pintelon import optimal_excitation
+from system_ident.estimators.invfreqs import InvfreqsEstimator
 
 true = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)   # 1 Hz, Q=20
 prior = TFModel.from_resonances([(0.95, 18.0)], gain=1.1)  # slightly wrong
@@ -637,11 +637,11 @@ A two-mode plant (the package's canonical `double_pendulum`: 0.6 Hz Q20 and
 ```{python}
 import numpy as np
 import matplotlib.pyplot as plt
-from ligo_sysid.plant import double_pendulum
-from ligo_sysid.model import TFModel
-from ligo_sysid.fisher import parameter_covariance
-from ligo_sysid.design.pintelon import optimal_excitation
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator
+from system_ident.plant import double_pendulum
+from system_ident.model import TFModel
+from system_ident.fisher import parameter_covariance
+from system_ident.design.pintelon import optimal_excitation
+from system_ident.estimators.invfreqs import InvfreqsEstimator
 
 true = double_pendulum()                                          # two modes
 prior = TFModel.from_resonances([(0.55, 18.0), (1.6, 28.0)], gain=250.0)
@@ -717,8 +717,8 @@ identification is signal-to-noise limited rather than resonance-dominated.
 ```{python}
 import numpy as np
 import matplotlib.pyplot as plt
-from ligo_sysid.model import TFModel
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator
+from system_ident.model import TFModel
+from system_ident.estimators.invfreqs import InvfreqsEstimator
 
 fc = 100.0                                  # cavity pole [Hz]
 wc = 2 * np.pi * fc
@@ -786,8 +786,8 @@ campaign, and plot convergence.
 ```{python}
 import numpy as np
 import matplotlib.pyplot as plt
-from ligo_sysid.config import RunConfig
-from ligo_sysid.loop import SysIDLoop
+from system_ident.config import RunConfig
+from system_ident.loop import SysIDLoop
 
 cfg = {
     "run": {"name": "susp3dof", "excitation_mode": "sequential"},
@@ -899,8 +899,8 @@ controller-division recovery.
 import numpy as np
 import matplotlib.pyplot as plt
 import control as ct
-from ligo_sysid.model import TFModel
-from ligo_sysid.estimators.invfreqs import InvfreqsEstimator
+from system_ident.model import TFModel
+from system_ident.estimators.invfreqs import InvfreqsEstimator
 
 def to_tfmodel(sys):
     sys = ct.tf(sys)
@@ -1175,7 +1175,7 @@ still run and prove the pipeline.
   `InvfreqsEstimator.fit`, `TFModel.from_resonances/from_zpk/from_dict/eval`,
   `double_pendulum`, `RunConfig(raw=...).build_*`, `SysIDLoop.run`,
   `LoopResult.history/models`, `backend.plant[dof]`) matches the signatures in
-  `src/ligo_sysid/`.
+  `src/system_ident/`.
 - **Build ordering:** `quartodoc build` always precedes `quarto render`, and the
   `metadata-files`/`reference` config is introduced only after the reference is
   generated (Task 3), so no render references a missing file.

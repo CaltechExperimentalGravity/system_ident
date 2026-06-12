@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-import ligo_sysid
-from ligo_sysid.cli import main
-from ligo_sysid.config import ConfigError, RunConfig
+import system_ident
+from system_ident.cli import main
+from system_ident.config import ConfigError, RunConfig
 
-DEMO = Path(ligo_sysid.__file__).parent / "configs" / "twin_demo.yml"
+DEMO = Path(system_ident.__file__).parent / "configs" / "twin_demo.yml"
 
 
 # --- config -------------------------------------------------------------------

@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 import scipy.signal as sig
 
-from ligo_sysid.backends.twin import TwinBackend
-from ligo_sysid.model import TFModel
-from ligo_sysid.plant import SuspensionPlant, double_pendulum
+from system_ident.backends.twin import TwinBackend
+from system_ident.model import TFModel
+from system_ident.plant import SuspensionPlant, double_pendulum
 
 FS = 32.0
 EXC = {"C1:EXC_POS": "POS"}

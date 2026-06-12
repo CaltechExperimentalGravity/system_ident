@@ -1,6 +1,6 @@
 # Fully-specified, fast digital-twin demo:
 #
-#   ligo-sysid run src/ligo_sysid/configs/twin_demo.yml --twin --yes
+#   system_ident run src/system_ident/configs/twin_demo.yml --twin --yes
 #
 # Two DoFs against a resonant twin, small fs so it runs in well under a second.
 # Unlike three_dof_twin.yml (a CDS-shaped placeholder), this config carries the

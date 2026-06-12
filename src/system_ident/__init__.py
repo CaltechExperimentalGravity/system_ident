@@ -1,4 +1,4 @@
-"""ligo_sysid — real-time, optimal-excitation system identification for LIGO suspensions.
+"""system_ident — real-time, optimal-excitation system identification for LIGO suspensions.
 
 This package consolidates the proven research code in this repository (the
 ``sys_id_dev/sysIDlib.py`` engine, ``Plant_Model`` 3-DoF suspension, the
@@ -10,7 +10,7 @@ live operational dashboard and an operator STOP that performs a safe handoff.
 
 See ``docs``/the plan for the full design. Heavy or optional dependencies
 (matplotlib, control, the dashboard stack, and the CDS libraries) are imported
-lazily by the submodules that need them, so ``import ligo_sysid`` stays cheap.
+lazily by the submodules that need them, so ``import system_ident`` stays cheap.
 """
 
 from __future__ import annotations

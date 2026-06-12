@@ -1,4 +1,4 @@
-# ligo-sysid
+# system_ident
 
 Real-time, optimal-excitation system identification for LIGO suspensions
 (3-DoF: POS / Pitch / Yaw), with a digital-twin backend and a live operational
@@ -35,7 +35,7 @@ it, those tests `skip` (the rest of the suite is fully standalone).
 ## Run the digital-twin demo
 
 ```bash
-ligo-sysid run src/ligo_sysid/configs/twin_demo.yml --twin --yes
+system_ident run src/system_ident/configs/twin_demo.yml --twin --yes
 # -> DONE (target reached), per-DoF fractional uncertainty ~1e-9
 ```
 

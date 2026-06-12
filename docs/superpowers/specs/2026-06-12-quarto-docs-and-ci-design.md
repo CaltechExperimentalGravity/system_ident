@@ -1,11 +1,11 @@
-# Design: Quarto documentation + GitHub CI for ligo-sysid
+# Design: Quarto documentation + GitHub CI for system_ident
 
 Date: 2026-06-12
 Status: Approved (pending spec review)
 
 ## Goal
 
-Publish full HTML documentation for `ligo-sysid` — **pedagogy + API reference +
+Publish full HTML documentation for `system_ident` — **pedagogy + API reference +
 worked examples** — built and deployed automatically by GitHub Actions, with the
 test suite run as a gate before anything publishes.
 

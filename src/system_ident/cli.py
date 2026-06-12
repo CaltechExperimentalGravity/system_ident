@@ -20,10 +20,10 @@ from .loop import SysIDLoop
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ligo-sysid",
+        prog="system_ident",
         description="Real-time optimal-excitation system ID for LIGO suspensions.",
     )
-    parser.add_argument("--version", action="version", version=f"ligo-sysid {__version__}")
+    parser.add_argument("--version", action="version", version=f"system_ident {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     run = sub.add_parser("run", help="Run a system-ID campaign from a config file.")
@@ -98,7 +98,7 @@ def _maybe_start_dashboard(args, watchdog):
         return None
     if not (importlib.util.find_spec("fastapi") and importlib.util.find_spec("uvicorn")):
         print("note: dashboard extra not installed "
-              "(pip install ligo-sysid[dashboard]); running headless.")
+              "(pip install system_ident[dashboard]); running headless.")
         return None
 
     from .dashboard.server import SnapshotHub, serve

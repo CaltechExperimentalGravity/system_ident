@@ -12,10 +12,10 @@ import pytest
 import scipy.integrate as _integ
 import scipy.signal as sig
 
-from ligo_sysid.excitation import timeseries_from_asd
-from ligo_sysid.fisher import fisher_matrix, parameter_covariance
-from ligo_sysid.model import pole_pair_f0_Q, resonance_pole_pair
-from ligo_sysid.plant import double_pendulum
+from system_ident.excitation import timeseries_from_asd
+from system_ident.fisher import fisher_matrix, parameter_covariance
+from system_ident.model import pole_pair_f0_Q, resonance_pole_pair
+from system_ident.plant import double_pendulum
 
 
 # --- shared double_pend_demo setup ---------------------------------------------

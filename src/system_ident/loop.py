@@ -1,9 +1,9 @@
 """The sysID orchestration loop.
 
-``SysIDLoop`` wires a :class:`~ligo_sysid.backends.base.ChannelBackend`, an
-:class:`~ligo_sysid.estimators.base.Estimator`, an
-:class:`~ligo_sysid.design.base.InputDesigner`, and a
-:class:`~ligo_sysid.safety.Watchdog`, then runs, per degree of freedom:
+``SysIDLoop`` wires a :class:`~system_ident.backends.base.ChannelBackend`, an
+:class:`~system_ident.estimators.base.Estimator`, an
+:class:`~system_ident.design.base.InputDesigner`, and a
+:class:`~system_ident.safety.Watchdog`, then runs, per degree of freedom:
 
     measure quiet noise -> design excitation -> inject -> read -> safety-check
     -> estimate TF -> fit -> assess uncertainty -> repeat

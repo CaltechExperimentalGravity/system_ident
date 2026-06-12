@@ -2,7 +2,7 @@
 
 Port of ``sys_id_dev/sysIDlib.py::get_opt_exc_Pxx`` (general SISO). Starting from
 a flat excitation under a fixed power budget, each iteration evaluates the
-dispersion function :func:`ligo_sysid.fisher.dispersion` and reweights the drive
+dispersion function :func:`system_ident.fisher.dispersion` and reweights the drive
 PSD toward the bins that carry the most parameter information, renormalising back
 to the budget. Two or three iterations are usually enough; more makes the result
 lean too heavily on the prior model.

@@ -7,7 +7,7 @@ flags override it. Loading uses ``yaml.safe_load`` (matching the repo
 convention) and validates required sections, failing fast on bad input.
 
 The ``build_*`` helpers turn a validated config into the concrete objects the
-:class:`~ligo_sysid.loop.SysIDLoop` needs, keeping that wiring (and the
+:class:`~system_ident.loop.SysIDLoop` needs, keeping that wiring (and the
 strategy-name registries) in one place.
 """
 
