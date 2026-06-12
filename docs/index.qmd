@@ -1,0 +1,46 @@
+---
+title: "system_ident"
+---
+
+Real-time, optimal-excitation **system identification for LIGO suspensions** —
+a prior model of a transfer function, an excitation designed to extract the most
+Fisher information per unit drive power and measurement time, a re-fit from the
+measured response, and repeat. The same channel API drives a digital twin or
+(later) CDS hardware, with a safety watchdog and an operator STOP.
+
+## Install
+
+```bash
+pip install -e ".[dev]"            # core + tests
+pip install -e ".[dev,dashboard]"  # also the live dashboard
+pip install -e ".[docs]"           # to build these docs
+```
+
+## 60-second quickstart (digital twin)
+
+```bash
+system_ident run src/system_ident/configs/twin_demo.yml --twin --yes
+# -> DONE (target reached); per-DoF fractional uncertainty ~1e-9
+```
+
+Or from Python:
+
+```python
+from system_ident.config import RunConfig
+from system_ident.loop import SysIDLoop
+
+rc = RunConfig.load("src/system_ident/configs/twin_demo.yml")
+backend = rc.build_twin_backend(seed=0)
+loop = SysIDLoop(backend, rc.build_estimator(), rc.build_designer(),
+                 rc.build_watchdog(backend))
+result = loop.run(rc.raw, rc.build_priors(), seed=0)
+print("done:", result.done)
+```
+
+## Where to go next
+
+- **Tutorial** — the method, end to end: the model, Fisher information and
+  optimal excitation, closing the loop, and safety/operations.
+- **Examples** — worked, executed runs on a ladder of plants (single resonance →
+  double pendulum → Fabry–Pérot cavity → multi-DoF suspension → closed-loop arm).
+- **API reference** — every public class and function.
