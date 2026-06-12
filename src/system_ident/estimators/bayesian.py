@@ -15,7 +15,10 @@ the relative-error weights (wt = 1/H_err²) to be dominated by the prior
 model's resonance rather than the true resonance.  To ensure the MAP estimate
 actually converges to the posterior mode for each measurement batch, the
 update re-linearises iteratively until the parameter shift is negligible
-(``max |Δθ/θ| < tol``).  This is the iterated-GN / Levenberg-free MAP solver;
+(``max |Δθ/θ| < tol``).  Each inner step balances the measurement pull against a
+prior/past-anchor term ``Λ(θ − θ_anchor)`` (θ_anchor = the incoming mean), so the
+converged mean is the true MAP mode, not the measurement-only least-squares fit.
+This is the iterated-GN / Levenberg-free MAP solver;
 the plan's "one GN step per pass" refers to one *measurement batch* per pass
 in the loop (Task 2), not to the number of inner linearisations.  Lambda_new
 is formed once at the converged linearisation point (not accumulated over inner
@@ -156,7 +159,8 @@ def bayesian_update(
     keep = [k for k in range(n_par_full) if k != n_num]
     n_par_red = len(keep)
 
-    theta = par0[keep].copy()               # start from prior mean
+    theta = par0[keep].copy()               # start from incoming (prior+past) mean
+    theta_anchor = theta.copy()             # MAP anchor: mode of prior + past data
 
     # ---- iterated GN: re-linearise at each inner step ----------------------
     I_mat = np.zeros((n_par_red, n_par_red))
@@ -186,9 +190,15 @@ def bayesian_update(
                 I_mat[j, i] = val
             b_vec[i] = float(np.sum(np.real(wJi * r)))
 
-        # GN step: solve (Lambda + I) Δθ = b
+        # MAP Gauss-Newton step: (Λ + 𝓘) Δθ = [measurement gradient] − Λ(θ − θ_anchor).
+        # The −Λ(θ − θ_anchor) term anchors the converged mean to the incoming
+        # posterior (prior + past measurements). Without it, the inner iteration
+        # converges to the measurement-only least-squares fit and the prior would
+        # affect only the covariance, not the mean. It is zero on the first inner
+        # step (θ == θ_anchor) and grows as the linearisation point moves.
         Lambda_inner = Lambda + I_mat
-        dtheta = np.linalg.solve(Lambda_inner, b_vec)
+        grad = b_vec - Lambda @ (theta - theta_anchor)
+        dtheta = np.linalg.solve(Lambda_inner, grad)
         theta = theta + dtheta
 
         # Convergence check: max relative step

@@ -81,3 +81,38 @@ def test_update_recovers_truth_and_shrinks():
     assert model.den.shape == true.den.shape, (
         f"den shape mismatch: {model.den.shape} != {true.den.shape}"
     )
+
+
+def test_prior_strength_anchors_the_mean():
+    """MAP anchoring: a stronger prior must move the mean LESS from the prior.
+
+    This discriminates a true MAP update from a measurement-only least-squares
+    fit. Measurement-only LS converges to the same mean regardless of prior
+    precision (the prior would affect only the covariance); a correct MAP update
+    balances the measurement pull against the prior, so the converged MEAN
+    depends on the prior strength.
+    """
+    true = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
+    prior = TFModel.from_resonances([(0.7, 10.0)], gain=0.6)
+    freq = np.linspace(0.2, 3.0, 120)
+    rng = np.random.default_rng(1)
+    n = len(freq)
+    H = true.eval(freq)
+    H_err = 0.1 * np.abs(H)
+    H_meas = H + (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * H_err / np.sqrt(2)
+    Hp = prior.eval(freq)
+
+    m_weak, _ = bayesian_update(freq, prior, H_meas, H_err, prior_precision(prior, 5.0))
+    m_strong, _ = bayesian_update(freq, prior, H_meas, H_err, prior_precision(prior, 0.002))
+
+    move_weak = float(np.max(np.abs(m_weak.eval(freq) - Hp)))
+    move_strong = float(np.max(np.abs(m_strong.eval(freq) - Hp)))
+    print(f"\nmove_weak={move_weak:.4g}  move_strong={move_strong:.4g}")
+
+    assert move_strong < 0.5 * move_weak, (
+        f"prior strength did not anchor the mean (move_strong={move_strong:.4g} "
+        f"not < 0.5*move_weak={0.5 * move_weak:.4g}) -- update may be measurement-only LS"
+    )
+    # the weak-prior fit should still head toward truth
+    err_weak_to_true = float(np.max(np.abs(m_weak.eval(freq) - H) / np.abs(H)))
+    assert err_weak_to_true < 0.15, f"weak-prior fit did not approach truth: {err_weak_to_true:.4g}"
