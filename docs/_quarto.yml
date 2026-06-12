@@ -26,6 +26,18 @@ website:
             text: Closing the loop
           - href: tutorial/safety-and-ops.qmd
             text: Safety & operations
+      - text: Examples
+        menu:
+          - href: examples/01-single-resonance.qmd
+            text: Single resonance
+          - href: examples/02-double-pendulum.qmd
+            text: Double pendulum
+          - href: examples/03-fabry-perot-cavity.qmd
+            text: Fabry-Perot cavity
+          - href: examples/04-suspension-multidof.qmd
+            text: Multi-DoF suspension
+          - href: examples/05-closed-loop-arm.qmd
+            text: Closed-loop arm
       - href: reference/index.qmd
         text: API Reference
   sidebar:

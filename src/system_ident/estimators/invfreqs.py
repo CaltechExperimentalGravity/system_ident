@@ -48,6 +48,17 @@ def invfreqs(w: np.ndarray, H: np.ndarray, wt: np.ndarray, nb: int):
             AA[2 * i + 1, j + nb + 1] = qq[i] * w_pow[j + 2] * _sign
             _sign *= -1
 
+    # For odd nb the main loop leaves the last numerator column (nb-1) and last
+    # denominator column (2*nb-1) unfilled, producing zero singular values and NaN.
+    # Fill them here; the sign follows the same alternating pattern.
+    if nb % 2 == 1:
+        _sign_last = (-1) ** ((nb - 1) // 2)
+        for i in range(npt):
+            w_pow = w[i] ** np.arange(nb + 1)
+            AA[2 * i, nb - 1] = w_pow[nb - 1] * _sign_last
+            AA[2 * i, 2 * nb - 1] = qq[i] * w_pow[nb] * _sign_last
+            AA[2 * i + 1, 2 * nb - 1] = -pp[i] * w_pow[nb] * _sign_last
+
     # weighting (changes the residual being minimised)
     ww = np.zeros(2 * npt)
     ww[0 : 2 * npt : 2] = wt

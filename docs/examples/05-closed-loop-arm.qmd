@@ -1,0 +1,76 @@
+---
+title: "Closed-loop LIGO arm"
+---
+
+The realistic case: the plant is a suspension in series with a Fabry–Pérot
+cavity, and it is measured **with a feedback loop closed**. What you measure is
+the closed-loop response `T = P/(1+PC)`, not the open-loop plant `P`. Fitting
+`T` and calling it the plant is biased; knowing the controller `C`, we recover
+`P̂ = T̂/(1 − T̂·C)`.
+
+We use `python-control` (already a dependency) for the series/feedback algebra,
+and the package's `TFModel` + `InvfreqsEstimator` for the fit. The closed-loop
+`T` is treated as the system the instrument measures (you could equally drive it
+through the `TwinBackend`, as in the suspension example); the point here is the
+controller-division recovery.
+
+```{python}
+import numpy as np
+import matplotlib.pyplot as plt
+import control as ct
+from system_ident.model import TFModel
+from system_ident.estimators.invfreqs import InvfreqsEstimator
+
+def to_tfmodel(sys):
+    sys = ct.tf(sys)
+    num = np.atleast_1d(np.asarray(sys.num[0][0], dtype=float))
+    den = np.atleast_1d(np.asarray(sys.den[0][0], dtype=float))
+    return TFModel(num=num, den=den)
+
+# Open-loop plant P = suspension (1 Hz, Q=20) x cavity pole (100 Hz)
+wn, Q = 2*np.pi*1.0, 20.0
+susp = ct.tf([wn**2], [1, wn/Q, wn**2])           # DC gain 1
+wc = 2*np.pi*100.0
+cav = ct.tf([wc], [1, wc])                        # DC gain 1
+P = ct.minreal(susp * cav)
+
+C = ct.tf([2.0], [1.0])                           # proportional controller
+T = ct.minreal(ct.feedback(P, C))                 # closed-loop, injection -> readout
+
+P_model = to_tfmodel(P)
+T_model = to_tfmodel(T)
+```
+
+Measure the closed loop (2% noise) and fit it:
+
+```{python}
+freq = np.logspace(-1, np.log10(50.0), 500)
+H_T = T_model.eval(freq)
+rng = np.random.default_rng(0)
+H_err = np.abs(H_T) * 0.02
+H_meas = H_T + (rng.standard_normal(freq.size) + 1j*rng.standard_normal(freq.size)) * H_err/np.sqrt(2)
+
+prior = TFModel(num=T_model.num.copy(), den=T_model.den.copy())   # same structure/order
+T_hat = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
+```
+
+Recover the open-loop plant by dividing out the controller:
+
+```{python}
+#| fig-cap: "Loop-ignorant fit (T) is biased; controller-division recovers P."
+T_hat_ct = ct.tf(list(T_hat.num), list(T_hat.den))
+P_hat = ct.minreal(T_hat_ct / (1 - T_hat_ct * C))
+P_hat_model = to_tfmodel(P_hat)
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.loglog(freq, np.abs(P_model.eval(freq)), label="true plant P")
+ax.loglog(freq, np.abs(T_model.eval(freq)), ":", label="closed loop T (biased)")
+ax.loglog(freq, np.abs(P_hat_model.eval(freq)), "--", label="recovered P̂")
+ax.set_xlabel("Frequency [Hz]"); ax.set_ylabel("|G(f)|"); ax.legend()
+plt.show()
+```
+
+The feedback suppresses the resonance in `T`, so a loop-ignorant fit understates
+the plant's gain there; dividing out `C` restores the true sharp resonance. A
+controller-aware estimator that does this inside the package is a natural
+follow-up (see the design spec's "future work").
