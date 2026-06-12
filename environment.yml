@@ -23,5 +23,6 @@ dependencies:
   - matplotlib
   - pyyaml
   - control
+  - quarto
   - pip:
       - -e .[dev,dashboard]

@@ -27,3 +27,10 @@ env/
 *.swp
 .idea/
 .vscode/
+
+# Quarto / docs build artifacts
+docs/_site/
+docs/.quarto/
+docs/reference/
+docs/objects.json
+.jupyter_cache/

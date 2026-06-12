@@ -28,6 +28,7 @@ dashboard = ["fastapi", "uvicorn[standard]", "websockets"]
 # environment and are not pip-installable here; listed for documentation.
 cds = []
 dev = ["pytest", "pytest-cov"]
+docs = ["quartodoc", "jupyter", "ipykernel"]
 
 [project.scripts]
 system_ident = "system_ident.cli:main"
