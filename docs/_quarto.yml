@@ -1,3 +1,5 @@
+# NOTE: run `quartodoc build` (from this docs/ dir) before `quarto render` —
+# it generates reference/*.qmd and reference/_sidebar.yml referenced below.
 project:
   type: website
   output-dir: _site

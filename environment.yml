@@ -25,4 +25,6 @@ dependencies:
   - control
   - quarto
   - pip:
-      - -e .[dev,dashboard]
+      # docs extra included so `conda env create` yields a doc-capable env
+      # (quarto itself comes from conda above; quartodoc/jupyter are pip-only).
+      - -e .[dev,dashboard,docs]
