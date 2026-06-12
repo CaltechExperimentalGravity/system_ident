@@ -1,0 +1,27 @@
+---
+title: "Closing the loop"
+---
+
+With a measured transfer function in hand, the **estimator** re-fits the model.
+The default `InvfreqsEstimator` is a weighted least-squares fit (a modernised
+`invfreqs`): it minimises `|num/den − H|²` weighted by the inverse measurement
+variance, holding the model order fixed at the prior's.
+
+`SysIDLoop` runs the full campaign per degree of freedom. The first pass uses a
+flat, broadband excitation so the global fit is well conditioned; later passes
+use the optimal designer to sharpen the now-trusted parameters. Crucially, each
+pass is an independent measurement of the same LTI system on a fixed Welch grid,
+so passes are combined by **inverse-variance weighting** per frequency bin and
+the model is re-fit on the accumulated estimate — broadband coverage from pass
+one is retained while resonance information from the optimal passes is folded in.
+The loop stops when every DoF reaches the fractional-uncertainty target, the
+iteration budget is spent, or the watchdog aborts.
+
+```python
+from system_ident.loop import SysIDLoop
+result = SysIDLoop(backend, estimator, designer, watchdog).run(config, priors, seed=0)
+print(result.done, {d: round(m.den[1], 3) for d, m in result.models.items()})
+```
+
+See the [multi-DoF suspension example](../examples/04-suspension-multidof.qmd)
+for a full run with a convergence plot.

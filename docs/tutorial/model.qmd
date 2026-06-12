@@ -1,0 +1,29 @@
+---
+title: "The model"
+---
+
+Every part of the package speaks one representation: `TFModel`, a transfer
+function `G(s) = num(s) / den(s)` stored as polynomial coefficients (descending
+powers of `s`), with the leading denominator coefficient held at 1 (the standard
+gauge). This mirrors the `{num, den}` convention of the original `sysIDlib`
+engine, so the validated math is reused without translation.
+
+Construct one however is natural:
+
+```python
+from system_ident.model import TFModel
+
+# from (f0 [Hz], Q) resonances + a gain (optionally with zeros)
+g1 = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
+
+# from zeros / poles / gain
+import numpy as np
+g2 = TFModel.from_zpk(zeros=[], poles=[-2*np.pi*100.0], gain=2*np.pi*100.0)
+
+# from a {"num":..., "den":...} dict
+g3 = TFModel.from_dict({"num": [1.0], "den": [1.0, 6.28, 39.5]})
+```
+
+`g.eval(freq)` returns the complex response on a frequency grid [Hz];
+`g.jacobian(freq)` gives the parameter sensitivities that feed the Fisher
+calculation. See the [API reference](../reference/model.TFModel.qmd).

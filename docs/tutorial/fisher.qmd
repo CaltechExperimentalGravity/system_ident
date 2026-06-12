@@ -1,0 +1,40 @@
+---
+title: "Fisher information & optimal excitation"
+---
+
+The Fisher matrix turns *(model, excitation PSD `Pxx`, quiet readout PSD `Pyy`,
+measurement time)* into the information the experiment yields about the model
+parameters; its inverse is the parameter covariance. The **dispersion function**
+`ν(f)` measures how much each frequency bin contributes to that information given
+the current excitation. Reallocating drive power toward high-`ν` bins — under a
+fixed total-power budget — is a fixed-point iteration that converges to the
+optimal excitation (Pintelon & Schoukens §5.4.2).
+
+```{python}
+#| label: fig-optimal-excitation
+#| fig-cap: "Optimal excitation vs a flat drive of equal power, for a 1 Hz resonance."
+import numpy as np
+import matplotlib.pyplot as plt
+from system_ident.model import TFModel
+from system_ident.design.pintelon import optimal_excitation
+
+freq = np.linspace(0.2, 3.0, 400)
+model = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
+Pyy = np.ones_like(freq)                       # white readout noise
+Px_tot = 1.0                                   # fixed drive-power budget
+
+Pxx_opt = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=3)
+Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+
+fig, ax = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
+ax[0].semilogy(freq, np.abs(model.eval(freq)))
+ax[0].set_ylabel("|G(f)|")
+ax[1].plot(freq, np.sqrt(Pxx_opt), label="optimal")
+ax[1].plot(freq, np.sqrt(Pxx_flat), "--", label="flat (equal power)")
+ax[1].set_xlabel("Frequency [Hz]"); ax[1].set_ylabel("drive ASD"); ax[1].legend()
+plt.show()
+```
+
+The optimal drive piles power onto the resonance, where the model parameters are
+most observable. The [examples](../examples/01-single-resonance.qmd) quantify the
+resulting covariance reduction.

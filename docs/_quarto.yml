@@ -14,6 +14,18 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - text: Tutorial
+        menu:
+          - href: tutorial/overview.qmd
+            text: The method
+          - href: tutorial/model.qmd
+            text: The model
+          - href: tutorial/fisher.qmd
+            text: Fisher & excitation
+          - href: tutorial/closing-the-loop.qmd
+            text: Closing the loop
+          - href: tutorial/safety-and-ops.qmd
+            text: Safety & operations
       - href: reference/index.qmd
         text: API Reference
   sidebar:

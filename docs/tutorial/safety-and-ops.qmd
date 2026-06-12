@@ -1,0 +1,25 @@
+---
+title: "Safety & operations"
+---
+
+On a real interferometer, only **physical** limits auto-abort: actuator drive vs
+saturation, and per-DoF output RMS vs a safe envelope. Coherence and fit-health
+are surfaced as status but never trigger an abort. The `Watchdog` checks every
+read segment and, on a breach — or an operator STOP, or normal teardown — runs
+one shared, idempotent routine: ramp every excitation channel down, restore the
+pre-run channel/filter state captured at run start (handing control back to the
+existing damping loops), and record the aborted state and its reason.
+
+Limits come from the config's `safety` section:
+
+```yaml
+safety:
+  actuator_sat: 1.0e-4        # max |drive| before saturation
+  rms_ceiling: {POS: 1.0e-6, PIT: 1.0e-7, YAW: 1.0e-7}
+  ramp_down_secs: 2.0
+```
+
+The CLI (`system_ident run <config> --twin`) requires a confirm-before-inject step
+for hardware, and serves a live dashboard (transfer function, coherence, designed
+excitation, convergence) with a **STOP** button that calls the same safe handoff
+when the `[dashboard]` extra is installed.

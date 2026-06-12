@@ -1,0 +1,26 @@
+---
+title: "The method"
+---
+
+System identification here is an iterative, information-optimal loop. We start
+from a **prior** transfer-function model of one degree of freedom, design an
+**excitation** that maximises the Fisher information about the model parameters
+for a fixed drive-power budget and measurement time, **inject** it, **measure**
+the response, **re-fit** the model, and repeat.
+
+```
+   prior model ─▶ design optimal excitation ─▶ inject ─▶ measure
+        ▲                                                   │
+        └──────────────── re-fit model ◀────────────────────┘
+```
+
+Why optimal excitation? On real hardware, drive amplitude is bounded by actuator
+saturation and the plant's linear range, and measurement time is expensive.
+Spending that limited budget where it tightens the parameters most — typically
+near resonances — recovers the model far faster than a flat sweep. The rest of
+this tutorial develops each block; the [examples](../examples/01-single-resonance.qmd)
+run them end to end.
+
+References: Pintelon & Schoukens, *System Identification* (§5.4.2);
+[LIGO-G1400084](https://dcc.ligo.org/LIGO-G1400084) (Larry Price);
+[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) (Fisher expressions).
