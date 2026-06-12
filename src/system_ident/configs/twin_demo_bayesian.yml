@@ -1,11 +1,13 @@
-# Bad-prior Bayesian loop demo:
+# Bayesian refinement demo (the usual operating case):
 #
 #   system_ident run src/system_ident/configs/twin_demo_bayesian.yml --twin --yes
 #
-# Single DoF (POS).  Plant: 1.0 Hz Q20 resonance, gain=100.
-# Prior: deliberately wrong (0.6 Hz Q6, gain=20) so the Bayesian loop must
-# crawl from the prior toward truth over several passes.  Noisy twin
-# (sensor + disturbance) to keep the per-pass information limited.
+# Single DoF (POS). Plant: 1.0 Hz Q20 resonance, gain=100.
+# Prior: a GOOD prior (0.9 Hz Q15, gain=80) — close enough that its resonance
+# overlaps the true one — refined by WEAK (low-SNR) measurements. The Bayesian
+# loop takes small damped steps and crawls toward truth over many passes while
+# the uncertainty shrinks. (For a far/wrong prior, characterise with a broadband
+# sweep first — see twin_demo.yml / the broadband_ls loop mode.)
 
 run:
   name: twin_demo_bayesian
@@ -31,31 +33,32 @@ strategy:
   input_designer: pintelon_schoukens
   n_design_iter: 3
   loop: bayesian
-  prior_uncertainty: 0.5
+  prior_uncertainty: 0.4   # confidence in the prior (smaller = more anchored)
+  exploration: 0.3         # fraction of drive power spread flat (exploration floor)
 
-# Digital-twin plant dynamics.
+# Digital-twin plant dynamics + noise (weak measurements: low SNR).
 twin:
-  sensor_asd: 3.0e-4
-  disturbance_asd: 2.0e-4
+  sensor_asd: 3.0e-3
+  disturbance_asd: 3.0e-3
   plant:
     POS:
       resonances: [[1.0, 20]]
       gain: 100
 
-# Bad starting model — deliberately far from the plant above.
+# A good starting model (in the right basin), refined over the campaign.
 priors:
   POS:
-    resonances: [[0.6, 6]]
-    gain: 20
+    resonances: [[0.9, 15]]
+    gain: 80
 
-# Generous safety limits so the demo always runs all 6 passes.
+# Generous safety limits so the demo runs all passes.
 safety:
   actuator_sat: 1.0e6
   rms_ceiling:
     POS: 1.0e6
   ramp_down_secs: 2.0
 
-# Unreachable target forces all max_iter passes to run.
+# Unreachable target forces all max_iter passes to run (watch the crawl).
 stop_criteria:
   uncertainty_target: 1.0e-9
-  max_iter: 6
+  max_iter: 15

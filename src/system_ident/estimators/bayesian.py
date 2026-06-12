@@ -5,25 +5,23 @@ posterior precision matrix Λ.  The parameterisation mirrors ``fisher.py``
 exactly: the leading denominator coefficient is held at 1 (gauge), so the
 reduced parameter vector is ``θ = [num[0..n_num-1], den[1..n_den-1]]``.
 
-Implementation note on inner iterations
-----------------------------------------
-The MAP objective ``½ Σ_f wt|r_f|² + ½ θᵀΛθ`` is nonlinear in the TF
-coefficients (H is a rational function).  A single linearisation step (pure
-EKF / extended Kalman) diverges when the starting model is far from truth
-because the Jacobian is evaluated at the wrong resonance location, causing
-the relative-error weights (wt = 1/H_err²) to be dominated by the prior
-model's resonance rather than the true resonance.  To ensure the MAP estimate
-actually converges to the posterior mode for each measurement batch, the
-update re-linearises iteratively until the parameter shift is negligible
-(``max |Δθ/θ| < tol``).  Each inner step balances the measurement pull against a
-prior/past-anchor term ``Λ(θ − θ_anchor)`` (θ_anchor = the incoming mean), so the
-converged mean is the true MAP mode, not the measurement-only least-squares fit.
-This is the iterated-GN / Levenberg-free MAP solver;
-the plan's "one GN step per pass" refers to one *measurement batch* per pass
-in the loop (Task 2), not to the number of inner linearisations.  Lambda_new
-is formed once at the converged linearisation point (not accumulated over inner
-steps), so it is the correct Gauss-Newton approximation to the posterior
-precision at the MAP estimate.
+Design: conservative small steps for the low-SNR regime
+-------------------------------------------------------
+The usual operating point is a *good prior* refined by *weak* (energy-limited,
+low-SNR) measurements. Each pass therefore takes ONE small, Levenberg-Marquardt-
+damped, step-capped, backtracked Gauss-Newton step (see :func:`bayesian_update`)
+rather than solving the per-batch MAP aggressively — the latter jumps to truth on
+the rare informative measurement and diverges on weak ones. Conservative steps
+make the loop crawl gradually toward truth and essentially never diverge, while
+the accumulated Fisher information shrinks the posterior covariance each pass.
+
+Scope / known limitation: this refines a prior that is already in the right
+basin (its resonance peaks overlap the true ones). It does NOT relocate a
+resonance that sits far from the prior — local coefficient-space fitting has no
+gradient to slide a non-overlapping peak across a gap. For a far prior, run a
+broadband sweep first (``broadband_ls`` loop mode) to get into the basin, then
+refine here. (A physical ``(f0, Q, gain)`` parameterisation would lift this
+limitation and is the natural next step.)
 
 Functions
 ---------
@@ -111,6 +109,14 @@ def prior_precision(
 # MAP / Gauss-Newton update
 # ---------------------------------------------------------------------------
 
+def _map_objective(theta, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor):
+    """Regularised MAP objective ``½ Σ wt|H_meas − G(θ)|² + ½ (θ−θ_a)ᵀ Λ (θ−θ_a)``."""
+    resid = H_meas - model_from_reduced(theta, n_num, n_den).eval(freq)
+    misfit = 0.5 * float(np.sum(wt * np.abs(resid) ** 2))
+    d = theta - theta_anchor
+    return misfit + 0.5 * float(d @ Lambda @ d)
+
+
 def bayesian_update(
     freq: np.ndarray,
     model: TFModel,
@@ -118,99 +124,106 @@ def bayesian_update(
     H_err: np.ndarray,
     Lambda: np.ndarray,
     dpar: float | np.ndarray = 1e-8,
-    max_inner: int = 50,
-    tol: float = 1e-8,
+    max_rel_step: float = 0.2,
+    lm_init: float = 1e-3,
+    lm_grow: float = 4.0,
+    lm_max: float = 1e12,
+    max_backtrack: int = 60,
 ) -> tuple[TFModel, np.ndarray]:
-    """MAP Gauss-Newton update, iterated to convergence.
+    """One small, damped MAP step (Levenberg-Marquardt) for the low-SNR regime.
+
+    The usual operating point is a *good prior* refined by *weak* (energy-limited,
+    low-SNR) measurements, so each pass should nudge the model conservatively
+    rather than solve the per-batch MAP aggressively (which jumps on the rare good
+    measurement and diverges on weak ones). This takes a single Gauss-Newton step
+    that is
+
+      * **damped** — ``μ·diag(H)`` added to the GN Hessian ``H = Λ + 𝓘`` for a
+        robust direction even when the measurement is barely informative;
+      * **capped** to a maximum relative parameter change ``max_rel_step`` per
+        pass (genuinely small steps); and
+      * **backtracked** — ``μ`` is grown until the regularised MAP objective does
+        not increase. The step direction ``(H+μ·diag)⁻¹ g`` is always a descent
+        direction, so a small enough step always reduces the objective; if the
+        schedule is exhausted the mean is left unchanged.
+
+    The loop therefore crawls gradually toward truth over many passes and
+    essentially never diverges. The measurement information ``𝓘`` (Fisher at the
+    anchor) is always added to the posterior precision ``Λ``, so the reported
+    uncertainty shrinks monotonically as measurements accumulate.
 
     Parameters
     ----------
-    freq      : (n_bin,) frequency grid [Hz]
-    model     : current mean model (linearisation point)
-    H_meas    : (n_bin,) complex measured frequency response
-    H_err     : (n_bin,) per-bin noise std-dev (zero/non-finite → zero weight)
-    Lambda    : (n_par, n_par) current posterior precision matrix
-    dpar      : finite-difference step for the Jacobian (matches ``fisher.py``)
-    max_inner : maximum number of GN re-linearisation steps per call
-    tol       : convergence criterion ``max |Δθ_i / θ_i| < tol``
+    freq, model, H_meas, H_err, Lambda
+        ``model`` is the current mean = incoming posterior mean = linearisation
+        anchor; ``Lambda`` is the incoming posterior precision.
+    max_rel_step
+        Cap on ``max_i |Δθ_i| / |θ_i|`` per call — the conservativeness knob.
+    lm_init, lm_grow, lm_max, max_backtrack
+        Levenberg-Marquardt damping schedule.
 
     Returns
     -------
-    model_new  : updated ``TFModel`` (MAP estimate given Lambda and H_meas)
-    Lambda_new : posterior precision at the converged MAP point
-                 (= Lambda + 𝓘 evaluated at the converged θ)
+    model_new  : ``TFModel`` after one damped step.
+    Lambda_new : ``Lambda + 𝓘`` (information accrues regardless of step size).
     """
     freq = np.asarray(freq, dtype=float)
     H_meas = np.asarray(H_meas, dtype=complex)
     H_err = np.asarray(H_err, dtype=float)
 
-    # ---- per-bin weights (computed once, independent of linearisation) -----
     valid = np.isfinite(H_err) & (H_err > 0)
-    wt = np.where(valid, 1.0 / H_err ** 2, 0.0)   # (n_bin,)
+    wt = np.where(valid, 1.0 / H_err ** 2, 0.0)
 
-    # ---- extract shape from model ------------------------------------------
     n_num = model.n_num
     n_den = len(model.den)
-
-    # ---- initialise linearisation point from current model -----------------
     par0 = model.params.astype(float)
-    par0 = par0 / par0[n_num]               # gauge: den[0] = 1
+    par0 = par0 / par0[n_num]                    # gauge: den[0] = 1
     n_par_full = len(par0)
     keep = [k for k in range(n_par_full) if k != n_num]
     n_par_red = len(keep)
+    theta_anchor = par0[keep].copy()             # incoming posterior mean (anchor)
 
-    theta = par0[keep].copy()               # start from incoming (prior+past) mean
-    theta_anchor = theta.copy()             # MAP anchor: mode of prior + past data
-
-    # ---- iterated GN: re-linearise at each inner step ----------------------
+    # Gauss-Newton information 𝓘 and gradient g at the anchor (mirrors fisher.py).
+    gauged = model_from_reduced(theta_anchor, n_num, n_den)
+    logflag = np.zeros(n_par_full, dtype=bool)
+    dH = gauged.jacobian(freq, dpar=dpar, logflag=logflag)
+    dH[n_num, :] = 0.0
+    J = dH[keep, :]
+    r = H_meas - gauged.eval(freq)
     I_mat = np.zeros((n_par_red, n_par_red))
-    b_vec = np.zeros(n_par_red)
+    g = np.zeros(n_par_red)
+    for i in range(n_par_red):
+        wJi = wt * np.conj(J[i])
+        for k in range(i, n_par_red):
+            val = float(np.sum(np.real(wJi * J[k])))
+            I_mat[i, k] = val
+            I_mat[k, i] = val
+        g[i] = float(np.sum(np.real(wJi * r)))
 
-    for _ in range(max_inner):
-        # Reconstruct gauged model at current theta
-        gauged = model_from_reduced(theta, n_num, n_den)
-        # Compute Jacobian (mirrors fisher.fisher_matrix exactly)
-        par_cur = gauged.params.astype(float)          # den[0] already 1
-        logflag = np.zeros(n_par_full, dtype=bool)
-        dH = gauged.jacobian(freq, dpar=dpar, logflag=logflag)
-        dH[n_num, :] = 0.0                              # fixed row
-        J = dH[keep, :]                                 # reduced Jacobian
+    # Levenberg-Marquardt damped + capped + backtracked step.
+    H = Lambda + I_mat
+    diagH = np.clip(np.diag(H), 1e-30, None)
+    # floored scale so a single near-zero coefficient cannot dominate the cap
+    scale = np.maximum(np.abs(theta_anchor), 1e-3 * np.max(np.abs(theta_anchor)))
+    obj0 = _map_objective(theta_anchor, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor)
 
-        # Residual at current linearisation point
-        r = H_meas - gauged.eval(freq)
-
-        # Information matrix and gradient
-        I_mat[:] = 0.0
-        b_vec[:] = 0.0
-        for i in range(n_par_red):
-            wJi = wt * np.conj(J[i])
-            for j in range(i, n_par_red):
-                val = float(np.sum(np.real(wJi * J[j])))
-                I_mat[i, j] = val
-                I_mat[j, i] = val
-            b_vec[i] = float(np.sum(np.real(wJi * r)))
-
-        # MAP Gauss-Newton step: (Λ + 𝓘) Δθ = [measurement gradient] − Λ(θ − θ_anchor).
-        # The −Λ(θ − θ_anchor) term anchors the converged mean to the incoming
-        # posterior (prior + past measurements). Without it, the inner iteration
-        # converges to the measurement-only least-squares fit and the prior would
-        # affect only the covariance, not the mean. It is zero on the first inner
-        # step (θ == θ_anchor) and grows as the linearisation point moves.
-        Lambda_inner = Lambda + I_mat
-        grad = b_vec - Lambda @ (theta - theta_anchor)
-        dtheta = np.linalg.solve(Lambda_inner, grad)
-        theta = theta + dtheta
-
-        # Convergence check: max relative step
-        rel_step = np.max(np.abs(dtheta) / (np.abs(theta) + 1e-30))
-        if rel_step < tol:
+    theta_new = theta_anchor                     # default: don't move if nothing helps
+    mu = lm_init
+    for _ in range(max_backtrack):
+        step = np.linalg.solve(H + mu * np.diag(diagH), g)
+        rel = float(np.max(np.abs(step) / scale))
+        if rel > max_rel_step:
+            step = step * (max_rel_step / rel)   # cap (preserves direction)
+        cand = theta_anchor + step
+        if _map_objective(cand, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor) <= obj0:
+            theta_new = cand
+            break
+        mu *= lm_grow
+        if mu > lm_max:
             break
 
-    # ---- posterior precision at the converged MAP point -------------------
-    Lambda_new = Lambda + I_mat      # I_mat is from the last (converged) linearisation
-
-    model_new = model_from_reduced(theta, n_num, n_den)
-    return model_new, Lambda_new
+    Lambda_new = Lambda + I_mat
+    return model_from_reduced(theta_new, n_num, n_den), Lambda_new
 
 
 # ---------------------------------------------------------------------------
