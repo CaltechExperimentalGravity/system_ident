@@ -3,6 +3,9 @@ project:
   output-dir: _site
   render:
     - index.qmd
+    - tutorial/*.qmd
+    - examples/*.qmd
+    - reference/*.qmd
 
 website:
   title: "system_ident"
@@ -11,6 +14,14 @@ website:
     left:
       - href: index.qmd
         text: Home
+      - href: reference/index.qmd
+        text: API Reference
+  sidebar:
+    - id: reference
+      contents: reference/_sidebar.yml
+
+metadata-files:
+  - reference/_sidebar.yml
 
 format:
   html:
@@ -20,3 +31,46 @@ format:
     code-overflow: wrap
 
 jupyter: python3
+
+quartodoc:
+  package: system_ident
+  dir: reference
+  title: API Reference
+  style: pkgdown
+  sidebar: reference/_sidebar.yml
+  sections:
+    - title: Core
+      desc: "Model, Fisher information, excitation synthesis, and the loop."
+      contents:
+        - model.TFModel
+        - fisher.fisher_matrix
+        - fisher.parameter_covariance
+        - fisher.dispersion
+        - excitation.timeseries_from_asd
+        - loop.SysIDLoop
+        - loop.LoopResult
+    - title: Estimators
+      desc: "Fit a transfer function to measured data."
+      contents:
+        - estimators.base.Estimator
+        - estimators.invfreqs.InvfreqsEstimator
+        - estimators.invfreqs.invfreqs
+    - title: Input design
+      desc: "Design the excitation spectrum."
+      contents:
+        - design.base.InputDesigner
+        - design.pintelon.PintelonSchoukensDesigner
+        - design.pintelon.optimal_excitation
+    - title: Plant & backends
+      desc: "Plant models and the channel API (twin / hardware)."
+      contents:
+        - plant.SuspensionPlant
+        - plant.double_pendulum
+        - backends.base.ChannelBackend
+        - backends.twin.TwinBackend
+    - title: Safety & configuration
+      desc: "Watchdog, limits, and run configuration."
+      contents:
+        - safety.SafetyLimits
+        - safety.Watchdog
+        - config.RunConfig
