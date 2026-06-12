@@ -1,3 +1,5 @@
+[![CI](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml/badge.svg)](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml)
+
 # system_ident
 
 Real-time, optimal-excitation system identification for LIGO suspensions
@@ -10,6 +12,16 @@ estimator, the Pintelon–Schoukens optimal-excitation design) behind one tool:
 a CLI, one channel API shared by a digital twin and (later) CDS hardware,
 pluggable estimator/input-design strategies, a physical-safety watchdog with a
 safe-state handoff, and a websocket dashboard.
+
+## Documentation
+
+Full docs (pedagogy, API reference, and executed worked examples) are built with
+Quarto and published by CI to GitHub Pages. Build them locally with:
+
+```bash
+pip install -e ".[docs]"
+(cd docs && quartodoc build) && quarto render docs   # output in docs/_site
+```
 
 ## Install
 
