@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import scipy.signal as sig
 
+from .estimators.bayesian import bayesian_update, frac_uncertainty, prior_precision
 from .excitation import timeseries_from_asd
 from .fisher import fisher_matrix
 from .model import TFModel
@@ -98,6 +99,8 @@ class SysIDLoop:
         target = float(config["stop_criteria"]["uncertainty_target"])
         max_iter = int(config["stop_criteria"].get("max_iter", 5))
         sequential = config["run"].get("excitation_mode", "sequential") == "sequential"
+        loop_mode = config["strategy"].get("loop", "broadband_ls")
+        prior_uncertainty = float(config["strategy"].get("prior_uncertainty", 0.5))
 
         dofs = list(priors)
         models = {d: priors[d] for d in dofs}
@@ -120,6 +123,11 @@ class SysIDLoop:
         n_gauge = {d: priors[d].num.size + priors[d].den.size - 1 for d in dofs}
         info = {d: np.zeros((n_gauge[d], n_gauge[d])) for d in dofs}
 
+        # Bayesian mode: per-DoF posterior precision matrix, initialised from
+        # the prior.  Not used in broadband_ls mode.
+        if loop_mode == "bayesian":
+            Lambda = {d: prior_precision(priors[d], prior_uncertainty) for d in dofs}
+
         # capture pre-run state for the safe handoff
         self.watchdog.snapshot([exc[d] for d in dofs] + [rb[d] for d in dofs])
 
@@ -132,30 +140,42 @@ class SysIDLoop:
         try:
             for it in range(max_iter):
                 uncertainties = {}
-                # The first pass uses a flat, broadband excitation so the global
-                # invfreqs refit is well conditioned; later passes use the
-                # optimal designer to refine the now-trusted parameters.
-                design_iter = 0 if it == 0 else n_iter
-                if sequential:
+                if loop_mode == "bayesian":
+                    # Bayesian mode: always optimal excitation (no broadband-first),
+                    # MAP update per DoF, uncertainty tracked via posterior precision.
                     for d in dofs:
-                        uncertainties[d] = self._measure_dof(
+                        uncertainties[d] = self._measure_dof_bayesian(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
-                            nperseg, band, total_dur, px_total, design_iter, rng,
-                            result, accum[d], info[d], t_ramp=t_ramp,
+                            nperseg, band, total_dur, px_total, n_iter, t_ramp,
+                            rng, result, Lambda,
                         )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                 else:
-                    self._inject_all(dofs, exc, models, Pyy, freq, fs,
-                                     total_dur, px_total, design_iter, rng,
-                                     t_ramp=t_ramp)
-                    for d in dofs:
-                        uncertainties[d] = self._measure_dof(
-                            it, d, exc[d], rb[d], models, Pyy, freq, fs,
-                            nperseg, band, total_dur, px_total, design_iter, rng,
-                            result, accum[d], info[d], reuse_injection=True,
-                            t_ramp=t_ramp,
-                        )
+                    # The first pass uses a flat, broadband excitation so the global
+                    # invfreqs refit is well conditioned; later passes use the
+                    # optimal designer to refine the now-trusted parameters.
+                    design_iter = 0 if it == 0 else n_iter
+                    if sequential:
+                        for d in dofs:
+                            uncertainties[d] = self._measure_dof(
+                                it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                                nperseg, band, total_dur, px_total, design_iter, rng,
+                                result, accum[d], info[d], t_ramp=t_ramp,
+                            )
+                            # stop this DoF's drive before moving to the next
+                            self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
+                    else:
+                        self._inject_all(dofs, exc, models, Pyy, freq, fs,
+                                         total_dur, px_total, design_iter, rng,
+                                         t_ramp=t_ramp)
+                        for d in dofs:
+                            uncertainties[d] = self._measure_dof(
+                                it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                                nperseg, band, total_dur, px_total, design_iter, rng,
+                                result, accum[d], info[d], reuse_injection=True,
+                                t_ramp=t_ramp,
+                            )
 
                 if all(u <= target for u in uncertainties.values()):
                     result.done = True
@@ -208,6 +228,52 @@ class SysIDLoop:
         )
         self._emit(
             it, dof, freq, models[dof], Pxx, H_acc, coh, frac,
+            report.drive_peaks.get(exc_ch, float("nan")),
+            report.output_rms.get(dof, float("nan")),
+        )
+        return frac
+
+    # -- Bayesian per-DoF measurement ----------------------------------------
+    def _measure_dof_bayesian(
+        self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
+        total_dur, px_total, n_iter, t_ramp, rng, result, Lambda,
+    ) -> float:
+        """One measurement pass in Bayesian mode.
+
+        Designs optimal excitation from the *current* model on every pass
+        (no broadband-first override), injects, reads, and performs a MAP
+        Gauss-Newton update via :func:`bayesian_update`.  The posterior
+        precision ``Lambda[dof]`` accumulates information across passes.
+        """
+        # honour an operator STOP issued between segments
+        if self.watchdog.aborted:
+            raise SafetyAbort(self.watchdog.abort_reason or "operator STOP")
+
+        Pxx = self.designer.design(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
+
+        drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
+                                    t_ramp=t_ramp)
+        self.backend.inject(exc_ch, drive, fs)
+
+        seg = self.backend.read([rb_ch, exc_ch], total_dur)
+        report = self.watchdog.check(seg)  # raises SafetyAbort on a breach
+
+        H_meas, H_err, coh = self._estimate_tf(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+
+        # MAP update: fold this measurement into the posterior
+        models[dof], Lambda[dof] = bayesian_update(
+            freq, models[dof], H_meas, H_err, Lambda[dof]
+        )
+        frac = frac_uncertainty(models[dof], Lambda[dof])
+
+        result.history.append(
+            IterationRecord(
+                iteration=it, dof=dof, max_frac_uncertainty=frac,
+                output_rms=report.output_rms.get(dof, float("nan")),
+            )
+        )
+        self._emit(
+            it, dof, freq, models[dof], Pxx, H_meas, coh, frac,
             report.drive_peaks.get(exc_ch, float("nan")),
             report.output_rms.get(dof, float("nan")),
         )

@@ -76,6 +76,8 @@ class RunConfig:
         cls._validate(raw)
         return cls(raw=raw, path=path)
 
+    _VALID_LOOP_MODES = {"broadband_ls", "bayesian"}
+
     @staticmethod
     def _validate(raw: dict) -> None:
         for section, keys in REQUIRED.items():
@@ -93,6 +95,12 @@ class RunConfig:
         if des not in DESIGNERS:
             raise ConfigError(
                 f"input_designer {des!r} not available; choose from {sorted(DESIGNERS)}"
+            )
+        loop_mode = raw["strategy"].get("loop", "broadband_ls")
+        valid = RunConfig._VALID_LOOP_MODES
+        if loop_mode not in valid:
+            raise ConfigError(
+                f"strategy.loop {loop_mode!r} is not valid; choose from {sorted(valid)}"
             )
 
     # -- CLI flag overrides --------------------------------------------------
