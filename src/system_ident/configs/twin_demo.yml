@@ -34,6 +34,7 @@ strategy:
 # Digital-twin plant dynamics: (f0 [Hz], Q) resonances + gain per DoF.
 twin:
   sensor_asd: 1.0e-9
+  disturbance_asd: 1.0e-3
   plant:
     POS:
       resonances: [[0.6, 20], [1.5, 30]]

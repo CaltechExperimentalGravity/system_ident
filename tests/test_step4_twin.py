@@ -122,3 +122,36 @@ def test_unknown_channel_raises():
         twin.inject("C1:NOPE", np.zeros(10), FS)
     with pytest.raises(KeyError):
         twin.read(["C1:NOPE"], duration=1.0)
+
+
+def test_disturbance_asd_colors_quiet_readout():
+    """Input-referred disturbance noise should colour the quiet readout through
+    the plant (plant-shaped PSD), while sensor noise alone gives a flat PSD."""
+    plant = SuspensionPlant({"POS": double_pendulum()}, fs=FS)
+    dur = 512.0
+    nperseg = int(64 * FS)  # freq resolution ~0.016 Hz, resolves Q=30 resonance
+
+    # disturbance > 0, sensor = 0: PSD should be plant-shaped (high peak/median)
+    twin_dist = TwinBackend(
+        plant, EXC, RB, fs=FS, disturbance_asd=1e-6, sensor_asd=0.0, seed=0
+    )
+    y_dist = twin_dist.read(["C1:RESP_POS"], duration=dur)["C1:RESP_POS"]
+    f, Pxx_dist = sig.welch(y_dist, fs=FS, nperseg=nperseg)
+    pos = f > 0
+    ratio_dist = Pxx_dist[pos].max() / np.median(Pxx_dist[pos])
+    assert ratio_dist > 20.0, (
+        f"expected plant-shaped PSD (peak/median > 20) with disturbance_asd, "
+        f"got {ratio_dist:.1f}"
+    )
+
+    # sensor_asd > 0, disturbance = 0: PSD should be approximately flat
+    twin_sensor = TwinBackend(
+        plant, EXC, RB, fs=FS, disturbance_asd=0.0, sensor_asd=1e-6, seed=1
+    )
+    y_sensor = twin_sensor.read(["C1:RESP_POS"], duration=dur)["C1:RESP_POS"]
+    _, Pxx_sensor = sig.welch(y_sensor, fs=FS, nperseg=nperseg)
+    ratio_sensor = Pxx_sensor[pos].max() / np.median(Pxx_sensor[pos])
+    assert ratio_sensor < 5.0, (
+        f"expected flat PSD (peak/median < 5) for white sensor noise, "
+        f"got {ratio_sensor:.1f}"
+    )

@@ -47,6 +47,7 @@ class TwinBackend(ChannelBackend):
         readback_channels: dict[str, str],
         fs: float | None = None,
         sensor_asd: float = 0.0,
+        disturbance_asd: float = 0.0,
         seed: int | np.random.Generator | None = None,
     ) -> None:
         self.plant = plant
@@ -54,6 +55,7 @@ class TwinBackend(ChannelBackend):
         self.readback_channels = dict(readback_channels)
         self.fs = float(fs if fs is not None else plant.fs)
         self.sensor_asd = float(sensor_asd)
+        self.disturbance_asd = float(disturbance_asd)
         self._rng = (
             seed if isinstance(seed, np.random.Generator)
             else np.random.default_rng(seed)
@@ -125,12 +127,11 @@ class TwinBackend(ChannelBackend):
 
     # -- internals -----------------------------------------------------------
     def _simulate(self, dof: str, n: int) -> np.ndarray:
+        b, a = self._ba[dof]
         drive = self._drives.get(dof)
-        if drive is None:
-            resp = np.zeros(n)
-        else:
-            b, a = self._ba[dof]
-            resp = self._fit_length(sig.lfilter(b, a, drive), n)
+        u = self._fit_length(drive, n) if drive is not None else np.zeros(n)
+        w = self._disturbance(n)
+        resp = sig.lfilter(b, a, u + w)
         return resp + self._sensor_noise(n)
 
     def _sensor_noise(self, n: int) -> np.ndarray:
@@ -138,6 +139,13 @@ class TwinBackend(ChannelBackend):
             return np.zeros(n)
         # one-sided ASD A -> discrete white-noise std A*sqrt(fs/2)
         std = self.sensor_asd * np.sqrt(self.fs / 2.0)
+        return self._rng.standard_normal(n) * std
+
+    def _disturbance(self, n: int) -> np.ndarray:
+        if self.disturbance_asd == 0.0:
+            return np.zeros(n)
+        # input-referred white noise: one-sided ASD A -> std A*sqrt(fs/2)
+        std = self.disturbance_asd * np.sqrt(self.fs / 2.0)
         return self._rng.standard_normal(n) * std
 
     @staticmethod

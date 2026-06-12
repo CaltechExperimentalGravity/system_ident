@@ -123,9 +123,12 @@ class RunConfig:
         return SuspensionPlant.from_resonance_spec(spec, self.fs)
 
     def build_twin_backend(self, seed: int | None = None) -> TwinBackend:
-        sensor_asd = float(self.raw.get("twin", {}).get("sensor_asd", 0.0))
+        twin = self.raw.get("twin", {})
+        sensor_asd = float(twin.get("sensor_asd", 0.0))
+        disturbance_asd = float(twin.get("disturbance_asd", 0.0))
         return TwinBackend.from_config(
-            self.raw, self.build_plant(), fs=self.fs, sensor_asd=sensor_asd, seed=seed
+            self.raw, self.build_plant(), fs=self.fs,
+            sensor_asd=sensor_asd, disturbance_asd=disturbance_asd, seed=seed
         )
 
     def build_priors(self) -> dict[str, TFModel]:
