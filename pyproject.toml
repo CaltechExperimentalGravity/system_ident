@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ligo-sysid"
+version = "0.0.1"
+description = "Real-time, optimal-excitation system identification for LIGO suspensions (3-DoF: POS/Pitch/Yaw), with a digital-twin backend and a live operational dashboard."
+readme = "src/ligo_sysid/README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "LIGO SysID contributors" }]
+keywords = ["LIGO", "system-identification", "suspension", "controls", "CDS"]
+
+# Core runtime deps. The CDS backend (nds2/awg) and Foton export are optional
+# and lazy-imported so the twin path works on a plain scientific-Python stack.
+dependencies = [
+    "numpy",
+    "scipy",
+    "control",
+    "pyyaml",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dashboard = ["fastapi", "uvicorn[standard]", "websockets"]
+# CDS libs (nds2-client, awg/cdsutils, foton) are provided by the LIGO CDS
+# environment and are not pip-installable here; listed for documentation.
+cds = []
+dev = ["pytest", "pytest-cov"]
+
+[project.scripts]
+ligo-sysid = "ligo_sysid.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ligo_sysid = ["py.typed", "configs/*.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --import-mode=importlib"

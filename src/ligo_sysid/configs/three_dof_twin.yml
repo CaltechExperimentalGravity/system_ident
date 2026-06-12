@@ -1,0 +1,50 @@
+# Example run config: 3-DoF single suspension against the digital twin.
+#
+# A YAML config is the reproducible base for a run; CLI flags override it.
+# This is a placeholder skeleton — the schema is finalized in build step 7.
+
+run:
+  name: three_dof_twin_demo
+  backend: twin            # twin | cds
+  excitation_mode: sequential   # sequential (default) | simultaneous
+
+suspension:
+  type: SmallOptics        # matches Plant_Model/SuspendedMirrorParams.yml
+  dofs: [POS, PIT, YAW]
+
+# Channel map (twin reuses these names against the simulated plant).
+channels:
+  excitation:
+    POS: C1:SUS-SINGLE_PLANT_TM_EXC_1
+    PIT: C1:SUS-SINGLE_PLANT_TM_EXC_2
+    YAW: C1:SUS-SINGLE_PLANT_TM_EXC_3
+  readback:
+    POS: C1:SUS-SINGLE_PLANT_TM_RESP_1
+    PIT: C1:SUS-SINGLE_PLANT_TM_RESP_2
+    YAW: C1:SUS-SINGLE_PLANT_TM_RESP_3
+
+measurement:
+  fs: 16384                # CDS sample rate [Hz]
+  freq_min: 0.1
+  freq_max: 10.0
+  segment_duration: 30.0   # seconds per read segment
+  px_total: 1.0            # total input-power budget
+
+strategy:
+  estimator: invfreqs                 # invfreqs | weighted_ls | gml | vectfit
+  input_designer: pintelon_schoukens  # pintelon_schoukens | sho | white
+  n_design_iter: 3
+
+# Physical safety limits — the ONLY things wired to auto-abort.
+safety:
+  actuator_sat: 1.0e-4
+  rms_ceiling:
+    POS: 1.0e-6
+    PIT: 1.0e-7
+    YAW: 1.0e-7
+  ramp_down_secs: 2.0
+
+# Numeric DONE criteria (success, distinct from abort).
+stop_criteria:
+  uncertainty_target: 0.1   # fractional parameter uncertainty
+  auto_stop_on_success: false

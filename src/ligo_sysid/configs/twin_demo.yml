@@ -1,0 +1,63 @@
+# Fully-specified, fast digital-twin demo:
+#
+#   ligo-sysid run src/ligo_sysid/configs/twin_demo.yml --twin --yes
+#
+# Two DoFs against a resonant twin, small fs so it runs in well under a second.
+# Unlike three_dof_twin.yml (a CDS-shaped placeholder), this config carries the
+# twin.plant dynamics and per-DoF priors the loop needs to run end-to-end.
+
+run:
+  name: twin_demo
+  excitation_mode: sequential
+
+channels:
+  excitation:
+    POS: C1:SUS-DEMO_TM_POS_EXC
+    PIT: C1:SUS-DEMO_TM_PIT_EXC
+  readback:
+    POS: C1:SUS-DEMO_TM_POS_RESP
+    PIT: C1:SUS-DEMO_TM_PIT_RESP
+
+measurement:
+  fs: 32
+  freq_min: 0.1
+  freq_max: 5.0
+  segment_duration: 64.0
+  n_segments: 4
+  px_total: 1.0
+
+strategy:
+  estimator: invfreqs
+  input_designer: pintelon_schoukens
+  n_design_iter: 3
+
+# Digital-twin plant dynamics: (f0 [Hz], Q) resonances + gain per DoF.
+twin:
+  sensor_asd: 1.0e-9
+  plant:
+    POS:
+      resonances: [[0.6, 20], [1.5, 30]]
+      gain: 300
+    PIT:
+      resonances: [[0.8, 15], [2.2, 25]]
+      gain: 120
+
+# Starting models the loop refines (deliberately offset from twin.plant).
+priors:
+  POS:
+    resonances: [[0.55, 18], [1.6, 28]]
+    gain: 250
+  PIT:
+    resonances: [[0.75, 13], [2.3, 22]]
+    gain: 150
+
+safety:
+  actuator_sat: 1000.0
+  rms_ceiling:
+    POS: 1000.0
+    PIT: 1000.0
+  ramp_down_secs: 2.0
+
+stop_criteria:
+  uncertainty_target: 0.05
+  max_iter: 2
