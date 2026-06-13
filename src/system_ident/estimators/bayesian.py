@@ -170,8 +170,22 @@ def bayesian_update(
     H_meas = np.asarray(H_meas, dtype=complex)
     H_err = np.asarray(H_err, dtype=float)
 
-    valid = np.isfinite(H_err) & (H_err > 0)
-    wt = np.where(valid, 1.0 / H_err ** 2, 0.0)
+    # Residual weighting: SNR (coherence) with a CONSTANT amplitude reference.
+    #
+    # The ML inverse-estimate-variance weight is 1/H_err**2 = 1/(|H|**2 rel_err**2)
+    # (H_err = |H|*rel_err is the standard error of the cross-spectral estimate).
+    # For a resonance the 1/|H|**2 factor makes the fit dominated by the small-|H|
+    # off-resonance shoulders — the high-amplitude *peak* that actually pins f0/Q
+    # gets ~1e4-1e5x LESS weight — so a concentrated drive drives Q upward without
+    # bound (structurally, not from noise). Replacing the per-bin |H| with a single
+    # amplitude reference H_ref keeps the weight in 1/H**2 units (consistent with
+    # the prior precision Lambda) while weighting purely by SNR (1/rel_err**2), so
+    # the resonance peak carries its due weight and the fit is unbiased.
+    mag = np.abs(H_meas)
+    valid = np.isfinite(H_err) & (H_err > 0) & (mag > 0)
+    rel_err = np.where(valid, H_err / np.where(mag > 0, mag, 1.0), np.inf)
+    H_ref = float(np.max(mag[valid])) if np.any(valid) else 1.0
+    wt = np.where(valid, 1.0 / (rel_err * H_ref) ** 2, 0.0)
 
     theta_anchor = np.asarray(model.params, dtype=float).copy()
     n_par = theta_anchor.size

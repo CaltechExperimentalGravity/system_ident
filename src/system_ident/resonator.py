@@ -141,10 +141,15 @@ def resonator_from_tf(tf, log: bool = False) -> "ResonatorModel":
     w = np.abs(pairs)
     f0 = w / (2.0 * np.pi)
     Q = w / (2.0 * np.abs(pairs.real))
-    # least-squares gain so the ResonatorModel response matches tf over a grid
+    # Least-squares gain so the ResonatorModel response matches tf over a grid.
+    # Fit on the MAGNITUDE: a noisy broadband_ls/invfreqs lock can land marginally
+    # unstable (a right-half-plane pole pair) whose phase is opposite to the stable
+    # resonator we build here (Q uses |Re pole| -> always stable). A complex inner
+    # product then cancels at the resonance and collapses the gain toward zero. The
+    # magnitude fit is phase-insensitive, always positive, and preserves |H|.
     fmax = float(np.max(f0)) * 4.0 + 1.0
     grid = np.linspace(max(1e-3, float(np.min(f0)) * 0.1), fmax, 512)
-    base = ResonatorModel(f0=f0, Q=Q, gain=1.0).eval(grid)
-    target = tf.eval(grid)
-    gain = float(np.real(np.vdot(base, target) / np.vdot(base, base)))
+    base = np.abs(ResonatorModel(f0=f0, Q=Q, gain=1.0).eval(grid))
+    target = np.abs(tf.eval(grid))
+    gain = float(np.dot(base, target) / np.dot(base, base))
     return ResonatorModel(f0=f0, Q=Q, gain=gain, log=log)

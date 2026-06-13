@@ -39,6 +39,7 @@ from .fisher import fisher_matrix
 from .model import TFModel
 from .resonator import resonator_from_tf
 from .resonator_design import optimal_excitation as _res_optimal_excitation
+from .resonator_design import prior_robust_excitation as _res_prior_robust_excitation
 from .safety import SafetyAbort
 
 
@@ -103,16 +104,19 @@ class SysIDLoop:
         sequential = config["run"].get("excitation_mode", "sequential") == "sequential"
         loop_mode = config["strategy"].get("loop", "broadband_ls")
         prior_uncertainty = float(config["strategy"].get("prior_uncertainty", 0.5))
-        # Exploration floor (Bayesian mode): fraction of the drive power spread
-        # flat across the band so a wrong prior still illuminates the true
-        # resonance. Without it, excitation concentrated at the current (wrong)
-        # model starves the true mode of information and the estimate stalls.
-        exploration = float(config["strategy"].get("exploration", 0.25))
         # Hybrid mode: broadband_ls locks the model for the first n_locate passes,
         # then we hand off to the Bayesian MAP refinement (treating the locked
         # model as a fairly confident prior of strength lock_uncertainty).
         n_locate = int(config["strategy"].get("n_locate", 3))
         lock_uncertainty = float(config["strategy"].get("lock_uncertainty", 0.15))
+        # Bayesian-refine excitation band: spread the (concentrated) drive over
+        # the prior's plausible resonance band f0*(1 +/- exc_band) so a still-
+        # uncertain prior covers where the resonance actually is (prior-robust
+        # excitation). Tied to the prior strength so it is ONE knob: a confident
+        # lock -> tight/efficient drive, an uncertain prior -> wider/robust drive.
+        # Floored so even a tight lock keeps enough spread to cover the resonance.
+        _base_band = lock_uncertainty if loop_mode == "hybrid" else prior_uncertainty
+        exc_band = max(_base_band, 0.2)
 
         dofs = list(priors)
         models = {d: priors[d] for d in dofs}
@@ -169,7 +173,7 @@ class SysIDLoop:
                         uncertainties[d] = self._measure_dof_bayesian(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, n_iter, t_ramp,
-                            rng, result, Lambda, exploration,
+                            rng, result, Lambda, exc_band,
                         )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
@@ -258,28 +262,28 @@ class SysIDLoop:
     # -- Bayesian per-DoF measurement ----------------------------------------
     def _measure_dof_bayesian(
         self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
-        total_dur, px_total, n_iter, t_ramp, rng, result, Lambda, exploration=0.25,
+        total_dur, px_total, n_iter, t_ramp, rng, result, Lambda, exc_band=0.2,
     ) -> float:
         """One measurement pass in Bayesian mode.
 
-        Designs optimal excitation from the *current* model on every pass (no
-        broadband-first override), blends in an ``exploration`` fraction of flat
-        broadband power so a wrong prior still illuminates the true resonance,
-        injects, reads, and performs one small damped MAP step via
-        :func:`bayesian_update`.  The posterior precision ``Lambda[dof]``
+        Designs *prior-robust* excitation from the current model on every pass —
+        the optimal (Fisher-information-maximising) drive averaged over the
+        prior's plausible resonance band ``f0*(1 +/- exc_band)`` — so the
+        concentrated drive covers where the resonance actually is even when the
+        prior is off, then injects, reads, and performs one small damped MAP
+        step via :func:`bayesian_update`.  The posterior precision ``Lambda[dof]``
         accumulates information across passes.
         """
         # honour an operator STOP issued between segments
         if self.watchdog.aborted:
             raise SafetyAbort(self.watchdog.abort_reason or "operator STOP")
 
-        # Gauge-free optimal excitation design on the current ResonatorModel.
-        Pxx = _res_optimal_excitation(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
-        # Exploration floor: blend optimal (exploit) with a flat spectrum
-        # (explore), preserving the total power budget px_total.
-        if exploration > 0.0:
-            flat = np.full_like(freq, px_total / (freq[-1] - freq[0]))
-            Pxx = (1.0 - exploration) * Pxx + exploration * flat
+        # Prior-robust excitation on the current ResonatorModel: the optimal
+        # drive spread over the prior's plausible band so it covers the true
+        # resonance even from an offset prior (efficient AND robust).
+        Pxx = _res_prior_robust_excitation(
+            freq, models[dof], Pyy[dof], px_total, exc_band, n_iter=n_iter
+        )
 
         drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
                                     t_ramp=t_ramp)

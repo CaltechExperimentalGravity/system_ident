@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from system_ident.model import TFModel
-from system_ident.resonator import ResonatorModel
+from system_ident.resonator import ResonatorModel, resonator_from_tf
 
 
 def test_params_roundtrip():
@@ -51,3 +51,26 @@ def test_from_resonances_matches_tfmodel_constructor():
     tf = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], 300.0)
     freq = np.logspace(-1, 1, 200)
     np.testing.assert_allclose(m.eval(freq), tf.eval(freq), rtol=1e-9)
+
+
+def test_resonator_from_tf_preserves_magnitude():
+    """The conversion recovers f0, Q, and a gain that reproduces |H|."""
+    tf = TFModel.from_resonances([(0.99, 19.4)], 97.0)
+    rm = resonator_from_tf(tf)
+    assert abs(float(rm.f0[0]) - 0.99) < 1e-3
+    assert abs(float(rm.Q[0]) - 19.4) / 19.4 < 0.02
+    freq = np.linspace(0.2, 3.0, 200)
+    np.testing.assert_allclose(np.abs(rm.eval(freq)), np.abs(tf.eval(freq)), rtol=1e-6)
+
+
+def test_resonator_from_tf_unstable_den_gain_does_not_collapse():
+    """Regression: a marginally-UNSTABLE lock (RHP poles, negative middle den
+    coefficient — as a noisy invfreqs fit can produce) must still yield a gain
+    that reproduces |H|. A complex-LS gain cancels here and collapses to ~0,
+    starting the hybrid refine from a degenerate (gain~0) model.
+    """
+    tf = TFModel(num=np.array([97.0731]), den=np.array([1.0, -0.3212, 38.7132]))
+    rm = resonator_from_tf(tf)
+    assert float(rm.gain) > 1.0, f"gain collapsed to {float(rm.gain):.3f}"
+    freq = np.linspace(0.2, 3.0, 200)
+    np.testing.assert_allclose(np.abs(rm.eval(freq)), np.abs(tf.eval(freq)), rtol=1e-3)
