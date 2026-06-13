@@ -198,3 +198,43 @@ def optimal_excitation(
     if rec_progress:
         return Pxx_rec, nu_rec, gamma_rec
     return Pxx
+
+
+def prior_robust_excitation(
+    freq: np.ndarray,
+    model,
+    Pyy: np.ndarray,
+    Px_tot: float,
+    prior_uncertainty: float,
+    n_iter: int = 3,
+    n_samples: int = 7,
+):
+    """Prior-uncertainty-aware excitation for a :class:`ResonatorModel`.
+
+    With only a ``±prior_uncertainty`` (fractional) guess of the resonance
+    frequency, concentrating the limited drive at the point estimate risks
+    missing the true resonance. This averages the optimal excitation over
+    plausible resonance frequencies ``f0·(1 ± prior_uncertainty)`` so the drive
+    covers everywhere the resonance could be: efficient (not flat broadband) AND
+    robust (the prior's spread sets the drive's spread). ``prior_uncertainty=0``
+    reduces to the point-optimal drive; larger values broaden it.
+    """
+    from .resonator import ResonatorModel
+
+    u = float(prior_uncertainty)
+    if u <= 0.0:
+        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)
+
+    freq = np.asarray(freq, dtype=float)
+    scales = np.linspace(1.0 - u, 1.0 + u, n_samples)
+    acc = np.zeros(len(freq), dtype=float)
+    for sc in scales:
+        m_k = ResonatorModel(
+            f0=np.asarray(model.f0) * sc, Q=np.asarray(model.Q),
+            gain=model.gain, log=getattr(model, "log", False),
+        )
+        acc += optimal_excitation(freq, m_k, Pyy, Px_tot, n_iter=n_iter)
+    integral = trapezoid(acc, freq)
+    if integral > 0:
+        acc *= Px_tot / integral
+    return acc
