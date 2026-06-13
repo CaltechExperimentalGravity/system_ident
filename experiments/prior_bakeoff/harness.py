@@ -20,8 +20,21 @@ from system_ident.estimators.bayesian import bayesian_update, prior_precision
 TRUE = ResonatorModel.from_resonances([(1.0, 20.0)], 100.0)
 FREQ = np.linspace(0.2, 3.0, 400)
 PEAK = float(np.max(np.abs(TRUE.eval(FREQ))))
-NOISE_FLOOR = 0.10 * PEAK     # flat absolute -> low SNR (SNR~10 at peak, <1 off-resonance)
 N_PASS = 30
+
+# Measurement-error model. A flat broadband drive + additive sensor noise gives a
+# TF-estimate error  Ĥ - G = noise/drive  that is FLAT in absolute terms,
+# independent of |G| (a coherence-weighted derivation reduces to the same thing
+# for a flat drive). So H_err is a flat absolute floor, i.e. UNIFORM weighting.
+#
+# This makes the harness the BROADBAND-SWEEP / COLD-START yardstick: it fairly
+# tests whether a strategy can *locate* a resonance from a wrong prior. Under
+# uniform weighting a misplaced sharp peak is penalised hard, so purely *local*
+# prior tweaks collapse Q/gain — the winner here must do a *global* locate.
+# (The real loop's CONCENTRATED optimal excitation gives resonance-focused
+# weighting; that low-SNR *refinement* regime is exercised separately in the loop.)
+_G_TRUE = TRUE.eval(FREQ)
+_H_ERR = (0.05 * PEAK) * np.ones_like(FREQ)   # flat absolute std-dev
 
 # --- prior cases: (label, f0, Q, gain), truth = (1.0, 20, 100) -------------
 CASES = [
@@ -39,11 +52,9 @@ F0_TOL, Q_TOL, G_TOL = 0.05, 0.25, 0.25
 
 
 def simulate(rng):
-    """One noisy broadband measurement of TRUE on FREQ."""
-    H = TRUE.eval(FREQ)
-    He = NOISE_FLOOR * np.ones_like(FREQ)
-    noise = (rng.standard_normal(FREQ.size) + 1j * rng.standard_normal(FREQ.size)) * He / np.sqrt(2)
-    return H + noise, He
+    """One noisy broadband measurement of TRUE on FREQ (coherence-weighted error)."""
+    noise = (rng.standard_normal(FREQ.size) + 1j * rng.standard_normal(FREQ.size)) * _H_ERR / np.sqrt(2)
+    return _G_TRUE + noise, _H_ERR
 
 
 def baseline_init(f0, Q, g):
