@@ -34,7 +34,7 @@ import numpy as np
 import scipy.signal as sig
 
 from .estimators.bayesian import bayesian_update, frac_uncertainty, prior_precision
-from .excitation import timeseries_from_asd
+from .excitation import multisine_from_psd, timeseries_from_asd
 from .fisher import fisher_matrix
 from .model import TFModel
 from .resonator import ResonatorModel, resonator_from_spectrum, resonator_from_tf
@@ -127,6 +127,17 @@ class SysIDLoop:
         freq = f_all[band]
 
         t_ramp = float(m.get("t_ramp", 0.0))
+        # Measurement mode: "welch" (default, windowed Welch on a random record,
+        # preserves existing behaviour byte-for-byte) or "periodic" (Pintelon-
+        # Schoukens periodic multisine + leakage-free synchronous-DFT FRF).
+        self._meas_mode = m.get("mode", "welch")
+        self._n_transient = int(m.get("n_transient", 1))
+        # Honest reported uncertainty in periodic mode: the dropped transient
+        # period(s) carry no usable information, so scale the Fisher time down.
+        self._fisher_time_factor = (
+            max(n_seg - self._n_transient, 1) / n_seg
+            if self._meas_mode == "periodic" else 1.0
+        )
         n_iter = int(config["strategy"].get("n_design_iter", 3))
         target = float(config["stop_criteria"]["uncertainty_target"])
         max_iter = int(config["stop_criteria"].get("max_iter", 5))
@@ -259,7 +270,7 @@ class SysIDLoop:
                             # stop this DoF's drive before moving to the next
                             self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                     else:
-                        self._inject_all(dofs, exc, models, Pyy, freq, fs,
+                        self._inject_all(dofs, exc, models, Pyy, freq, fs, nperseg,
                                          total_dur, px_total, design_iter, rng,
                                          t_ramp=t_ramp)
                         for d in dofs:
@@ -302,14 +313,13 @@ class SysIDLoop:
         Pxx = self.designer.design(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
 
         if not reuse_injection:
-            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
-                                        t_ramp=t_ramp)
+            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
             self.backend.inject(exc_ch, drive, fs)
 
         seg = self.backend.read([rb_ch, exc_ch], total_dur)
         report = self.watchdog.check(seg)  # raises SafetyAbort on a breach
 
-        H_meas, H_err, coh = self._estimate_tf(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+        H_meas, H_err, coh = self._estimate(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
         # fold this pass into the inverse-variance accumulator, then refit on the
         # combined estimate (retains broadband coverage across passes)
         H_acc, err_acc = self._accumulate(accum, H_meas, H_err)
@@ -317,7 +327,9 @@ class SysIDLoop:
 
         # add the information this pass delivered (at the updated model) and
         # report the uncertainty from the accumulated covariance
-        info += fisher_matrix(freq, models[dof], Pxx, Pyy[dof], total_dur)
+        info += fisher_matrix(
+            freq, models[dof], Pxx, Pyy[dof], total_dur * self._fisher_time_factor
+        )
         frac = self._frac_uncertainty(models[dof], np.linalg.inv(info))
         result.history.append(
             IterationRecord(
@@ -358,14 +370,13 @@ class SysIDLoop:
             freq, models[dof], Pyy[dof], px_total, exc_band, n_iter=n_iter
         )
 
-        drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
-                                    t_ramp=t_ramp)
+        drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
         self.backend.inject(exc_ch, drive, fs)
 
         seg = self.backend.read([rb_ch, exc_ch], total_dur)
         report = self.watchdog.check(seg)  # raises SafetyAbort on a breach
 
-        H_meas, H_err, coh = self._estimate_tf(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+        H_meas, H_err, coh = self._estimate(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
 
         # MAP update: fold this measurement into the posterior
         models[dof], Lambda[dof] = bayesian_update(
@@ -405,13 +416,12 @@ class SysIDLoop:
         Pxx = _res_prior_robust_excitation(
             freq, models[dof], Pyy[dof], px_total, exc_band, n_iter=n_iter
         )
-        drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
-                                    t_ramp=t_ramp)
+        drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
         self.backend.inject(exc_ch, drive, fs)
         seg = self.backend.read([rb_ch, exc_ch], total_dur)
         report = self.watchdog.check(seg)
 
-        H_meas, _, coh = self._estimate_tf(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+        H_meas, _, coh = self._estimate(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
         f0_guess = float(np.atleast_1d(models[dof].f0)[0])
         try:
             est = resonator_from_spectrum(freq, np.abs(H_meas), f0_guess=f0_guess)
@@ -482,12 +492,11 @@ class SysIDLoop:
             snap["model_gain"] = float(model.gain)
         self.listener(snap)
 
-    def _inject_all(self, dofs, exc, models, Pyy, freq, fs, total_dur,
+    def _inject_all(self, dofs, exc, models, Pyy, freq, fs, nperseg, total_dur,
                     px_total, n_iter, rng, t_ramp=0.0):
         for d in dofs:
             Pxx = self.designer.design(freq, models[d], Pyy[d], px_total, n_iter=n_iter)
-            drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
-                                        t_ramp=t_ramp)
+            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
             self.backend.inject(exc[d], drive, fs)
 
     @staticmethod
@@ -506,6 +515,24 @@ class SysIDLoop:
         err_acc = np.where(good, 1.0 / np.sqrt(np.where(good, accum["w"], 1.0)), np.inf)
         return H_acc, err_acc
 
+    # -- excitation / estimation dispatch ------------------------------------
+    def _make_drive(self, Pxx, total_dur, fs, freq, nperseg, rng, t_ramp):
+        """Build the injectable drive for the configured measurement mode."""
+        if self._meas_mode == "periodic":
+            n_periods = int(round(total_dur * fs / nperseg))
+            return multisine_from_psd(
+                Pxx, fs, nperseg, n_periods, freq, seed=rng, t_ramp=t_ramp
+            )
+        return timeseries_from_asd(
+            total_dur, fs, freq, np.sqrt(Pxx), seed=rng, t_ramp=t_ramp
+        )
+
+    def _estimate(self, x, y, fs, nperseg, band):
+        """Estimate the FRF for the configured measurement mode."""
+        if self._meas_mode == "periodic":
+            return self._estimate_tf_periodic(x, y, fs, nperseg, band, self._n_transient)
+        return self._estimate_tf(x, y, fs, nperseg, band)
+
     # -- spectral helpers ----------------------------------------------------
     @staticmethod
     def _welch(x, fs, nperseg, band):
@@ -523,6 +550,114 @@ class SysIDLoop:
         rel_err = np.sqrt((1 - coh) / (2 * n_avg * coh))
         H_err = np.abs(H) * rel_err
         return H[band], H_err[band], coh[band]
+
+    @staticmethod
+    def _choose_transient(X, Y, n_min, P):
+        """Number of leading periods to drop before the response is periodic.
+
+        Closed-loop suspension settling is set by the *damped* mode time-constant
+        ``tau = Q/(pi f0)``; one period is enough for the damped Q ~ 5-30 case but
+        not for a high-Q (lightly damped) mode whose ringdown exceeds a period. We
+        therefore start at ``n_min`` and drop further leading periods while their
+        per-period FRF still drifts relative to the trailing-period scatter — an
+        adaptive guard so the diagnosis does not depend on the prior's Q being right.
+        """
+        n_min = max(1, int(n_min))
+        if P <= n_min + 2:
+            return min(n_min, max(P - 1, 0))
+        mag = np.abs(X).mean(0)
+        mmax = float(np.max(mag))
+        if mmax <= 0:
+            return n_min
+        strong = mag > 0.5 * mmax            # most-excited lines pin the FRF
+        Hp = Y[:, strong] / X[:, strong]     # per-period FRF, shape (P, n_strong)
+        n_tail = max(2, (P - n_min) // 2)
+        tail = Hp[-n_tail:]
+        ref = tail.mean(0)
+        rms_ref = float(np.sqrt(np.mean(np.abs(ref) ** 2)))
+        scat = float(np.sqrt(np.mean(np.abs(tail - ref[None, :]) ** 2)))
+        # "settled enough": never chase a transient below ~0.1% of the FRF
+        # magnitude, so a (near-)noise-free record is not over-dropped — the real
+        # noise floor dominates this on a noisy measurement.
+        scat = max(scat, 1e-3 * rms_ref)
+        for p in range(n_min, P - 2):
+            dev = float(np.sqrt(np.mean(np.abs(Hp[p] - ref) ** 2)))
+            if dev <= 3.0 * scat:
+                return p
+        return n_min
+
+    @staticmethod
+    def _estimate_tf_periodic(x, y, fs, nperseg, band, n_transient=1):
+        """Leakage-free FRF from a periodic (multisine) excitation — the P&S path.
+
+        Reshapes the response into integer periods and takes a rectangular
+        (un-windowed) DFT of each: because the drive is periodic over ``nperseg``,
+        this is leakage-free, so a sharp resonance is measured without the
+        near-peak bias that windowed Welch on a random record introduces.
+
+        The estimate is the *reference-based* (ratio-of-averages) FRF
+        ``H = mean_p(Y_p) / mean_p(X_p)``, NOT the average-of-ratios
+        ``mean_p(Y_p/X_p)``.  Averaging the complex spectra over periods projects
+        onto the known, deterministic multisine, which is uncorrelated with the
+        loop/sensor noise; in **closed loop** this cancels the controller and
+        returns the open-loop plant, where the naive ``S_yx/S_xx`` is biased by the
+        fed-back noise.  ``X``/``Y`` are read from the drive monitor / response, so
+        no separate reference channel is needed.
+
+        Returns the same ``(H, H_err, coh)`` contract as :meth:`_estimate_tf`, with
+        ``H_err`` the absolute standard error of the complex FRF (from the
+        period-to-period residual scatter) so the downstream estimators are
+        unchanged.  Unexcited bins (tiny drive) get ``H_err = inf`` -> zero weight.
+        """
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        nperseg = int(nperseg)
+        P = len(x) // nperseg
+        if P < 2:
+            raise ValueError("periodic FRF needs at least 2 whole periods")
+        xr = x[: P * nperseg].reshape(P, nperseg)
+        yr = y[: P * nperseg].reshape(P, nperseg)
+        X = np.fft.rfft(xr, axis=1)
+        Y = np.fft.rfft(yr, axis=1)
+
+        n_drop = SysIDLoop._choose_transient(X, Y, n_transient, P)
+        Xk, Yk = X[n_drop:], Y[n_drop:]
+        P_eff = Xk.shape[0]
+
+        Xbar = Xk.mean(0)
+        Ybar = Yk.mean(0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            H = Ybar / Xbar
+            # Nonparametric noise: scatter of the per-period residual about the
+            # averaged FRF (Pintelon & Schoukens, the period-variance estimator).
+            resid = Yk - H[None, :] * Xk
+            if P_eff > 1:
+                var_H = np.sum(np.abs(resid) ** 2, axis=0) / (
+                    (P_eff - 1) * P_eff * np.abs(Xbar) ** 2
+                )
+            else:
+                var_H = np.zeros_like(np.abs(Xbar))
+
+        Hb = H[band]
+        var_b = var_H[band]
+        magb = np.abs(Xbar[band])
+        H_err = np.sqrt(np.clip(var_b, 0.0, None))
+
+        # Excited lines only: a concentrated optimal drive leaves many in-band
+        # bins essentially undriven; mark those non-finite so _accumulate drops them.
+        excited = magb > 1e-3 * float(np.max(magb)) if magb.size else magb.astype(bool)
+        # Carry undriven bins as a clean zero (Xbar=0 -> Hb is inf/nan on a
+        # noise-free twin); _accumulate gives them zero weight, but a non-finite
+        # H would still poison ``w*H``, so zero them explicitly.
+        Hb = np.where(excited & np.isfinite(Hb), Hb, 0.0)
+        H_err = np.where(excited, H_err, np.inf)
+        # Floor so a noise-free twin (var=0) keeps a finite, tiny weight.
+        H_err = np.maximum(H_err, 1e-9 * np.abs(Hb))
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            coh = np.clip(1.0 / (1.0 + var_b / np.abs(Hb) ** 2), 1e-6, 1 - 1e-9)
+        coh = np.where(excited & np.isfinite(coh), coh, 1e-6)
+        return Hb, H_err, coh
 
     @staticmethod
     def _frac_uncertainty(model, cov) -> float:

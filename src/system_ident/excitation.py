@@ -79,3 +79,105 @@ def timeseries_from_asd(
         result = result * sig.windows.tukey(N, alpha)
 
     return result
+
+
+def _schroeder_phases(amp: np.ndarray) -> np.ndarray:
+    """Generalised Schroeder phases for a multisine with line amplitudes ``amp``.
+
+    Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
+    Sec. 4: ``phi_k = -2*pi * sum_{j<k} (k-j) p_j`` with ``p_j`` the relative
+    power of line ``j``.  These deterministic phases give a low crest factor (peak
+    drive / RMS), so a saturation-limited actuator can carry far more in-band power
+    for a fixed amplitude limit than the random-phase choice does.
+    """
+    power = amp ** 2
+    total = float(np.sum(power))
+    if total <= 0:
+        return np.zeros_like(amp)
+    p = power / total
+    idx = np.arange(amp.size)
+    cum_p = np.concatenate([[0.0], np.cumsum(p)[:-1]])        # sum_{j<k} p_j
+    cum_jp = np.concatenate([[0.0], np.cumsum(idx * p)[:-1]])  # sum_{j<k} j p_j
+    return -2.0 * np.pi * (idx * cum_p - cum_jp)
+
+
+def multisine_from_psd(
+    Pxx: np.ndarray,
+    fs: float,
+    nperseg: int,
+    n_periods: int,
+    freq: np.ndarray,
+    phase: str = "schroeder",
+    seed: int | np.random.Generator | None = None,
+    t_ramp: float = 0.0,
+) -> np.ndarray:
+    """Periodic random-phase multisine realising the excitation PSD ``Pxx``.
+
+    This is the Pintelon-Schoukens excitation: a sum of harmonically related
+    sinusoids whose period is exactly ``nperseg`` samples, tiled ``n_periods``
+    times.  Because the waveform is *periodic* over the analysis window, a
+    synchronous (integer-period) DFT of the response is leakage-free — unlike a
+    one-off random record, which must be windowed and then leaks a sharp
+    resonance into neighbouring bins.
+
+    Parameters
+    ----------
+    Pxx, freq:
+        Target one-sided excitation PSD ``Pxx`` sampled at ``freq`` [Hz]; ``freq``
+        must be (a subset of) the synchronous bin grid ``k*fs/nperseg`` so each
+        entry lands exactly on a DFT bin.  A line is placed at every ``freq`` bin
+        with amplitude ``A_k = sqrt(2*Pxx_k*df)`` (``df = fs/nperseg``), so the
+        total power ``sum A_k**2/2 ~ trapezoid(Pxx, freq)`` matches the budget the
+        designer allocated (same watchdog behaviour as ``timeseries_from_asd``).
+    fs, nperseg, n_periods:
+        Sample rate [Hz], samples per period, number of tiled periods.  The
+        returned series has ``nperseg*n_periods`` samples.
+    phase:
+        ``"schroeder"`` (default, low crest factor) or ``"random"``.
+    seed:
+        Seed / ``Generator`` (used only for ``phase="random"``).
+    t_ramp:
+        Half-cosine ramp-up applied to the **leading** ``t_ramp`` s only, so the
+        start transient lands in the first (dropped) period.  ``0`` leaves the
+        waveform a clean integer-period tiling.
+
+    Returns
+    -------
+    data : ndarray, shape ``(nperseg*n_periods,)``
+    """
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    nperseg = int(nperseg)
+    fs = float(fs)
+    df = fs / nperseg
+    freq = np.asarray(freq, dtype=float)
+    Pxx = np.asarray(Pxx, dtype=float)
+
+    # Line bin indices on the synchronous grid; drop DC and (for even nperseg)
+    # the Nyquist line, which cannot carry an independent phase.
+    k = np.round(freq * nperseg / fs).astype(int)
+    keep = (k >= 1) & (k <= (nperseg - 1) // 2)
+    k = k[keep]
+    amp = np.sqrt(np.maximum(2.0 * Pxx[keep] * df, 0.0))
+
+    if phase == "schroeder":
+        phi = _schroeder_phases(amp)
+    elif phase == "random":
+        phi = rng.uniform(0.0, 2.0 * np.pi, size=amp.size)
+    else:
+        raise ValueError(f"unknown phase scheme {phase!r}")
+
+    # One period via the rfft synthesis convention: a real tone A*cos(2*pi*k*t/N +
+    # phi) has rfft coefficient (N/2)*A*exp(i*phi) at bin k.
+    spec = np.zeros(nperseg // 2 + 1, dtype=complex)
+    spec[k] = (nperseg / 2.0) * amp * np.exp(1j * phi)
+    period = np.fft.irfft(spec, n=nperseg)
+
+    out = np.tile(period, int(n_periods))
+
+    if t_ramp > 0.0:
+        n_ramp = min(int(round(t_ramp * fs)), out.size)
+        if n_ramp > 0:
+            ramp = 0.5 * (1.0 - np.cos(np.pi * np.arange(n_ramp) / n_ramp))
+            out[:n_ramp] *= ramp
+
+    return out

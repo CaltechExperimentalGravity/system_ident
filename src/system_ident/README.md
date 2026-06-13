@@ -31,6 +31,22 @@ is being filled in per the build order:
 9. Foton export
 10. Remaining estimator/designer strategies
 
+## Pintelon-Schoukens measurement & ML fit (opt-in)
+
+Set `measurement.mode: periodic` to drive a periodic random-phase **multisine**
+(Schroeder phases, low crest factor) and measure the FRF with a leakage-free,
+integer-period synchronous DFT. The estimate is the *reference-based*
+ratio-of-averages `mean(Y)/mean(X)`, which recovers the open-loop plant even
+with a damping loop closed (the naive `S_yx/S_xx` is loop-biased). Pair it with
+`strategy.estimator: gml` for the maximum-likelihood (Gauss-Newton/LM) fit,
+which is unbiased, attains the Cramér-Rao bound, and is naturally multi-mode.
+
+Both are opt-in; the defaults (`mode: welch`, `estimator: invfreqs`) are
+unchanged. **These paths are validated only on the digital twin** — see the
+`LIMITATIONS` note in `backends/cds.py` for the real-CDS effects (AWG↔NDS
+clocking, timestamp alignment, actuator nonlinearity, true servo dynamics) that
+remain untested until `CDSBackend` is implemented.
+
 ## Install (development)
 
 ```bash

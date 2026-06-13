@@ -20,15 +20,21 @@ import yaml
 
 from .backends.twin import TwinBackend
 from .design.pintelon import PintelonSchoukensDesigner
+from .estimators.gml import GMLEstimator
 from .estimators.invfreqs import InvfreqsEstimator
 from .model import TFModel
 from .plant import SuspensionPlant
 from .safety import SafetyLimits, Watchdog
 
-# Strategy-name -> implementation. Stub strategies (weighted_ls, gml, vectfit,
-# sho, white) are intentionally absent until their build steps land, so an
-# unsupported choice fails loudly instead of silently doing the wrong thing.
-ESTIMATORS = {"invfreqs": InvfreqsEstimator}
+# Strategy-name -> implementation. Remaining stub strategies (weighted_ls,
+# vectfit, sho, white) are intentionally absent until their build steps land, so
+# an unsupported choice fails loudly instead of silently doing the wrong thing.
+# "gml"/"ml" are the Pintelon-Schoukens maximum-likelihood estimator.
+ESTIMATORS = {
+    "invfreqs": InvfreqsEstimator,
+    "gml": GMLEstimator,
+    "ml": GMLEstimator,
+}
 DESIGNERS = {"pintelon_schoukens": PintelonSchoukensDesigner}
 
 REQUIRED = {

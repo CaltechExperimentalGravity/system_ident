@@ -49,6 +49,9 @@ class TwinBackend(ChannelBackend):
         sensor_asd: float = 0.0,
         disturbance_asd: float = 0.0,
         seed: int | np.random.Generator | None = None,
+        controllers: dict[str, tuple] | None = None,
+        response_delay_samples: int = 0,
+        saturate: float | None = None,
     ) -> None:
         self.plant = plant
         self.exc_channels = dict(exc_channels)
@@ -66,6 +69,16 @@ class TwinBackend(ChannelBackend):
             dof: sig.bilinear(tf.num, tf.den, self.fs)
             for dof, tf in plant.transfer_functions.items()
         }
+        # Optional realism knobs (all off by default -> byte-identical to before):
+        #  * controllers   : per-DoF continuous feedback C(s)=(num,den); engaging a
+        #    loop so the closed-loop reference-based FRF can be exercised on the twin.
+        #  * response_delay_samples : differential transport delay on the response
+        #    path (a real DAC->analog->ADC chain), a linear phase a rational fit sees.
+        #  * saturate       : hard actuator clip, so the multisine crest factor matters.
+        self.controllers = dict(controllers) if controllers else None
+        self.response_delay_samples = int(response_delay_samples)
+        self.saturate = None if saturate is None else float(saturate)
+        self._cl = self._build_closed_loop() if self.controllers else {}
 
     @classmethod
     def from_config(
@@ -85,18 +98,37 @@ class TwinBackend(ChannelBackend):
         if not np.isclose(fs, self.fs):
             frac = Fraction(self.fs / fs).limit_denominator(1000)
             ts = sig.resample_poly(ts, frac.numerator, frac.denominator)
+        if self.saturate is not None:
+            ts = np.clip(ts, -self.saturate, self.saturate)
         self._drives[self.exc_channels[channel]] = ts
 
     def read(self, channels: list[str], duration: float) -> dict[str, np.ndarray]:
         n = int(round(duration * self.fs))
         out: dict[str, np.ndarray] = {}
+        # In closed-loop mode the drive monitor (u) and the response (y) come from
+        # one consistent loop solution with shared noise draws, so cache per DoF.
+        pair_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+        def _pair(dof: str) -> tuple[np.ndarray, np.ndarray]:
+            if dof not in pair_cache:
+                pair_cache[dof] = self._simulate_closed(dof, n)
+            return pair_cache[dof]
+
         for ch in channels:
             if ch in self.readback_channels:
-                out[ch] = self._simulate(self.readback_channels[ch], n)
+                dof = self.readback_channels[ch]
+                if self.controllers and dof in self.controllers:
+                    out[ch] = _pair(dof)[1]            # response y_meas
+                else:
+                    out[ch] = self._simulate(dof, n)
             elif ch in self.exc_channels:
-                # monitoring the drive itself
-                drive = self._drives.get(self.exc_channels[ch])
-                out[ch] = self._fit_length(drive, n)
+                dof = self.exc_channels[ch]
+                if self.controllers and dof in self.controllers:
+                    out[ch] = _pair(dof)[0]            # drive monitor u
+                else:
+                    # monitoring the drive itself
+                    drive = self._drives.get(dof)
+                    out[ch] = self._fit_length(drive, n)
             else:
                 raise KeyError(f"unknown channel {ch!r}")
         return out
@@ -132,7 +164,61 @@ class TwinBackend(ChannelBackend):
         u = self._fit_length(drive, n) if drive is not None else np.zeros(n)
         w = self._disturbance(n)
         resp = sig.lfilter(b, a, u + w)
-        return resp + self._sensor_noise(n)
+        return self._delay(resp) + self._sensor_noise(n)
+
+    def _build_closed_loop(self) -> dict:
+        """Per-DoF discrete closed-loop filters for negative feedback ``u = r - C y``.
+
+        With plant ``G = Gn/Gd``, controller ``C = Cn/Cd`` and ``D = Gd*Cd + Gn*Cn``,
+        the loop maps the independent inputs (reference ``r``, input-referred
+        disturbance ``w``, sensor noise ``n``) to the response ``y`` and the drive
+        monitor ``u`` through transfer functions that all share denominator ``D``:
+
+            y = (Gn*Cd/D)(r + w) + (Gd*Cd/D) n
+            u = (Gd*Cd/D) r - (Cn*Gn/D) w - (Cn*Gd/D) n
+
+        Each numerator is discretised against ``D`` (bilinear at ``fs``).  The
+        reference-based FRF ``mean(Y)/mean(X)`` then recovers the open-loop ``G``.
+        """
+        cl: dict[str, dict] = {}
+        for dof, tf in self.plant.transfer_functions.items():
+            if dof not in self.controllers:
+                continue
+            Gn, Gd = np.atleast_1d(tf.num), np.atleast_1d(tf.den)
+            Cn, Cd = (np.atleast_1d(np.asarray(c, dtype=float))
+                      for c in self.controllers[dof])
+            D = np.polyadd(np.polymul(Gd, Cd), np.polymul(Gn, Cn))
+            nums = {
+                "y_rw": np.polymul(Gn, Cd),     # (r + w) -> y
+                "y_n": np.polymul(Gd, Cd),      # n       -> y
+                "u_r": np.polymul(Gd, Cd),      # r       -> u
+                "u_w": -np.polymul(Cn, Gn),     # w       -> u
+                "u_n": -np.polymul(Cn, Gd),     # n       -> u
+            }
+            cl[dof] = {k: sig.bilinear(num, D, self.fs) for k, num in nums.items()}
+        return cl
+
+    def _simulate_closed(self, dof: str, n: int) -> tuple[np.ndarray, np.ndarray]:
+        """Closed-loop (u, y_meas) for ``n`` samples with shared noise draws."""
+        f = self._cl[dof]
+        drive = self._drives.get(dof)
+        r = self._fit_length(drive, n) if drive is not None else np.zeros(n)
+        w = self._disturbance(n)
+        nz = self._sensor_noise(n)
+        y = sig.lfilter(*f["y_rw"], r + w) + sig.lfilter(*f["y_n"], nz)
+        u = (sig.lfilter(*f["u_r"], r)
+             + sig.lfilter(*f["u_w"], w)
+             + sig.lfilter(*f["u_n"], nz))
+        return u, self._delay(y)
+
+    def _delay(self, x: np.ndarray) -> np.ndarray:
+        """Apply the response-path transport delay (integer samples)."""
+        d = self.response_delay_samples
+        if d <= 0:
+            return x
+        out = np.zeros_like(x)
+        out[d:] = x[:-d]
+        return out
 
     def _sensor_noise(self, n: int) -> np.ndarray:
         if self.sensor_asd == 0.0:
