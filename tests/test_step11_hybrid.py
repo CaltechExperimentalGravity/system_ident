@@ -78,6 +78,15 @@ def test_hybrid_spectrum_refine_recovers_f0_Q_gain(pf, pq, pg):
     assert abs(gain - 100.0) / 100.0 < 0.25, f"gain={gain:.0f}"
 
 
+def test_hybrid_spectrum_rejects_multimode_prior():
+    """Spectrum refine is single-resonance; a multi-mode prior fails loudly."""
+    cfg = _cfg_spectrum(1.0, 20, 100)
+    cfg["priors"]["POS"]["resonances"] = [[0.6, 15], [1.8, 25]]   # two modes
+    cfg["twin"]["plant"]["POS"]["resonances"] = [[0.6, 15], [1.8, 25]]
+    with pytest.raises(ValueError, match="single-resonance"):
+        _run(cfg)
+
+
 def test_hybrid_spectrum_segment_autosized_for_resolution():
     """The spectrum refine lengthens the Welch segment to resolve the peak."""
     from system_ident.loop import _nperseg_for_resolution

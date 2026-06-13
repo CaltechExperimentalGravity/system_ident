@@ -154,6 +154,19 @@ class SysIDLoop:
         refine = config["strategy"].get("refine", "bayesian")
         spectrum_refine = loop_mode == "hybrid" and refine == "spectrum"
         if spectrum_refine:
+            # The -3 dB-bandwidth estimator is single-resonance: a smaller mode
+            # sitting on a larger neighbour's shoulder never drops to its own
+            # half-power, so multi-mode needs per-mode windowing + single-sided
+            # width (not yet implemented). Fail loudly rather than silently
+            # no-op; multi-mode plants should use refine='bayesian' / broadband_ls.
+            for d in priors:
+                n_modes = len(_resonances_of(priors[d]))
+                if n_modes != 1:
+                    raise ValueError(
+                        f"refine='spectrum' supports single-resonance DoFs only; "
+                        f"DoF {d!r} has {n_modes} modes. Use refine='bayesian' "
+                        f"(or loop='broadband_ls') for multi-mode plants."
+                    )
             nperseg = max(nperseg, _nperseg_for_resolution(priors, fs))
             T_perseg = nperseg / fs
             total_dur = T_perseg * n_seg
