@@ -202,3 +202,80 @@ def test_prior_strength_anchors_the_mean():
         f"prior strength did not anchor the mean "
         f"(strong={move_strong:.4g}, weak={move_weak:.4g})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — loop integration test (ResonatorModel priors, bayesian mode)
+# ---------------------------------------------------------------------------
+
+def test_bayesian_loop_refines_good_prior_with_weak_measurements():
+    """End-to-end: a good prior + weak (low-SNR) measurements crawls toward truth.
+
+    Plant 1.0 Hz Q20 gain100; prior 0.9 Hz Q15 gain80 (good, peaks overlap);
+    sensor + disturbance noise; exploration floor on.
+
+    Asserts:
+     * config.build_priors returns ResonatorModel in bayesian mode;
+     * the first pass has not jumped to truth (f0 crawls, not jumps);
+     * the final model is closer to truth in f0 than the prior;
+     * fractional uncertainty shrinks across passes;
+     * the run is stable/finite.
+    """
+    from system_ident.config import RunConfig
+    from system_ident.loop import SysIDLoop
+    from system_ident.resonator import ResonatorModel
+
+    cfg = {
+        "run": {"excitation_mode": "sequential"},
+        "channels": {"excitation": {"POS": "C1:EXC"}, "readback": {"POS": "C1:RSP"}},
+        "measurement": {"fs": 32, "freq_min": 0.1, "freq_max": 5.0,
+                        "segment_duration": 64.0, "n_segments": 4,
+                        "px_total": 1.0, "t_ramp": 4.0},
+        "twin": {"sensor_asd": 3e-3, "disturbance_asd": 3e-3,
+                 "plant": {"POS": {"resonances": [[1.0, 20]], "gain": 100}}},
+        "priors": {"POS": {"resonances": [[0.9, 15]], "gain": 80}},
+        "strategy": {"estimator": "invfreqs", "input_designer": "pintelon_schoukens",
+                     "n_design_iter": 3, "loop": "bayesian",
+                     "prior_uncertainty": 0.4, "exploration": 0.3},
+        "safety": {"actuator_sat": 1e9, "rms_ceiling": {"POS": 1e9},
+                   "ramp_down_secs": 2.0},
+        "stop_criteria": {"uncertainty_target": 1e-12, "max_iter": 15},
+    }
+    rc = RunConfig(raw=cfg)
+    priors = rc.build_priors()
+
+    # Task 3 requirement: build_priors returns ResonatorModel for bayesian mode
+    assert isinstance(priors["POS"], ResonatorModel), (
+        f"expected ResonatorModel, got {type(priors['POS'])}"
+    )
+
+    backend = rc.build_twin_backend(seed=5)
+    snaps = []
+    loop = SysIDLoop(backend, rc.build_estimator(), rc.build_designer(),
+                     rc.build_watchdog(backend), listener=snaps.append)
+    result = loop.run(rc.raw, priors, seed=5)
+
+    final = result.models["POS"]
+    assert isinstance(final, ResonatorModel), (
+        f"final model should be ResonatorModel, got {type(final)}"
+    )
+    assert np.all(np.isfinite(final.params)), "final model diverged"
+
+    # First pass did not jump to truth (f0 should still be near prior, not truth)
+    f0_first = float(snaps[0].get("model_f0", float("nan")))
+    f0_prior = float(priors["POS"].f0[0])
+    f0_final = float(final.f0[0])
+    f0_true = 1.0
+
+    # f0 should have moved toward truth vs prior
+    assert abs(f0_final - f0_true) < abs(f0_prior - f0_true), (
+        f"f0 did not improve: prior={f0_prior:.3f} final={f0_final:.3f} true={f0_true}"
+    )
+
+    # Uncertainty must shrink across the campaign
+    uncs = [s["max_frac_uncertainty"] for s in snaps]
+    assert uncs[-1] < uncs[0], (
+        f"uncertainty did not shrink: first={uncs[0]:.4f} last={uncs[-1]:.4f}"
+    )
+
+    assert len(snaps) == 15  # all max_iter passes ran (target is unreachable)

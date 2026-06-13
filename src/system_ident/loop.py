@@ -37,6 +37,7 @@ from .estimators.bayesian import bayesian_update, frac_uncertainty, prior_precis
 from .excitation import timeseries_from_asd
 from .fisher import fisher_matrix
 from .model import TFModel
+from .resonator_design import optimal_excitation as _res_optimal_excitation
 from .safety import SafetyAbort
 
 
@@ -54,7 +55,7 @@ class IterationRecord:
 class LoopResult:
     """Outcome of a campaign."""
 
-    models: dict[str, TFModel]
+    models: dict  # TFModel (broadband_ls) or ResonatorModel (bayesian)
     history: list[IterationRecord] = field(default_factory=list)
     done: bool = False
     aborted: bool = False
@@ -121,12 +122,11 @@ class SysIDLoop:
             for d in dofs
         }
 
-        # Per-DoF accumulated Fisher information. Each pass adds the information
-        # it delivers (fisher_matrix at that pass's best model); the reported
-        # convergence uncertainty is inv(sum), so it tightens monotonically as
-        # passes accumulate rather than reflecting only the latest pass.
-        n_gauge = {d: priors[d].num.size + priors[d].den.size - 1 for d in dofs}
-        info = {d: np.zeros((n_gauge[d], n_gauge[d])) for d in dofs}
+        # Per-DoF accumulated Fisher information (broadband_ls only).
+        # The Bayesian mode tracks information via the posterior precision Lambda.
+        if loop_mode != "bayesian":
+            n_gauge = {d: priors[d].num.size + priors[d].den.size - 1 for d in dofs}
+            info = {d: np.zeros((n_gauge[d], n_gauge[d])) for d in dofs}
 
         # Bayesian mode: per-DoF posterior precision matrix, initialised from
         # the prior.  Not used in broadband_ls mode.
@@ -256,7 +256,8 @@ class SysIDLoop:
         if self.watchdog.aborted:
             raise SafetyAbort(self.watchdog.abort_reason or "operator STOP")
 
-        Pxx = self.designer.design(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
+        # Gauge-free optimal excitation design on the current ResonatorModel.
+        Pxx = _res_optimal_excitation(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
         # Exploration floor: blend optimal (exploit) with a flat spectrum
         # (explore), preserving the total power budget px_total.
         if exploration > 0.0:
@@ -297,15 +298,21 @@ class SysIDLoop:
         The snapshot is plain JSON-able data (keys match
         ``dashboard.ws.SNAPSHOT_FIELDS``); the loop stays independent of the
         dashboard stack.
+
+        Works for both ``TFModel`` (broadband_ls) and ``ResonatorModel``
+        (bayesian): uses ``model.to_tf()`` for the num/den dashboard fields
+        and ``model.eval(freq)`` for the magnitude.  Physical parameters
+        (f0, etc.) are included when the model exposes them.
         """
         if self.listener is None:
             return
-        self.listener({
+        tf = model.to_tf()           # TFModel for both model types (no-op for TFModel)
+        snap = {
             "iteration": it,
             "dof": dof,
             "freq": np.asarray(freq).tolist(),
-            "model_num": model.num.tolist(),
-            "model_den": model.den.tolist(),
+            "model_num": tf.num.tolist(),
+            "model_den": tf.den.tolist(),
             "model_mag": np.abs(model.eval(freq)).tolist(),
             "meas_mag": np.abs(H_acc).tolist(),
             "coherence": np.asarray(coh).tolist(),
@@ -313,7 +320,13 @@ class SysIDLoop:
             "max_frac_uncertainty": float(frac),
             "drive_level": float(drive),
             "output_rms": float(rms),
-        })
+        }
+        # Physical parameters (ResonatorModel only)
+        if hasattr(model, "f0"):
+            snap["model_f0"] = float(model.f0[0])
+            snap["model_Q"] = float(model.Q[0])
+            snap["model_gain"] = float(model.gain)
+        self.listener(snap)
 
     def _inject_all(self, dofs, exc, models, Pyy, freq, fs, total_dur,
                     px_total, n_iter, rng, t_ramp=0.0):

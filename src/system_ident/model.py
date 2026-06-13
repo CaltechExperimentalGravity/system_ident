@@ -112,6 +112,10 @@ class TFModel:
         n_num = self.n_num
         return TFModel(num=theta[:n_num], den=theta[n_num:])
 
+    def to_tf(self) -> "TFModel":
+        """Identity — returns ``self`` (completes the four-method protocol shared with ``ResonatorModel``)."""
+        return self
+
     # -- numeric surface -----------------------------------------------------
     def eval(self, freq: np.ndarray) -> np.ndarray:
         """Evaluate the complex response ``H(2j*pi*freq)`` over ``freq`` [Hz].

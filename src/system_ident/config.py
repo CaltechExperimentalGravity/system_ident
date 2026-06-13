@@ -139,10 +139,23 @@ class RunConfig:
             sensor_asd=sensor_asd, disturbance_asd=disturbance_asd, seed=seed
         )
 
-    def build_priors(self) -> dict[str, TFModel]:
+    def build_priors(self) -> dict:
+        """Return per-DoF prior models.
+
+        In ``bayesian`` loop mode the priors are :class:`ResonatorModel` (physical
+        (f0, Q, gain) parameterisation for the gauge-free MAP estimator).
+        In all other modes (``broadband_ls``) they are :class:`TFModel` as before.
+        """
         if "priors" not in self.raw:
             raise ConfigError("runs need a 'priors' section (one model per DoF)")
         spec = _resonance_spec(self.raw["priors"])
+        loop_mode = self.raw["strategy"].get("loop", "broadband_ls")
+        if loop_mode == "bayesian":
+            from .resonator import ResonatorModel
+            return {
+                dof: ResonatorModel.from_resonances(d["resonances"], d["gain"])
+                for dof, d in spec.items()
+            }
         return {
             dof: TFModel.from_resonances(d["resonances"], d["gain"], zeros=d["zeros"])
             for dof, d in spec.items()
