@@ -76,7 +76,7 @@ class RunConfig:
         cls._validate(raw)
         return cls(raw=raw, path=path)
 
-    _VALID_LOOP_MODES = {"broadband_ls", "bayesian"}
+    _VALID_LOOP_MODES = {"broadband_ls", "bayesian", "hybrid"}
 
     @staticmethod
     def _validate(raw: dict) -> None:

@@ -37,6 +37,7 @@ from .estimators.bayesian import bayesian_update, frac_uncertainty, prior_precis
 from .excitation import timeseries_from_asd
 from .fisher import fisher_matrix
 from .model import TFModel
+from .resonator import resonator_from_tf
 from .resonator_design import optimal_excitation as _res_optimal_excitation
 from .safety import SafetyAbort
 
@@ -107,6 +108,11 @@ class SysIDLoop:
         # resonance. Without it, excitation concentrated at the current (wrong)
         # model starves the true mode of information and the estimate stalls.
         exploration = float(config["strategy"].get("exploration", 0.25))
+        # Hybrid mode: broadband_ls locks the model for the first n_locate passes,
+        # then we hand off to the Bayesian MAP refinement (treating the locked
+        # model as a fairly confident prior of strength lock_uncertainty).
+        n_locate = int(config["strategy"].get("n_locate", 3))
+        lock_uncertainty = float(config["strategy"].get("lock_uncertainty", 0.15))
 
         dofs = list(priors)
         models = {d: priors[d] for d in dofs}
@@ -132,6 +138,8 @@ class SysIDLoop:
         # the prior.  Not used in broadband_ls mode.
         if loop_mode == "bayesian":
             Lambda = {d: prior_precision(priors[d], prior_uncertainty) for d in dofs}
+        elif loop_mode == "hybrid":
+            Lambda = {}   # filled at the locate -> refine transition (pass n_locate)
 
         # capture pre-run state for the safe handoff
         self.watchdog.snapshot([exc[d] for d in dofs] + [rb[d] for d in dofs])
@@ -145,9 +153,18 @@ class SysIDLoop:
         try:
             for it in range(max_iter):
                 uncertainties = {}
-                if loop_mode == "bayesian":
-                    # Bayesian mode: always optimal excitation (no broadband-first),
-                    # MAP update per DoF, uncertainty tracked via posterior precision.
+                # Hybrid handoff: after n_locate broadband_ls passes, convert each
+                # located TFModel to a ResonatorModel and seed the posterior so the
+                # remaining passes run the Bayesian MAP refinement.
+                if loop_mode == "hybrid" and it == n_locate:
+                    for d in dofs:
+                        models[d] = resonator_from_tf(models[d])
+                        Lambda[d] = prior_precision(models[d], lock_uncertainty)
+                bayesian_phase = loop_mode == "bayesian" or (
+                    loop_mode == "hybrid" and it >= n_locate)
+                if bayesian_phase:
+                    # Always optimal excitation (no broadband-first), MAP update per
+                    # DoF, uncertainty tracked via the posterior precision.
                     for d in dofs:
                         uncertainties[d] = self._measure_dof_bayesian(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,

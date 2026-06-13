@@ -1,0 +1,61 @@
+# Hybrid loop demo — the robust production pipeline:
+#
+#   system_ident run src/system_ident/configs/twin_demo_hybrid.yml --twin --yes
+#
+# broadband_ls LOCKS the model for the first `n_locate` passes (broadband
+# excitation + global invfreqs fit + accumulation) — robust to a far/wrong prior
+# (±50%), prior-independent — then hands the located model to the Bayesian MAP
+# refinement (concentrated optimal excitation, conservative small steps) for
+# ongoing low-SNR tracking. Single DoF; the prior here is deliberately +50% off.
+
+run:
+  name: twin_demo_hybrid
+  excitation_mode: sequential
+
+channels:
+  excitation:
+    POS: C1:SUS-HYB_TM_POS_EXC
+  readback:
+    POS: C1:SUS-HYB_TM_POS_RESP
+
+measurement:
+  fs: 32
+  freq_min: 0.1
+  freq_max: 5.0
+  segment_duration: 64.0
+  n_segments: 4
+  px_total: 1.0
+  t_ramp: 4.0
+
+strategy:
+  estimator: invfreqs
+  input_designer: pintelon_schoukens
+  n_design_iter: 3
+  loop: hybrid
+  n_locate: 3            # broadband_ls passes before the handoff
+  lock_uncertainty: 0.15 # prior strength handed to the refine phase
+  exploration: 0.2       # exploration floor during refinement
+
+twin:
+  sensor_asd: 3.0e-3
+  disturbance_asd: 3.0e-3
+  plant:
+    POS:
+      resonances: [[1.0, 20]]
+      gain: 100
+
+# Deliberately far (+50%) prior — broadband_ls locks it regardless.
+priors:
+  POS:
+    resonances: [[1.5, 30]]
+    gain: 150
+
+safety:
+  actuator_sat: 1.0e6
+  rms_ceiling:
+    POS: 1.0e6
+  ramp_down_secs: 2.0
+
+stop_criteria:
+  uncertainty_target: 1.0e-9
+  max_iter: 8

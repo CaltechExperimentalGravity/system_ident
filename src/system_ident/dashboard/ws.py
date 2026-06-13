@@ -32,14 +32,23 @@ SNAPSHOT_FIELDS = (
     "output_rms",
 )
 
+# Optional keys present only when the model is a physical ResonatorModel
+# (Bayesian / hybrid refinement phase); absent for coefficient-space TFModel
+# (broadband_ls). The dashboard shows them when available.
+OPTIONAL_SNAPSHOT_FIELDS = (
+    "model_f0",
+    "model_Q",
+    "model_gain",
+)
+
 # Control messages the browser may send back.
 CONTROL_STOP = "stop"
 
 
 def validate_snapshot(snapshot: dict) -> dict:
-    """Return ``snapshot`` if it carries exactly the expected fields, else raise."""
+    """Return ``snapshot`` if it carries the required fields (+ allowed optionals)."""
     missing = set(SNAPSHOT_FIELDS) - snapshot.keys()
-    extra = snapshot.keys() - set(SNAPSHOT_FIELDS)
+    extra = snapshot.keys() - set(SNAPSHOT_FIELDS) - set(OPTIONAL_SNAPSHOT_FIELDS)
     if missing or extra:
         raise ValueError(
             f"bad snapshot (missing={sorted(missing)}, unexpected={sorted(extra)})"

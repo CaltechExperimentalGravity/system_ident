@@ -122,3 +122,29 @@ class ResonatorModel:
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         modes = ", ".join(f"({f:.4g}Hz,Q{q:.4g})" for f, q in zip(self.f0, self.Q))
         return f"ResonatorModel[{modes}] gain={self.gain:.4g}"
+
+
+def resonator_from_tf(tf, log: bool = False) -> "ResonatorModel":
+    """Extract a :class:`ResonatorModel` from a :class:`~system_ident.model.TFModel`.
+
+    Reads ``(f0, Q)`` from each underdamped conjugate pole pair (roots of the
+    denominator) and fits the gain by least squares so the responses match over a
+    representative band. Used at the hybrid loop's locate-then-refine handoff
+    (broadband_ls produces a TFModel; the Bayesian refinement wants a
+    ResonatorModel).
+    """
+    den = np.asarray(tf.den, dtype=float)
+    poles = np.roots(den)
+    pairs = poles[poles.imag > 1e-9]            # one representative per conjugate pair
+    if pairs.size == 0:
+        raise ValueError("TFModel has no underdamped resonances to extract")
+    w = np.abs(pairs)
+    f0 = w / (2.0 * np.pi)
+    Q = w / (2.0 * np.abs(pairs.real))
+    # least-squares gain so the ResonatorModel response matches tf over a grid
+    fmax = float(np.max(f0)) * 4.0 + 1.0
+    grid = np.linspace(max(1e-3, float(np.min(f0)) * 0.1), fmax, 512)
+    base = ResonatorModel(f0=f0, Q=Q, gain=1.0).eval(grid)
+    target = tf.eval(grid)
+    gain = float(np.real(np.vdot(base, target) / np.vdot(base, base)))
+    return ResonatorModel(f0=f0, Q=Q, gain=gain, log=log)
