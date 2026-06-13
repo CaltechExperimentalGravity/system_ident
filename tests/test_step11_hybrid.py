@@ -52,6 +52,44 @@ def test_hybrid_cold_starts_from_far_prior(pf, pq, pg):
     assert abs(Q - 20.0) / 20.0 < 0.25, f"Q={Q:.1f} (prior {pq}, true 20)"
 
 
+def _cfg_spectrum(prior_f0, prior_Q, prior_gain, n_locate=3, max_iter=16):
+    """Hybrid config with the robust -3 dB-bandwidth (spectrum) refine."""
+    cfg = _cfg(prior_f0, prior_Q, prior_gain, n_locate=n_locate, max_iter=max_iter)
+    cfg["strategy"]["refine"] = "spectrum"
+    cfg["measurement"]["n_segments"] = 8          # enough averaging for Q variance
+    cfg["stop_criteria"]["uncertainty_target"] = 0.08
+    return cfg
+
+
+@pytest.mark.parametrize("pf,pq,pg", [(1.5, 30, 150), (0.5, 10, 50), (1.3, 12, 70)])
+def test_hybrid_spectrum_refine_recovers_f0_Q_gain(pf, pq, pg):
+    """Spectrum refine: broadband_ls locates, then the -3 dB bandwidth nails Q.
+
+    Recovers all three parameters prior-independently and unbiased, where the
+    Bayesian/LS refine left Q biased. The Welch segment is auto-sized from the
+    prior so the peak is resolved.
+    """
+    rc, be, result = _run(_cfg_spectrum(pf, pq, pg))
+    model = result.models["POS"]
+    assert isinstance(model, ResonatorModel)
+    f0, Q, gain = float(model.f0[0]), float(model.Q[0]), float(model.gain)
+    assert abs(f0 - 1.0) < 0.03, f"f0={f0:.3f}"
+    assert abs(Q - 20.0) / 20.0 < 0.25, f"Q={Q:.1f}"
+    assert abs(gain - 100.0) / 100.0 < 0.25, f"gain={gain:.0f}"
+
+
+def test_hybrid_spectrum_segment_autosized_for_resolution():
+    """The spectrum refine lengthens the Welch segment to resolve the peak."""
+    from system_ident.loop import _nperseg_for_resolution
+    from system_ident.resonator import ResonatorModel
+    fs = 32.0
+    priors = {"POS": ResonatorModel.from_resonances([(1.0, 20.0)], 100.0)}
+    nperseg = _nperseg_for_resolution(priors, fs)      # 6 bins * 2x Q safety
+    df = fs / nperseg
+    bandwidth = 1.0 / 20.0                              # f0/Q = 0.05 Hz
+    assert bandwidth / df >= 6.0, f"peak spans only {bandwidth/df:.1f} bins"
+
+
 def test_hybrid_builds_tfmodel_priors():
     """Hybrid starts in broadband_ls, so config priors are TFModels (phase 1)."""
     rc = RunConfig(raw=_cfg(1.2, 24, 120))

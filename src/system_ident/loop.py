@@ -37,10 +37,39 @@ from .estimators.bayesian import bayesian_update, frac_uncertainty, prior_precis
 from .excitation import timeseries_from_asd
 from .fisher import fisher_matrix
 from .model import TFModel
-from .resonator import resonator_from_tf
+from .resonator import ResonatorModel, resonator_from_spectrum, resonator_from_tf
 from .resonator_design import optimal_excitation as _res_optimal_excitation
 from .resonator_design import prior_robust_excitation as _res_prior_robust_excitation
 from .safety import SafetyAbort
+
+
+def _resonances_of(model):
+    """(f0, Q) pairs for a prior model (ResonatorModel or TFModel)."""
+    if hasattr(model, "f0"):                       # ResonatorModel
+        return list(zip(np.atleast_1d(model.f0), np.atleast_1d(model.Q)))
+    poles = np.roots(np.asarray(model.den, dtype=float))   # TFModel
+    out = []
+    for p in poles[poles.imag > 1e-9]:
+        out.append((abs(p) / (2 * np.pi), abs(p) / (2 * abs(p.real))))
+    return out
+
+
+def _nperseg_for_resolution(priors, fs, resolve_bins=6.0, q_safety=2.0):
+    """Smallest nperseg whose bin width resolves every prior resonance.
+
+    The half-power bandwidth f0/Q must span >= ``resolve_bins`` Welch bins for the
+    -3 dB Q estimate to be unbiased, i.e. df = fs/nperseg <= (f0/Q)/resolve_bins,
+    so nperseg >= resolve_bins * fs * Q / f0. We size from the PRIOR (f0, Q), which
+    can underestimate the true Q (within the +/-50% envelope the true Q can be ~2x
+    the prior), so a ``q_safety`` factor pessimistically narrows the assumed
+    bandwidth. Returns the max over all prior modes.
+    """
+    need = 0.0
+    for m in priors.values():
+        for f0, Q in _resonances_of(m):
+            if f0 > 0:
+                need = max(need, resolve_bins * fs * (q_safety * Q) / f0)
+    return int(np.ceil(need))
 
 
 @dataclass
@@ -118,9 +147,26 @@ class SysIDLoop:
         _base_band = lock_uncertainty if loop_mode == "hybrid" else prior_uncertainty
         exc_band = max(_base_band, 0.2)
 
+        # Refine estimator: "bayesian" (MAP, default) or "spectrum" (robust -3 dB
+        # half-power bandwidth). The spectrum refine needs the resonance peak
+        # resolved, so auto-size the Welch segment from the prior's (f0, Q) -- this
+        # only lengthens the segment, never shortens it, and re-derives the grid.
+        refine = config["strategy"].get("refine", "bayesian")
+        spectrum_refine = loop_mode == "hybrid" and refine == "spectrum"
+        if spectrum_refine:
+            nperseg = max(nperseg, _nperseg_for_resolution(priors, fs))
+            T_perseg = nperseg / fs
+            total_dur = T_perseg * n_seg
+            f_all = np.fft.rfftfreq(nperseg, d=1 / fs)
+            band = (f_all >= float(m["freq_min"])) & (f_all <= float(m["freq_max"]))
+            freq = f_all[band]
+
         dofs = list(priors)
         models = {d: priors[d] for d in dofs}
         result = LoopResult(models=models)
+        # Per-DoF history of independent spectrum-refine estimates (f0, Q, gain),
+        # combined by running median; the across-pass scatter gives the uncertainty.
+        spectrum_hist = {d: {"f0": [], "Q": [], "gain": []} for d in dofs}
 
         # Per-DoF accumulator for inverse-variance combination of every pass's
         # measured response on the (fixed) Welch grid. Each pass is an
@@ -167,14 +213,22 @@ class SysIDLoop:
                 bayesian_phase = loop_mode == "bayesian" or (
                     loop_mode == "hybrid" and it >= n_locate)
                 if bayesian_phase:
-                    # Always optimal excitation (no broadband-first), MAP update per
-                    # DoF, uncertainty tracked via the posterior precision.
+                    # Concentrated prior-robust excitation per DoF; refine the model
+                    # either by the robust -3 dB-bandwidth estimator (spectrum) or
+                    # the Bayesian MAP step (default).
                     for d in dofs:
-                        uncertainties[d] = self._measure_dof_bayesian(
-                            it, d, exc[d], rb[d], models, Pyy, freq, fs,
-                            nperseg, band, total_dur, px_total, n_iter, t_ramp,
-                            rng, result, Lambda, exc_band,
-                        )
+                        if spectrum_refine:
+                            uncertainties[d] = self._measure_dof_spectrum(
+                                it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                                nperseg, band, total_dur, px_total, n_iter, t_ramp,
+                                rng, result, exc_band, spectrum_hist[d],
+                            )
+                        else:
+                            uncertainties[d] = self._measure_dof_bayesian(
+                                it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                                nperseg, band, total_dur, px_total, n_iter, t_ramp,
+                                rng, result, Lambda, exc_band,
+                            )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                 else:
@@ -203,7 +257,13 @@ class SysIDLoop:
                                 t_ramp=t_ramp,
                             )
 
-                if all(u <= target for u in uncertainties.values()):
+                # Judge convergence on the refine phase only: the hybrid locate
+                # phase (broadband_ls) reports an over-confident Fisher uncertainty
+                # that would otherwise stop the loop before any refinement.
+                in_refine = loop_mode != "hybrid" or it >= n_locate
+                if in_refine and uncertainties and all(
+                    u <= target for u in uncertainties.values()
+                ):
                     result.done = True
                     break
         except SafetyAbort as exc_err:
@@ -305,6 +365,66 @@ class SysIDLoop:
                 iteration=it, dof=dof, max_frac_uncertainty=frac,
                 output_rms=report.output_rms.get(dof, float("nan")),
             )
+        )
+        self._emit(
+            it, dof, freq, models[dof], Pxx, H_meas, coh, frac,
+            report.drive_peaks.get(exc_ch, float("nan")),
+            report.output_rms.get(dof, float("nan")),
+        )
+        return frac
+
+    def _measure_dof_spectrum(
+        self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
+        total_dur, px_total, n_iter, t_ramp, rng, result, exc_band, hist,
+    ) -> float:
+        """One spectrum-refine pass: estimate (f0, Q, gain) from the half-power
+        bandwidth of this (independent) measurement, then combine with previous
+        passes by running median; the across-pass scatter gives the uncertainty.
+
+        Robust where the MAP/LS fit is fragile: Q comes from the bins around the
+        peak (``resonator_from_spectrum``), not a fit to the window-distorted shape.
+        Each pass is an independent measurement, so the running estimate tightens
+        as ~1/sqrt(n_passes) (Q is variance-limited).
+        """
+        if self.watchdog.aborted:
+            raise SafetyAbort(self.watchdog.abort_reason or "operator STOP")
+
+        Pxx = _res_prior_robust_excitation(
+            freq, models[dof], Pyy[dof], px_total, exc_band, n_iter=n_iter
+        )
+        drive = timeseries_from_asd(total_dur, fs, freq, np.sqrt(Pxx), seed=rng,
+                                    t_ramp=t_ramp)
+        self.backend.inject(exc_ch, drive, fs)
+        seg = self.backend.read([rb_ch, exc_ch], total_dur)
+        report = self.watchdog.check(seg)
+
+        H_meas, _, coh = self._estimate_tf(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+        f0_guess = float(np.atleast_1d(models[dof].f0)[0])
+        try:
+            est = resonator_from_spectrum(freq, np.abs(H_meas), f0_guess=f0_guess)
+            hist["f0"].append(float(est.f0[0]))
+            hist["Q"].append(float(est.Q[0]))
+            hist["gain"].append(float(est.gain))
+        except ValueError:
+            pass   # under-resolved / no clean peak this pass -> skip, keep prior passes
+
+        # running median estimate + robust across-pass uncertainty (SEM ~ sigma/sqrt(n))
+        n = len(hist["Q"])
+        if n >= 1:
+            f0m, Qm, gm = (float(np.median(hist[k])) for k in ("f0", "Q", "gain"))
+            models[dof] = ResonatorModel.from_resonances([(f0m, Qm)], gm)
+        if n >= 3:
+            def _sem_frac(vals, med):
+                sigma = 1.4826 * float(np.median(np.abs(np.asarray(vals) - med)))
+                return sigma / np.sqrt(n) / max(abs(med), 1e-30)
+            frac = max(_sem_frac(hist["f0"], f0m), _sem_frac(hist["Q"], Qm),
+                       _sem_frac(hist["gain"], gm))
+        else:
+            frac = 1.0    # not enough passes yet to assess precision
+
+        result.history.append(
+            IterationRecord(iteration=it, dof=dof, max_frac_uncertainty=frac,
+                            output_rms=report.output_rms.get(dof, float("nan")))
         )
         self._emit(
             it, dof, freq, models[dof], Pxx, H_meas, coh, frac,
