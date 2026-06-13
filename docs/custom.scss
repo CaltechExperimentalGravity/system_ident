@@ -1,0 +1,511 @@
+/*-- scss:defaults --*/
+
+// ─── Typography ────────────────────────────────────────────────────────────
+// Clean, technical headings (Outfit / Inter) paired with a readable
+// serif body (Source Serif 4) and monospace code (JetBrains Mono).
+$font-family-sans-serif: 'Outfit', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif !default;
+$font-family-base:       'Source Serif 4', 'Georgia', 'Times New Roman', serif !default;
+$font-family-monospace:  'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', monospace !default;
+$headings-font-family:   'Outfit', 'Inter', system-ui, sans-serif !default;
+$headings-font-weight:   600 !default;
+$line-height-base:       1.78 !default;
+$font-size-base:         1.01rem !default;
+
+// ─── Interferometry palette ────────────────────────────────────────────────
+// Deep-space navy backgrounds, laser-sky blue highlights, gold fringes.
+$sysid-navy-900: #040D1A;
+$sysid-navy-800: #0A1628;
+$sysid-navy-700: #0B2447;
+$sysid-navy-600: #12305E;
+$sysid-navy-500: #19376D;
+$sysid-sky-600:  #0A6E99;
+$sysid-sky-500:  #1F8AC0;
+$sysid-sky-400:  #2FA0D4;
+$sysid-sky-200:  #8ED4EE;
+$sysid-gold-600: #A37626;
+$sysid-gold-500: #C8973A;
+$sysid-gold-300: #E5C67A;
+
+// Bootstrap system palette overrides
+$primary:   $sysid-navy-500 !default;
+$secondary: $sysid-sky-500  !default;
+$info:      $sysid-sky-400  !default;
+$warning:   $sysid-gold-500 !default;
+$success:   #2D9D6B         !default;
+$danger:    #C53030         !default;
+
+$link-color:       $sysid-sky-500 !default;
+$link-hover-color: $sysid-sky-600 !default;
+
+// Quarto navbar
+$navbar-bg: $sysid-navy-800 !default;
+$navbar-fg: rgba(255, 255, 255, 0.88) !default;
+$navbar-hl: $sysid-sky-200  !default;
+
+// Quarto footer
+$footer-bg: $sysid-navy-900 !default;
+$footer-fg: rgba(255, 255, 255, 0.55) !default;
+
+// Callout accent colors
+$callout-color-note:      $sysid-sky-500  !default;
+$callout-color-tip:       #2D9D6B         !default;
+$callout-color-warning:   $sysid-gold-500 !default;
+$callout-color-important: #C53030         !default;
+$callout-color-caution:   #C05621         !default;
+
+$border-radius:    6px !default;
+$border-radius-lg: 12px !default;
+
+
+/*-- scss:rules --*/
+
+// ─── Google Fonts ──────────────────────────────────────────────────────────
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+
+// ─── CSS custom properties (light / dark adaptive) ────────────────────────
+:root {
+  --sysid-hero-start:        #040D1A;
+  --sysid-hero-mid:          #0B2447;
+  --sysid-hero-end:          #12305E;
+  --sysid-hero-text:         rgba(255, 255, 255, 0.96);
+  --sysid-hero-subtext:      rgba(210, 230, 250, 0.85);
+  --sysid-hero-eyebrow:      rgba(140, 200, 235, 0.75);
+  --sysid-feature-bg:        #F0F4FA;
+  --sysid-feature-border:    #DCE5F0;
+  --sysid-feature-shadow:    rgba(11, 36, 71, 0.07);
+  --sysid-feature-text:      #1A2340;
+  --sysid-stat-bg:           #FFFFFF;
+  --sysid-stat-border:       #E2EAF4;
+  --sysid-divider:           rgba(30, 60, 100, 0.12);
+  --sysid-code-bg:           #F0F4F8;
+  --sysid-inline-code-color: #C0392B;
+  --sysid-sky:               #1F8AC0;
+  --sysid-gold:              #C8973A;
+  --sysid-navy:              #0B2447;
+}
+
+[data-bs-theme="dark"] {
+  --sysid-feature-bg:        #131E33;
+  --sysid-feature-border:    #1E2E4A;
+  --sysid-feature-shadow:    rgba(0, 0, 0, 0.30);
+  --sysid-feature-text:      #D6E4F5;
+  --sysid-stat-bg:           #0D1A2E;
+  --sysid-stat-border:       #1A2A45;
+  --sysid-divider:           rgba(100, 140, 200, 0.15);
+  --sysid-code-bg:           #0D1F3C;
+  --sysid-inline-code-color: #7EC8E3;
+}
+
+// ─── Global typography refinements ────────────────────────────────────────
+body {
+  font-feature-settings: "liga" 1, "kern" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+}
+
+h1 { font-weight: 700; }
+h2 { font-weight: 600; }
+h3 { font-weight: 600; }
+
+p { max-width: 72ch; }
+
+// Make links inside long prose clean
+article a, .content a {
+  text-decoration: underline;
+  text-decoration-color: rgba(31, 138, 192, 0.35);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease;
+  &:hover { text-decoration-color: rgba(31, 138, 192, 0.9); }
+}
+
+// ─── Navbar ────────────────────────────────────────────────────────────────
+.navbar {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.35);
+
+  .navbar-brand {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+    color: #FFFFFF !important;
+  }
+
+  .nav-link {
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: color 0.15s ease;
+  }
+}
+
+// ─── Hero banner (landing page) ────────────────────────────────────────────
+.hero-banner {
+  background: linear-gradient(
+    145deg,
+    var(--sysid-hero-start)  0%,
+    var(--sysid-hero-mid)   55%,
+    var(--sysid-hero-end)  100%
+  );
+  position: relative;
+  overflow: hidden;
+  padding: 5.5rem 2rem 4.5rem;
+  text-align: center;
+  color: var(--sysid-hero-text);
+
+  // Subtle radial glow behind title
+  &::before {
+    content: '';
+    position: absolute;
+    top: -20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 600px;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(31, 138, 192, 0.18) 0%,
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+
+  // Interferometer fringe lines (decorative)
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 119px,
+      rgba(255, 255, 255, 0.018) 120px
+    );
+    pointer-events: none;
+  }
+}
+
+.hero-eyebrow {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sysid-hero-eyebrow);
+  margin-bottom: 1.25rem;
+}
+
+.hero-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: #FFFFFF;
+  margin-bottom: 1.5rem;
+}
+
+.hero-accent {
+  background: linear-gradient(90deg, #63BBE0, #C8973A);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-subtitle {
+  font-family: 'Source Serif 4', serif;
+  font-size: clamp(1.0rem, 2vw, 1.2rem);
+  font-weight: 300;
+  line-height: 1.75;
+  color: var(--sysid-hero-subtext);
+  max-width: 680px;
+  margin: 0 auto 2.25rem;
+}
+
+.hero-ctas {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+
+  .btn {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+    padding: 0.65rem 1.75rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+  }
+
+  .btn-primary {
+    background: var(--sysid-sky);
+    border-color: var(--sysid-sky);
+    color: #FFFFFF;
+    &:hover {
+      background: #2FA0D4;
+      border-color: #2FA0D4;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(31, 138, 192, 0.4);
+    }
+  }
+
+  .btn-outline-light {
+    border-color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.88);
+    &:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.7);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+  }
+}
+
+// ─── Feature cards ─────────────────────────────────────────────────────────
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+  margin: 3rem 0;
+}
+
+.feature-card {
+  background: var(--sysid-feature-bg);
+  border: 1px solid var(--sysid-feature-border);
+  border-radius: 10px;
+  padding: 1.75rem;
+  box-shadow: 0 2px 12px var(--sysid-feature-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color: var(--sysid-feature-text);
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 28px var(--sysid-feature-shadow);
+  }
+
+  .feature-icon {
+    font-size: 1.8rem;
+    margin-bottom: 0.85rem;
+    display: block;
+  }
+
+  h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: inherit;
+  }
+
+  p {
+    font-family: 'Source Serif 4', serif;
+    font-size: 0.93rem;
+    line-height: 1.65;
+    margin-bottom: 0;
+    opacity: 0.85;
+    max-width: none;
+  }
+}
+
+// ─── Stat pills ────────────────────────────────────────────────────────────
+.stat-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 2.5rem 0;
+}
+
+.stat-pill {
+  background: var(--sysid-stat-bg);
+  border: 1px solid var(--sysid-stat-border);
+  border-radius: 40px;
+  padding: 0.6rem 1.4rem;
+  text-align: center;
+
+  .stat-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--sysid-sky);
+    line-height: 1.1;
+  }
+
+  .stat-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.65;
+    display: block;
+  }
+}
+
+// ─── Section headings / dividers ───────────────────────────────────────────
+.section-label {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sysid-sky);
+  margin-bottom: 0.4rem;
+}
+
+.page-section {
+  padding: 3.5rem 0 2.5rem;
+  border-top: 1px solid var(--sysid-divider);
+}
+
+// ─── Quickstart code block on landing page ─────────────────────────────────
+.quickstart-block {
+  background: #050E1C;
+  border: 1px solid rgba(31, 138, 192, 0.25);
+  border-radius: 10px;
+  padding: 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.86rem;
+  line-height: 1.7;
+  overflow-x: auto;
+  max-width: 680px;
+  margin: 0 auto;
+  color: #C9D8EA;
+
+  .qs-prompt { color: #63BBE0; user-select: none; }
+  .qs-comment { color: #5C7A9E; }
+  .qs-string  { color: #C8973A; }
+  .qs-keyword { color: #C87ACC; }
+  .qs-output  { color: #87C68A; font-style: italic; }
+}
+
+// ─── Inline code ───────────────────────────────────────────────────────────
+p code, li code, td code {
+  background: var(--sysid-code-bg);
+  color: var(--sysid-inline-code-color);
+  padding: 0.12em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+
+// ─── Code blocks ───────────────────────────────────────────────────────────
+pre.sourceCode, div.sourceCode {
+  border-radius: 8px;
+  border: 1px solid rgba(31, 138, 192, 0.15);
+  background: #070E1C !important;
+
+  code {
+    background: transparent !important;
+    color: #C9D8EA;
+  }
+}
+
+// ─── Callout boxes ─────────────────────────────────────────────────────────
+.callout {
+  border-radius: 8px;
+  border-left-width: 4px;
+}
+
+.callout-note {
+  border-left-color: #1F8AC0 !important;
+  background-color: rgba(31, 138, 192, 0.07) !important;
+}
+
+.callout-tip {
+  border-left-color: #2D9D6B !important;
+  background-color: rgba(45, 157, 107, 0.07) !important;
+}
+
+.callout-warning {
+  border-left-color: #C8973A !important;
+  background-color: rgba(200, 151, 58, 0.07) !important;
+}
+
+.callout-important {
+  border-left-color: #C53030 !important;
+  background-color: rgba(197, 48, 48, 0.07) !important;
+}
+
+// ─── Figure captions ───────────────────────────────────────────────────────
+.quarto-float-caption {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.83rem;
+  color: #5A7090;
+  text-align: center;
+  margin-top: 0.5rem;
+  font-style: normal;
+  letter-spacing: 0.01em;
+}
+
+[data-bs-theme="dark"] .quarto-float-caption {
+  color: #7A9AB8;
+}
+
+// ─── Table styling ─────────────────────────────────────────────────────────
+.table {
+  font-size: 0.93rem;
+  th {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.7;
+  }
+}
+
+// ─── API reference pages ───────────────────────────────────────────────────
+.doc-function-name, .doc-anchor {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+
+// ─── TOC sidebar refinements ───────────────────────────────────────────────
+#quarto-sidebar-toc-left .toc-item a,
+#TOC .nav-link {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+#quarto-sidebar-toc-left .toc-item a.active,
+#TOC .nav-link.active {
+  font-weight: 600;
+  color: var(--sysid-sky);
+}
+
+// ─── Homepage layout overrides ─────────────────────────────────────────────
+.page-full .page-columns {
+  max-width: none;
+  padding: 0;
+}
+
+// ─── Footer ────────────────────────────────────────────────────────────────
+.nav-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.83rem;
+}
+
+// ─── Smooth scrolling ─────────────────────────────────────────────────────
+html { scroll-behavior: smooth; }
+
+// ─── Selection color ───────────────────────────────────────────────────────
+::selection {
+  background: rgba(31, 138, 192, 0.25);
+  color: inherit;
+}
+
+// ─── Responsive tweaks ─────────────────────────────────────────────────────
+@media (max-width: 768px) {
+  .hero-banner { padding: 4rem 1.5rem 3rem; }
+  .hero-title  { font-size: 2rem; }
+  .feature-grid { grid-template-columns: 1fr; }
+  .stat-row { gap: 0.75rem; }
+}

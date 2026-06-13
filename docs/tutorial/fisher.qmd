@@ -2,39 +2,209 @@
 title: "Fisher information & optimal excitation"
 ---
 
-The Fisher matrix turns *(model, excitation PSD `Pxx`, quiet readout PSD `Pyy`,
-measurement time)* into the information the experiment yields about the model
-parameters; its inverse is the parameter covariance. The **dispersion function**
-`ν(f)` measures how much each frequency bin contributes to that information given
-the current excitation. Reallocating drive power toward high-`ν` bins — under a
-fixed total-power budget — is a fixed-point iteration that converges to the
-optimal excitation (Pintelon & Schoukens §5.4.2).
+## From model to measurement budget
+
+Every measurement experiment faces the same tension: you have a finite amount of
+drive power (bounded by actuator saturation) and a finite measurement time (bounded
+by how long you can hold an interferometer in a non-standard state).  The question
+is not *how much* to drive, but *where*.
+
+The **Fisher information matrix** `I(θ)` is the bridge.
+It quantifies, for a given model θ and experimental design (Pxx, T, Pyy),
+exactly how many *nats* of information the experiment carries about each parameter
+and each pair of parameters.  Its inverse is the Cramér–Rao lower bound — the best
+any unbiased estimator can do.
+
+For a single-input / single-output LTI system `G(f; θ)` driven with PSD `Pxx(f)`,
+measured in additive noise with PSD `Pyy(f)`, over time `T`:
+
+$$
+I_{ij}(\theta) = T \int_0^{f_s/2}
+  \frac{P_{xx}(f)}{P_{yy}(f)}
+  \operatorname{Re}\!\left[
+    \frac{\partial G^*(f;\theta)}{\partial \theta_i}
+    \frac{\partial G(f;\theta)}{\partial \theta_j}
+  \right] df
+$$
+
+`system_ident` exposes this as `fisher.fisher_matrix` and `fisher.parameter_covariance`.
+
+## The dispersion function
+
+Define the **dispersion** at frequency f as the per-bin log-det Fisher gain
+per unit drive power:
+
+$$
+\nu(f) = \log \det\left[I(\theta) + \frac{1}{P_{yy}(f)} \frac{\partial G}{\partial \theta}
+   \frac{\partial G^\dagger}{\partial \theta}\right] - \log \det I(\theta)
+$$
+
+High ν(f) means that a marginal unit of drive power at frequency f
+adds the most information to the experiment — it is where the resonance is
+strongly excited and the readout noise is not overwhelming the response.
+Reallocating drive power toward high-ν bins — under a fixed total-power budget —
+is the Pintelon–Schoukens fixed-point iteration that converges to the optimal
+excitation spectrum.
+
+## Interactive comparison
+
+The figure below shows the result for a simple 1 Hz resonance with Q = 20.
+The **top panel** is the plant |G(f)|, annotated at the resonance peak.
+The **bottom panel** compares the drive ASDs: the optimal allocation
+(gold, filled) vs a flat sweep of equal total power (gray, dashed).
+Hover over either curve to read exact values; zoom in on the resonance to see
+how tightly the optimal drive brackets it.
 
 ```{python}
 #| label: fig-optimal-excitation
-#| fig-cap: "Optimal excitation vs a flat drive of equal power, for a 1 Hz resonance."
+#| fig-cap: "Optimal excitation vs flat drive of equal power, for a 1 Hz / Q=20 resonance. The optimal drive piles power at the resonance; the flat drive spreads it uniformly. Zoom in on 0.8–1.2 Hz to compare."
+#| echo: false
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 from system_ident.model import TFModel
 from system_ident.design.pintelon import optimal_excitation
+from system_ident.fisher import parameter_covariance, dispersion
 
-freq = np.linspace(0.2, 3.0, 400)
-model = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
-Pyy = np.ones_like(freq)                       # white readout noise
-Px_tot = 1.0                                   # fixed drive-power budget
+freq   = np.linspace(0.1, 4.0, 600)
+model  = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
+Pyy    = np.ones_like(freq)
+Px_tot = 1.0
 
-Pxx_opt = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=3)
+Pxx_opt  = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+resp     = np.abs(model.eval(freq))
 
-fig, ax = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
-ax[0].semilogy(freq, np.abs(model.eval(freq)))
-ax[0].set_ylabel("|G(f)|")
-ax[1].plot(freq, np.sqrt(Pxx_opt), label="optimal")
-ax[1].plot(freq, np.sqrt(Pxx_flat), "--", label="flat (equal power)")
-ax[1].set_xlabel("Frequency [Hz]"); ax[1].set_ylabel("drive ASD"); ax[1].legend()
-plt.show()
+T_tot    = 256.0
+cov_opt  = parameter_covariance(freq, model, Pxx_opt,  Pyy, T_tot)
+cov_flat = parameter_covariance(freq, model, Pxx_flat, Pyy, T_tot)
+ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
+
+SKY  = '#1F8AC0'
+GOLD = '#C8973A'
+GRAY = '#94A3B8'
+
+fig = make_subplots(
+    rows=2, cols=1,
+    shared_xaxes=True,
+    subplot_titles=[
+        '<b>Plant response</b>  |G(f)|',
+        f'<b>Excitation design</b>  — same total power, {ratio:.0f}× variance reduction',
+    ],
+    vertical_spacing=0.08,
+)
+
+# Top: plant response
+fig.add_trace(go.Scatter(
+    x=freq, y=resp,
+    mode='lines', line=dict(color=SKY, width=2.5),
+    name='|G(f)|',
+    hovertemplate='%{x:.2f} Hz   |G| = %{y:.4f}<extra></extra>',
+), row=1, col=1)
+
+f0_idx = np.argmax(resp)
+fig.add_annotation(
+    x=freq[f0_idx], y=resp[f0_idx],
+    xref='x', yref='y',
+    text='<b>f₀ = 1 Hz, Q = 20</b>',
+    showarrow=True, arrowhead=2, arrowsize=1.1,
+    arrowcolor='rgba(200,151,58,0.75)',
+    ax=60, ay=-35,
+    font=dict(size=11, color=GOLD, family='Outfit, sans-serif'),
+    row=1, col=1,
+)
+
+# Bottom: excitations
+fig.add_trace(go.Scatter(
+    x=freq, y=np.sqrt(Pxx_opt),
+    mode='lines',
+    fill='tozeroy', fillcolor='rgba(200,151,58,0.15)',
+    line=dict(color=GOLD, width=2.5),
+    name='Optimal  (Fisher-matched)',
+    hovertemplate='%{x:.2f} Hz   ASD = %{y:.4f}<extra></extra>',
+), row=2, col=1)
+
+fig.add_trace(go.Scatter(
+    x=freq, y=np.sqrt(Pxx_flat),
+    mode='lines', line=dict(color=GRAY, width=1.8, dash='dash'),
+    name='Flat  (equal total power)',
+    hovertemplate='%{x:.2f} Hz   ASD = %{y:.4f}<extra></extra>',
+), row=2, col=1)
+
+fig.update_layout(
+    template='plotly_white', height=500,
+    margin=dict(l=60, r=20, t=50, b=55),
+    font=dict(family='Outfit, Inter, sans-serif', size=12),
+    legend=dict(
+        orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
+        font=dict(size=11), bgcolor='rgba(255,255,255,0.9)',
+        bordercolor='#DCE5F0', borderwidth=1,
+    ),
+)
+
+fig.update_yaxes(title_text='|G(f)|', type='log', row=1, col=1,
+                 gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='Drive ASD', row=2, col=1,
+                 gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='Frequency  [Hz]', row=2, col=1,
+                 gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(gridcolor='rgba(30,60,100,0.07)', row=1, col=1)
+
+fig.show()
 ```
 
-The optimal drive piles power onto the resonance, where the model parameters are
-most observable. The [examples](../examples/01-single-resonance.qmd) quantify the
-resulting covariance reduction.
+::: {.callout-note}
+## Reading the figure
+
+The optimal drive is **not** centred exactly at f₀ — it is shaped by both the
+Jacobian ∂G/∂θ (which peaks near f₀ but is nonzero over a bandwidth set by 1/Q)
+and the readout noise PSD Pyy(f).  With flat white noise the result is nearly
+Lorentzian, but on real hardware where Pyy rises steeply below ~0.3 Hz,
+the optimal drive shifts to higher frequencies where the SNR is better.
+:::
+
+## Variance reduction in numbers
+
+```{python}
+#| label: tbl-variance
+#| echo: false
+print(f"{'Excitation':<28} {'Max parameter variance':>24}   {'Relative'}")
+print("-" * 65)
+print(f"{'Flat (equal power)':<28} {np.max(np.diag(cov_flat)):>24.3e}   1.0 ×")
+print(f"{'Optimal (Fisher-matched)':<28} {np.max(np.diag(cov_opt)):>24.3e}   {1/ratio:.4f} ×  ({ratio:.0f}× lower)")
+```
+
+::: {.callout-tip}
+## How the iteration converges
+
+`optimal_excitation(freq, model, Pyy, Px_tot, n_iter=3)` runs three rounds of the
+fixed-point update.  In practice 3–6 iterations are enough; you can verify
+convergence by comparing the output ASD across successive calls.
+The API is:
+
+```python
+from system_ident.design.pintelon import optimal_excitation
+
+Pxx = optimal_excitation(
+    freq,       # frequency array [Hz]
+    model,      # TFModel (current prior)
+    Pyy,        # readout noise PSD [units²/Hz]
+    Px_tot,     # total drive power budget [units²]
+    n_iter=3,   # fixed-point iterations
+)
+```
+:::
+
+## What happens at each iteration
+
+Starting from a flat initial guess `Pxx⁽⁰⁾`, each iteration:
+
+1. Compute the Fisher matrix `I(θ; Pxx⁽ᵏ⁾)` and its Jacobian.
+2. Evaluate the dispersion `ν⁽ᵏ⁾(f)` at every frequency bin.
+3. Water-fill: `Pxx⁽ᵏ⁺¹⁾(f) ∝ max(ν⁽ᵏ⁾(f) − λ, 0)` where λ is chosen so
+   `∫ Pxx⁽ᵏ⁺¹⁾ df = Px_tot`.
+4. Repeat.
+
+After convergence the excitation is synthesised as a time series via
+`excitation.timeseries_from_asd` (random phases, Tukey-windowed, sample-rate aware).

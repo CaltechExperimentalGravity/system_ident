@@ -2,26 +2,102 @@
 title: "Closing the loop"
 ---
 
-With a measured transfer function in hand, the **estimator** re-fits the model.
-The default `InvfreqsEstimator` is a weighted least-squares fit (a modernised
-`invfreqs`): it minimises `|num/den − H|²` weighted by the inverse measurement
-variance, holding the model order fixed at the prior's.
+## The estimator: from measured TF to updated model
 
-`SysIDLoop` runs the full campaign per degree of freedom. The first pass uses a
-flat, broadband excitation so the global fit is well conditioned; later passes
-use the optimal designer to sharpen the now-trusted parameters. Crucially, each
-pass is an independent measurement of the same LTI system on a fixed Welch grid,
-so passes are combined by **inverse-variance weighting** per frequency bin and
-the model is re-fit on the accumulated estimate — broadband coverage from pass
-one is retained while resonance information from the optimal passes is folded in.
-The loop stops when every DoF reaches the fractional-uncertainty target, the
-iteration budget is spent, or the watchdog aborts.
+With a measured transfer function `H_meas(f)` and measurement uncertainty
+`σ(f) = |H_err(f)|` in hand, the **estimator** re-fits the model.
+
+The default `InvfreqsEstimator` is a weighted least-squares fit — a
+modernised `invfreqs` — that minimises
+
+$$
+\sum_k \frac{|H_{\text{meas}}(f_k) - G(f_k;\theta)|^2}{\sigma^2(f_k)}
+$$
+
+holding the model order fixed at the prior's.  The prior provides the initial
+parameter guess and the polynomial structure; the estimator updates the coefficients.
+This is a nonlinear optimisation (the denominator parameters appear nonlinearly),
+solved by iterative linearisation around the current parameter estimate.
+
+::: {.callout-note}
+## Why fixed order?
+
+Fixing the model order at the prior's prevents spurious modes from appearing
+during convergence.  The prior encodes our physical knowledge of the plant's
+pole/zero structure; the estimator refines the *locations*, not the *number* of
+modes.  Adding modes is a modelling decision made at campaign setup time,
+not an automatic step.
+:::
+
+## Inverse-variance accumulation
+
+Each pass produces a new complex transfer function estimate `H⁽ⁿ⁾(f)` with
+per-frequency uncertainty `σ⁽ⁿ⁾(f)`.  Instead of discarding earlier passes,
+`SysIDLoop` combines them:
+
+$$
+H_{\text{acc}}(f) = \frac{\sum_n H^{(n)}(f) / [\sigma^{(n)}(f)]^2}
+                         {\sum_n 1 / [\sigma^{(n)}(f)]^2},
+\qquad
+\sigma_{\text{acc}}(f) = \left[\sum_n \frac{1}{[\sigma^{(n)}(f)]^2}\right]^{-1/2}
+$$
+
+This **inverse-variance weighting** is optimal (minimum-variance) when measurement
+errors are Gaussian and independent across passes.  The crucial consequence:
+pass 1 (flat, broadband) contributes everywhere; later optimal passes contribute
+most near the resonances they targeted.  Neither is discarded.
+
+## Pass strategy
+
+```
+Pass 1:  flat broadband excitation  →  global conditioning, rough model
+Pass 2:  optimal excitation (from pass-1 model)  →  concentrate on resonances
+Pass 3+: optimal excitation (updated model)       →  converge parameters
+```
+
+The loop terminates when the fractional uncertainty target is reached for every DoF,
+the iteration budget is spent, or the watchdog triggers.
+
+::: {.callout-tip}
+## Fractional uncertainty
+
+The stop criterion is
+`max_i  sqrt(Cov(θ)_{ii}) / |θᵢ| < target`,
+where `Cov(θ) = I(θ)⁻¹` is the Cramér–Rao bound.
+A target of 0.05 (5 %) is conservative for most suspension campaigns.
+:::
+
+## Code sketch
 
 ```python
 from system_ident.loop import SysIDLoop
-result = SysIDLoop(backend, estimator, designer, watchdog).run(config, priors, seed=0)
-print(result.done, {d: round(m.den[1], 3) for d, m in result.models.items()})
+
+result = SysIDLoop(
+    backend,    # TwinBackend or future CDS backend
+    estimator,  # InvfreqsEstimator
+    designer,   # PintelonSchoukensDesigner
+    watchdog,   # Watchdog (checks actuator sat + RMS each segment)
+).run(config, priors, seed=0)
+
+print(result.done)   # True if target reached
+for dof, model in result.models.items():
+    print(f"{dof}  den: {model.den}")
 ```
 
 See the [multi-DoF suspension example](../examples/04-suspension-multidof.qmd)
-for a full run with a convergence plot.
+for a full executed run with convergence and Bode plots.
+
+## History and diagnostics
+
+`result.history` is a list of `LoopResult` records — one per (DoF, pass) pair —
+each carrying:
+
+| Field | Meaning |
+|-------|---------|
+| `dof` | degree of freedom |
+| `iteration` | pass index (1-based) |
+| `model` | `TFModel` at the end of that pass |
+| `max_frac_uncertainty` | worst-parameter fractional uncertainty |
+| `done` | whether the DoF had already converged |
+
+These records are the raw material for convergence plots.

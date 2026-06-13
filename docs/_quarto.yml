@@ -12,7 +12,10 @@ project:
 website:
   title: "system_ident"
   description: "Optimal-excitation system identification for LIGO suspensions."
+  favicon: "favicon.svg"
   navbar:
+    logo: "favicon.svg"
+    logo-alt: "system_ident logo"
     left:
       - href: index.qmd
         text: Home
@@ -31,30 +34,47 @@ website:
       - text: Examples
         menu:
           - href: examples/01-single-resonance.qmd
-            text: Single resonance
+            text: "01  Single resonance"
           - href: examples/02-double-pendulum.qmd
-            text: Double pendulum
+            text: "02  Double pendulum"
           - href: examples/03-fabry-perot-cavity.qmd
-            text: Fabry-Perot cavity
+            text: "03  Fabry–Pérot cavity"
           - href: examples/04-suspension-multidof.qmd
-            text: Multi-DoF suspension
+            text: "04  Multi-DoF suspension"
           - href: examples/05-closed-loop-arm.qmd
-            text: Closed-loop arm
+            text: "05  Closed-loop arm"
       - href: reference/index.qmd
         text: API Reference
+    right:
+      - icon: github
+        href: https://github.com/
+        aria-label: GitHub
   sidebar:
     - id: reference
       contents: reference/_sidebar.yml
+  page-footer:
+    left: "Built with [Quarto](https://quarto.org)."
+    right: "**system_ident** — LIGO interferometer system identification."
 
 metadata-files:
   - reference/_sidebar.yml
 
 format:
   html:
-    theme: cosmo
+    theme:
+      light: [cosmo, custom.scss]
+      dark:  [darkly, custom.scss]
     toc: true
+    toc-depth: 3
     code-copy: true
     code-overflow: wrap
+    code-line-numbers: false
+    smooth-scroll: true
+    include-in-header:
+      - text: |
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
 
 jupyter: python3
 

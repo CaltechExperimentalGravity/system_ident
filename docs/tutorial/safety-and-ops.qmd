@@ -2,24 +2,105 @@
 title: "Safety & operations"
 ---
 
-On a real interferometer, only **physical** limits auto-abort: actuator drive vs
-saturation, and per-DoF output RMS vs a safe envelope. Coherence and fit-health
-are surfaced as status but never trigger an abort. The `Watchdog` checks every
-read segment and, on a breach — or an operator STOP, or normal teardown — runs
-one shared, idempotent routine: ramp every excitation channel down, restore the
-pre-run channel/filter state captured at run start (handing control back to the
-existing damping loops), and record the aborted state and its reason.
+## Hardware safety design principles
 
-Limits come from the config's `safety` section:
+On a real interferometer, *only physical limits trigger an abort*.
+Coherence health and fit quality are surfaced as status and recorded in the
+history but never cause an automatic stop — a low-coherence pass is a bad
+measurement, not a dangerous one.  What matters for safety is:
+
+1. **Actuator saturation** — driving a coil amplifier into saturation can
+   cause broadband force transients that kick the suspension.
+2. **RMS displacement** — excessive per-DoF RMS can break the linear range
+   of the optical readout or the feedback control.
+
+Both are monitored by `Watchdog` at every read segment during a pass.
+
+## The safe-handoff routine
+
+When an abort condition is detected — or the operator presses STOP, or the
+campaign completes normally — a single idempotent routine runs:
+
+1. **Ramp down** all active excitation channels over `ramp_down_secs`
+   (cosine taper, hardware-rate).
+2. **Restore** the pre-run channel and filter state captured at campaign start,
+   handing the suspension back to the existing damping loops.
+3. **Record** the abort reason and the state of all models at the time of abort.
+
+The routine is idempotent: calling it twice is safe.
+
+::: {.callout-important}
+## The ramp-down is critical
+
+Abruptly zeroing an actuator drive is itself a transient kick.  The Tukey ramp
+on injection and the cosine ramp on abort both ensure that the coil current
+changes on timescales long compared to the suspension's lowest resonance period,
+keeping the force spectral density within bounds.
+:::
+
+## Configuration
+
+Safety limits live in the `safety:` section of the run config:
 
 ```yaml
 safety:
-  actuator_sat: 1.0e-4        # max |drive| before saturation
-  rms_ceiling: {POS: 1.0e-6, PIT: 1.0e-7, YAW: 1.0e-7}
-  ramp_down_secs: 2.0
+  actuator_sat:   1.0e-4        # max |drive| [m or rad] before saturation abort
+  rms_ceiling:
+    POS: 1.0e-6                 # per-DoF RMS ceiling [m or rad]
+    PIT: 1.0e-7
+    YAW: 1.0e-7
+  ramp_down_secs: 2.0           # cosine ramp duration at abort
 ```
 
-The CLI (`system_ident run <config> --twin`) requires a confirm-before-inject step
-for hardware, and serves a live dashboard (transfer function, coherence, designed
-excitation, convergence) with a **STOP** button that calls the same safe handoff
-when the `[dashboard]` extra is installed.
+The `watchdog` checks these limits after each Welch segment.  On a breach it
+logs the offending metric and its value alongside the abort record.
+
+## CLI and the STOP button
+
+```bash
+# --twin: use the digital twin backend (no hardware)
+# --yes:  skip the confirm-before-inject prompt
+system_ident run path/to/config.yml --twin --yes
+```
+
+For a hardware run, omit `--yes`: the CLI prints the designed excitation and
+the drive budget, waits for operator confirmation, then starts the campaign.
+
+If the `[dashboard]` extra is installed, the CLI also serves a live dashboard:
+
+- **Transfer function** — per-DoF amplitude and phase, updated each pass
+- **Coherence** — per-frequency coherence estimate
+- **Excitation design** — the currently designed ASD vs the previous pass
+- **Convergence** — fractional uncertainty vs pass number
+
+The dashboard has a **STOP** button that calls the safe-handoff routine via
+a websocket message to the running loop — it's the same routine as an abort,
+not a SIGKILL.
+
+::: {.callout-tip}
+## Twin mode during development
+
+The `TwinBackend` simulates a full campaign including Welch averaging, sensor
+noise, and the Tukey-ramped injection.  Developing and validating a config
+against the twin before running on hardware is strongly recommended.
+
+```bash
+system_ident run config.yml --twin --yes
+# verify convergence, then remove --twin for hardware
+```
+:::
+
+## `SafetyLimits` and `Watchdog` classes
+
+```python
+from system_ident.safety import SafetyLimits, Watchdog
+
+limits = SafetyLimits(
+    actuator_sat=1e-4,
+    rms_ceiling={"POS": 1e-6, "PIT": 1e-7, "YAW": 1e-7},
+    ramp_down_secs=2.0,
+)
+watchdog = Watchdog(backend, limits)
+```
+
+See the [API reference](../reference/safety.SafetyLimits.qmd) for full details.

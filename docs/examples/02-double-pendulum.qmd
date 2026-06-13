@@ -1,52 +1,168 @@
 ---
-title: "Double pendulum"
+title: "02 — Double pendulum"
 ---
 
-A two-mode plant (the package's canonical `double_pendulum`: 0.6 Hz Q20 and
-1.5 Hz Q30). The optimal excitation now splits power across both resonances.
+The canonical two-mode plant used throughout the package:
+a double pendulum with modes at 0.6 Hz (Q = 20) and 1.5 Hz (Q = 30).
+The interesting physics here is that the optimal drive must split power
+across *both* resonances — and the Fisher iteration determines the
+optimal ratio automatically, without any hand-tuning.
 
 ```{python}
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 from system_ident.plant import double_pendulum
 from system_ident.model import TFModel
 from system_ident.fisher import parameter_covariance
 from system_ident.design.pintelon import optimal_excitation
 from system_ident.estimators.invfreqs import InvfreqsEstimator
 
-true = double_pendulum()                                          # two modes
+true  = double_pendulum()   # canonical two-mode plant
 prior = TFModel.from_resonances([(0.55, 18.0), (1.6, 28.0)], gain=250.0)
 
-freq = np.linspace(0.2, 5.0, 600)
-Pyy = np.ones_like(freq)
+freq   = np.linspace(0.1, 5.0, 600)
+Pyy    = np.ones_like(freq)
 Px_tot = 1.0
 
-Pxx_opt = optimal_excitation(freq, prior, Pyy, Px_tot, n_iter=3)
+Pxx_opt  = optimal_excitation(freq, prior, Pyy, Px_tot, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+resp     = np.abs(true.eval(freq))
 ```
 
-```{python}
-#| fig-cap: "Optimal drive power splits between the two modes."
-fig, ax = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
-ax[0].semilogy(freq, np.abs(true.eval(freq))); ax[0].set_ylabel("|G(f)|")
-ax[1].plot(freq, np.sqrt(Pxx_opt), label="optimal")
-ax[1].plot(freq, np.sqrt(Pxx_flat), "--", label="flat (equal power)")
-ax[1].set_xlabel("Frequency [Hz]"); ax[1].set_ylabel("drive ASD"); ax[1].legend()
-plt.show()
-```
+## Optimal drive allocation across two modes
 
 ```{python}
-T_tot = 256.0
-cov_opt = parameter_covariance(freq, true, Pxx_opt, Pyy, T_tot)
+#| label: fig-dp-excitation
+#| fig-cap: "Two-mode plant: optimal drive splits power between the 0.6 Hz and 1.5 Hz resonances. The Q=30 mode (1.5 Hz) is narrower, so it receives a sharper, taller peak. Hover to inspect."
+
+T_tot    = 256.0
+cov_opt  = parameter_covariance(freq, true, Pxx_opt,  Pyy, T_tot)
 cov_flat = parameter_covariance(freq, true, Pxx_flat, Pyy, T_tot)
-print(f"max param variance  flat: {np.max(np.diag(cov_flat)):.3e}")
-print(f"max param variance  opt : {np.max(np.diag(cov_opt)):.3e}")
+ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-rng = np.random.default_rng(0)
-H = true.eval(freq)
-H_err = np.abs(H) * 0.02
-H_meas = H + (rng.standard_normal(freq.size) + 1j*rng.standard_normal(freq.size)) * H_err/np.sqrt(2)
-fit = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
-print("true den:", np.round(true.den, 3))
-print("fit  den:", np.round(fit.den, 3))
+SKY  = '#1F8AC0'
+GOLD = '#C8973A'
+GRAY = '#94A3B8'
+
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True,
+    subplot_titles=[
+        '<b>Plant magnitude</b>  |G(f)| — two modes',
+        f'<b>Excitation design</b>  — {ratio:.0f}× variance reduction over flat',
+    ],
+    vertical_spacing=0.08,
+)
+
+fig.add_trace(go.Scatter(
+    x=freq, y=resp, mode='lines',
+    line=dict(color=SKY, width=2.5), name='|G(f)| — double pendulum',
+    hovertemplate='%{x:.3f} Hz   |G| = %{y:.4f}<extra></extra>',
+), row=1, col=1)
+
+# Annotate both modes
+for f0, label, ax, ay in [(0.6, 'f₁ = 0.6 Hz, Q=20', -65, -35),
+                           (1.5, 'f₂ = 1.5 Hz, Q=30',  60, -35)]:
+    idx = np.argmin(np.abs(freq - f0))
+    fig.add_annotation(
+        x=freq[idx], y=resp[idx], xref='x', yref='y',
+        text=f'<b>{label}</b>', showarrow=True,
+        arrowhead=2, arrowsize=1.1, arrowcolor='rgba(200,151,58,0.75)',
+        ax=ax, ay=ay, font=dict(size=10, color=GOLD, family='Outfit, sans-serif'),
+        row=1, col=1,
+    )
+
+fig.add_trace(go.Scatter(
+    x=freq, y=np.sqrt(Pxx_opt),
+    mode='lines', fill='tozeroy', fillcolor='rgba(200,151,58,0.15)',
+    line=dict(color=GOLD, width=2.5), name='Optimal  (Fisher-matched)',
+    hovertemplate='%{x:.3f} Hz   ASD = %{y:.4f}<extra></extra>',
+), row=2, col=1)
+
+fig.add_trace(go.Scatter(
+    x=freq, y=np.sqrt(Pxx_flat),
+    mode='lines', line=dict(color=GRAY, width=1.8, dash='dash'),
+    name='Flat  (equal total power)',
+    hovertemplate='%{x:.3f} Hz   ASD = %{y:.4f}<extra></extra>',
+), row=2, col=1)
+
+fig.update_layout(
+    template='plotly_white', height=500,
+    margin=dict(l=60, r=20, t=50, b=55),
+    font=dict(family='Outfit, Inter, sans-serif', size=12),
+    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
+                bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
+)
+fig.update_yaxes(title_text='|G(f)|',         type='log', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='Drive ASD',                  row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='Frequency  [Hz]',            row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(gridcolor='rgba(30,60,100,0.07)',        row=1, col=1)
+fig.show()
 ```
+
+::: {.callout-note}
+## Why does the 1.5 Hz mode get a sharper peak?
+
+The optimal drive peak width is approximately proportional to the mode's
+bandwidth Δf = f₀/Q.  The 1.5 Hz mode has Q = 30, so Δf ≈ 0.05 Hz — narrower
+than the 0.6 Hz mode (Q = 20, Δf ≈ 0.03 Hz).  The iteration concentrates power
+in a tighter frequency range around the higher-Q mode because that's where its
+Jacobian ∂G/∂θ is large.
+:::
+
+## Variance numbers
+
+```{python}
+print(f"Flat   — max parameter variance: {np.max(np.diag(cov_flat)):.3e}")
+print(f"Optimal — max parameter variance: {np.max(np.diag(cov_opt)):.3e}")
+print(f"Variance ratio: {ratio:.1f}×")
+```
+
+## Model recovery
+
+```{python}
+rng    = np.random.default_rng(0)
+H      = true.eval(freq)
+H_err  = np.abs(H) * 0.02
+H_meas = H + (rng.standard_normal(freq.size) + 1j * rng.standard_normal(freq.size)) * H_err / np.sqrt(2)
+
+fit = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
+print("True den:", np.round(true.den, 3))
+print("Fit  den:", np.round(fit.den,  3))
+```
+
+```{python}
+#| label: fig-dp-fit
+#| fig-cap: "Recovered model (dashed gold) over the true double-pendulum plant. Both modes are well captured even from a 2%-noise measurement."
+
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(
+    x=freq, y=np.abs(H), mode='lines',
+    line=dict(color=SKY, width=2.5), name='True plant',
+    hovertemplate='%{x:.3f} Hz   |G| = %{y:.4f}<extra></extra>',
+))
+fig2.add_trace(go.Scatter(
+    x=freq, y=np.abs(H_meas), mode='markers',
+    marker=dict(color='rgba(148,163,184,0.4)', size=2.5), name='Measured (2% noise)',
+))
+fig2.add_trace(go.Scatter(
+    x=freq, y=np.abs(fit.eval(freq)), mode='lines',
+    line=dict(color=GOLD, width=2.0, dash='dash'), name='Fitted model',
+    hovertemplate='%{x:.3f} Hz   |G_fit| = %{y:.4f}<extra></extra>',
+))
+
+fig2.update_layout(
+    template='plotly_white', height=360,
+    margin=dict(l=60, r=20, t=20, b=55),
+    font=dict(family='Outfit, Inter, sans-serif', size=12),
+    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
+                bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
+    xaxis=dict(title='Frequency  [Hz]', gridcolor='rgba(30,60,100,0.07)'),
+    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
+)
+fig2.show()
+```
+
+**Next:** [Fabry–Pérot cavity](03-fabry-perot-cavity.qmd) — a single-pole
+low-pass where the identification is SNR-limited rather than resonance-dominated.

@@ -2,25 +2,90 @@
 title: "The method"
 ---
 
-System identification here is an iterative, information-optimal loop. We start
-from a **prior** transfer-function model of one degree of freedom, design an
-**excitation** that maximises the Fisher information about the model parameters
-for a fixed drive-power budget and measurement time, **inject** it, **measure**
-the response, **re-fit** the model, and repeat.
+System identification here is an iterative, information-optimal loop.
+The key insight is that **measurement time on a real interferometer is expensive**,
+and drive amplitude is bounded — so you must spend both wisely.
+Rather than sweeping uniformly across frequency and hoping for the best,
+`system_ident` solves the inverse problem: *given a prior model and a fixed
+drive-power budget, where should the excitation energy go to extract the most
+information about the model parameters?*
+
+The answer comes from Fisher information theory.
+
+## The loop
 
 ```
-   prior model ─▶ design optimal excitation ─▶ inject ─▶ measure
-        ▲                                                   │
-        └──────────────── re-fit model ◀────────────────────┘
+   prior model ──► design optimal excitation ──► inject (Tukey-ramped) ──► measure
+        ▲                                                                      │
+        └────────── re-fit model (invfreqs) ◄─── accumulate (inv-var weight) ◄┘
 ```
 
-Why optimal excitation? On real hardware, drive amplitude is bounded by actuator
-saturation and the plant's linear range, and measurement time is expensive.
-Spending that limited budget where it tightens the parameters most — typically
-near resonances — recovers the model far faster than a flat sweep. The rest of
-this tutorial develops each block; the [examples](../examples/01-single-resonance.qmd)
-run them end to end.
+::: {.callout-note}
+## One sentence
 
-References: Pintelon & Schoukens, *System Identification* (§5.4.2);
-[LIGO-G1400084](https://dcc.ligo.org/LIGO-G1400084) (Larry Price);
-[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) (Fisher expressions).
+Given a prior model, `system_ident` computes exactly how much each frequency
+contributes to parameter information, puts the drive energy there, measures,
+re-fits, and repeats — converging to parameter uncertainties far below what
+equal-power flat excitation can achieve.
+:::
+
+Each iteration does four things:
+
+1. **Design** — compute the dispersion function ν(f) from the current model,
+   readout noise ASD, and drive budget; run the Pintelon–Schoukens fixed-point
+   iteration to obtain the optimal excitation ASD.
+
+2. **Inject** — synthesise a time series from the ASD (random-phase, Tukey-ramped),
+   send it through the backend (twin or CDS hardware), and record the response.
+
+3. **Accumulate** — inverse-variance-weight the new transfer-function estimate
+   with all previous ones, frequency bin by frequency bin.  The first pass uses
+   a flat broadband excitation for global conditioning; the accumulated estimate
+   carries that broadband coverage forward permanently.
+
+4. **Re-fit** — run `InvfreqsEstimator` on the accumulated TF estimate to update
+   the model; check the fractional-uncertainty stop criterion.
+
+## Why Fisher information?
+
+The Fisher information matrix `I(θ)` bounds how precisely any unbiased estimator
+can recover parameters θ from data. Its inverse `I(θ)⁻¹` is the Cramér–Rao lower
+bound on parameter covariance. For a linear system driven by a stationary input
+with PSD `Pxx(f)` and measured in readout noise with PSD `Pyy(f)`:
+
+$$
+I_{ij}(\theta) \propto T \int \frac{P_{xx}(f)}{P_{yy}(f)} \frac{\partial G^*(f)}{\partial \theta_i} \frac{\partial G(f)}{\partial \theta_j} \, df
+$$
+
+The optimal `Pxx(f)` maximises `log det I(θ)` — the log volume of the uncertainty
+ellipsoid — subject to ∫ Pxx(f) df = constant (fixed power budget).  This leads to
+a closed-form water-filling condition whose fixed point is the dispersion-weighted
+allocation in `design.pintelon`.
+
+## Why iterative?
+
+The optimal excitation depends on the current model through the Jacobian ∂G/∂θ
+and the dispersion function. As the model improves pass by pass, so does the
+excitation design — the loop progressively sharpens its focus toward the
+frequencies that are most informative *given what it has already learned*.
+
+::: {.callout-tip}
+## The first pass is special
+
+`SysIDLoop` always runs pass 1 with a flat, broadband excitation.
+This ensures the global transfer function is well-sampled before the optimal
+designer concentrates power on specific features — preventing the model from
+converging to a local minimum caused by poor initial coverage.
+:::
+
+## References
+
+Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
+2nd ed., IEEE Press / Wiley, 2012 — §5.4.2 (optimal excitation design),
+§7 (weighted least-squares estimation).
+
+[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) — Fisher expressions for
+suspension parameters.
+
+[LIGO-G1400084](https://dcc.ligo.org/LIGO-G1400084) (Larry Price) — original
+motivation and prior work.

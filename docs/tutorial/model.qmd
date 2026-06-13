@@ -2,28 +2,124 @@
 title: "The model"
 ---
 
-Every part of the package speaks one representation: `TFModel`, a transfer
-function `G(s) = num(s) / den(s)` stored as polynomial coefficients (descending
-powers of `s`), with the leading denominator coefficient held at 1 (the standard
-gauge). This mirrors the `{num, den}` convention of the original `sysIDlib`
-engine, so the validated math is reused without translation.
+## One representation throughout
 
-Construct one however is natural:
+Every component of the package speaks a single representation: `TFModel`, a
+continuous-time transfer function stored as polynomial coefficients
+(descending powers of `s = j2πf`) with leading denominator coefficient
+normalised to 1.  This mirrors the `{num, den}` convention of the original
+`sysIDlib` engine — validated math from prior LIGO work is reused without
+coordinate-change errors.
+
+The representation is:
+
+$$
+G(s;\theta) = \frac{b_0 s^m + b_1 s^{m-1} + \cdots + b_m}
+                   {s^n + a_1 s^{n-1} + \cdots + a_n}
+$$
+
+where the parameter vector θ = (b₀, …, b_m, a₁, …, a_n) is what the Fisher
+information and the estimator operate on.
+
+::: {.callout-note}
+## Why normalise the leading denominator?
+
+Normalising the leading denominator coefficient to 1 removes one degree
+of freedom (the overall gain is absorbed into the numerator), so the
+Jacobian ∂G/∂θ has no null directions and the Fisher matrix is full-rank
+for any well-excited measurement.
+:::
+
+## Construction
+
+Construct a `TFModel` however is natural for your system:
 
 ```python
 from system_ident.model import TFModel
+import numpy as np
 
-# from (f0 [Hz], Q) resonances + a gain (optionally with zeros)
+# ── from (f0 [Hz], Q) resonances ──────────────────────────────────────────
+# Suspension mode at 1 Hz, Q = 20; optionally with additional resonances.
 g1 = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
 
-# from zeros / poles / gain
-import numpy as np
-g2 = TFModel.from_zpk(zeros=[], poles=[-2*np.pi*100.0], gain=2*np.pi*100.0)
+# Double pendulum: 0.6 Hz Q20 + 1.5 Hz Q30
+g2 = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], gain=250.0)
 
-# from a {"num":..., "den":...} dict
-g3 = TFModel.from_dict({"num": [1.0], "den": [1.0, 6.28, 39.5]})
+# ── from zeros / poles / gain ─────────────────────────────────────────────
+# Fabry–Pérot cavity pole at 100 Hz
+wc = 2 * np.pi * 100.0
+g3 = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)
+
+# ── from a raw {num, den} dict ────────────────────────────────────────────
+# Matches the format stored by the sysIDlib MATLAB code
+g4 = TFModel.from_dict({"num": [1.0], "den": [1.0, 6.28, 39.5]})
 ```
 
-`g.eval(freq)` returns the complex response on a frequency grid [Hz];
-`g.jacobian(freq)` gives the parameter sensitivities that feed the Fisher
-calculation. See the [API reference](../reference/model.TFModel.qmd).
+All constructors normalise to the leading-den-1 convention before storing.
+
+## Evaluation and differentiation
+
+```python
+freq = np.linspace(0.1, 5.0, 400)
+
+G_complex = g2.eval(freq)          # complex array, shape (400,)
+G_abs     = np.abs(G_complex)      # magnitude
+G_phase   = np.angle(G_complex)    # phase [rad]
+
+# Jacobian: (n_params × n_freq) complex array
+# Used by fisher_matrix() and parameter_covariance()
+J = g2.jacobian(freq)
+```
+
+`g.jacobian(freq)` returns ∂G/∂θ evaluated analytically at each frequency.
+This is the critical quantity that makes the Fisher calculation fast — no
+finite-difference approximations that would corrupt the information estimates
+near sharp resonances.
+
+## Plotting a model
+
+```{python}
+#| label: fig-bode-model
+#| fig-cap: "Bode-style magnitude plot of a 2-mode suspension model (0.6 Hz Q20, 1.5 Hz Q30)."
+import numpy as np
+import plotly.graph_objects as go
+from system_ident.model import TFModel
+
+model = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], gain=250.0)
+freq  = np.linspace(0.05, 5.0, 800)
+resp  = np.abs(model.eval(freq))
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=freq, y=resp,
+    mode='lines',
+    line=dict(color='#1F8AC0', width=2.5),
+    hovertemplate='%{x:.3f} Hz   |G| = %{y:.4f}<extra></extra>',
+))
+
+for f0, label in [(0.6, 'f₁ = 0.6 Hz'), (1.5, 'f₂ = 1.5 Hz')]:
+    idx = np.argmin(np.abs(freq - f0))
+    fig.add_annotation(
+        x=freq[idx], y=resp[idx],
+        text=f'<b>{label}</b>',
+        showarrow=True, arrowhead=2, arrowsize=1.1,
+        arrowcolor='rgba(200,151,58,0.75)',
+        ax=50, ay=-40,
+        font=dict(size=11, color='#C8973A', family='Outfit, sans-serif'),
+    )
+
+fig.update_layout(
+    template='plotly_white',
+    height=340, margin=dict(l=60, r=20, t=20, b=55),
+    font=dict(family='Outfit, Inter, sans-serif', size=12),
+    xaxis=dict(title='Frequency  [Hz]', gridcolor='rgba(30,60,100,0.07)'),
+    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
+)
+fig.show()
+```
+
+## See also
+
+- `TFModel` API reference — [`reference/model.TFModel.qmd`](../reference/model.TFModel.qmd)
+- Fisher information from this model — [Fisher & excitation](fisher.qmd)
+- Fitting a model from data — [Closing the loop](closing-the-loop.qmd)
