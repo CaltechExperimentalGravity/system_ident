@@ -106,6 +106,12 @@ class TFModel:
     def n_num(self) -> int:
         return len(self.num)
 
+    def with_params(self, theta: np.ndarray) -> "TFModel":
+        """Rebuild from a flat ``[num, den]`` parameter vector (protocol complement of :attr:`params`)."""
+        theta = np.asarray(theta, dtype=float)
+        n_num = self.n_num
+        return TFModel(num=theta[:n_num], den=theta[n_num:])
+
     # -- numeric surface -----------------------------------------------------
     def eval(self, freq: np.ndarray) -> np.ndarray:
         """Evaluate the complex response ``H(2j*pi*freq)`` over ``freq`` [Hz].

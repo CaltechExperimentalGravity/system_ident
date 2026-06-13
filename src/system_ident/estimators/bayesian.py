@@ -1,35 +1,36 @@
-"""Recursive Bayesian / MAP estimator.
+"""Recursive Bayesian / MAP estimator — model-agnostic (gauge-free).
 
-Implements a MAP / Gauss-Newton update that refines both the model mean and the
-posterior precision matrix Λ.  The parameterisation mirrors ``fisher.py``
-exactly: the leading denominator coefficient is held at 1 (gauge), so the
-reduced parameter vector is ``θ = [num[0..n_num-1], den[1..n_den-1]]``.
+Operates on any model that exposes the four-method protocol::
+
+    .params        -> theta  (n_par,)  float array
+    .jacobian(freq)-> J      (n_par, n_bin)  complex array
+    .eval(freq)    -> H      (n_bin,)  complex array
+    .with_params(theta) -> model  same type, new parameter values
+
+No gauge is assumed; all parameters are taken as identifiable.  For
+``ResonatorModel`` (f0, Q, gain) this is exactly true.  The legacy gauge
+helpers :func:`reduced_params` / :func:`model_from_reduced` are kept for
+any caller that still needs coefficient-space ``TFModel`` operations, but
+the three main entry-points (``prior_precision``, ``bayesian_update``,
+``frac_uncertainty``) no longer call them.
 
 Design: conservative small steps for the low-SNR regime
 -------------------------------------------------------
 The usual operating point is a *good prior* refined by *weak* (energy-limited,
-low-SNR) measurements. Each pass therefore takes ONE small, Levenberg-Marquardt-
-damped, step-capped, backtracked Gauss-Newton step (see :func:`bayesian_update`)
-rather than solving the per-batch MAP aggressively — the latter jumps to truth on
-the rare informative measurement and diverges on weak ones. Conservative steps
-make the loop crawl gradually toward truth and essentially never diverge, while
-the accumulated Fisher information shrinks the posterior covariance each pass.
-
-Scope / known limitation: this refines a prior that is already in the right
-basin (its resonance peaks overlap the true ones). It does NOT relocate a
-resonance that sits far from the prior — local coefficient-space fitting has no
-gradient to slide a non-overlapping peak across a gap. For a far prior, run a
-broadband sweep first (``broadband_ls`` loop mode) to get into the basin, then
-refine here. (A physical ``(f0, Q, gain)`` parameterisation would lift this
-limitation and is the natural next step.)
+low-SNR) measurements.  Each pass therefore takes ONE small, Levenberg-
+Marquardt-damped, step-capped, backtracked Gauss-Newton step rather than
+solving the per-batch MAP aggressively — the latter jumps to truth on the rare
+informative measurement and diverges on weak ones.  Conservative steps make the
+loop crawl gradually toward truth and essentially never diverge, while the
+accumulated Fisher information shrinks the posterior covariance each pass.
 
 Functions
 ---------
-reduced_params(model)         -> (theta, n_num, n_den)
-model_from_reduced(...)       -> TFModel
-prior_precision(...)          -> np.ndarray
-bayesian_update(...)          -> (model_new, Lambda_new)
-frac_uncertainty(...)         -> float
+reduced_params(model)      -> (theta, n_num, n_den)   legacy gauge helper
+model_from_reduced(...)    -> TFModel                  legacy gauge helper
+prior_precision(...)       -> np.ndarray
+bayesian_update(...)       -> (model_new, Lambda_new)
+frac_uncertainty(...)      -> float
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from ..model import TFModel
 
 
 # ---------------------------------------------------------------------------
-# Gauge helpers
+# Legacy gauge helpers  (kept for backward-compatibility; not used internally)
 # ---------------------------------------------------------------------------
 
 def reduced_params(model: TFModel) -> tuple[np.ndarray, int, int]:
@@ -84,34 +85,39 @@ def model_from_reduced(
 
 
 # ---------------------------------------------------------------------------
-# Prior precision
+# Prior precision  (model-agnostic)
 # ---------------------------------------------------------------------------
 
 def prior_precision(
-    model0: TFModel,
+    model0,
     prior_uncertainty: float,
     floor: float = 1e-3,
 ) -> np.ndarray:
     """Diagonal prior precision matrix Λ₀ = diag(1/σ₀²).
 
+    Works on any model that exposes ``.params``.
+
     ``σ₀_i = prior_uncertainty · max(|θ₀_i|, floor · max|θ₀|)``
 
-    The floor prevents a zero-valued prior coefficient from being frozen (it
-    would otherwise have infinite precision and never move).
+    The floor prevents a near-zero parameter from being frozen (it would
+    otherwise have infinite precision and never move).
     """
-    theta0, _, _ = reduced_params(model0)
+    theta0 = np.asarray(model0.params, dtype=float)
     max_abs = float(np.max(np.abs(theta0)))
     sigma0 = prior_uncertainty * np.maximum(np.abs(theta0), floor * max_abs)
     return np.diag(1.0 / sigma0 ** 2)
 
 
 # ---------------------------------------------------------------------------
-# MAP / Gauss-Newton update
+# MAP / Gauss-Newton update  (model-agnostic)
 # ---------------------------------------------------------------------------
 
-def _map_objective(theta, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor):
-    """Regularised MAP objective ``½ Σ wt|H_meas − G(θ)|² + ½ (θ−θ_a)ᵀ Λ (θ−θ_a)``."""
-    resid = H_meas - model_from_reduced(theta, n_num, n_den).eval(freq)
+def _map_objective(theta, model_anchor, freq, H_meas, wt, Lambda, theta_anchor):
+    """Regularised MAP objective.
+
+    ``½ Σ_j wt_j |H_meas_j − H(θ)[j]|² + ½ (θ−θ_a)ᵀ Λ (θ−θ_a)``
+    """
+    resid = H_meas - model_anchor.with_params(theta).eval(freq)
     misfit = 0.5 * float(np.sum(wt * np.abs(resid) ** 2))
     d = theta - theta_anchor
     return misfit + 0.5 * float(d @ Lambda @ d)
@@ -119,53 +125,46 @@ def _map_objective(theta, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor):
 
 def bayesian_update(
     freq: np.ndarray,
-    model: TFModel,
+    model,
     H_meas: np.ndarray,
     H_err: np.ndarray,
     Lambda: np.ndarray,
-    dpar: float | np.ndarray = 1e-8,
     max_rel_step: float = 0.2,
     lm_init: float = 1e-3,
     lm_grow: float = 4.0,
     lm_max: float = 1e12,
     max_backtrack: int = 60,
-) -> tuple[TFModel, np.ndarray]:
+) -> tuple:
     """One small, damped MAP step (Levenberg-Marquardt) for the low-SNR regime.
 
-    The usual operating point is a *good prior* refined by *weak* (energy-limited,
-    low-SNR) measurements, so each pass should nudge the model conservatively
-    rather than solve the per-batch MAP aggressively (which jumps on the rare good
-    measurement and diverges on weak ones). This takes a single Gauss-Newton step
-    that is
+    Model-agnostic: works on any model implementing the four-method protocol
+    (``.params``, ``.jacobian(freq)``, ``.eval(freq)``, ``.with_params(theta)``).
+    The step is
 
-      * **damped** — ``μ·diag(H)`` added to the GN Hessian ``H = Λ + 𝓘`` for a
-        robust direction even when the measurement is barely informative;
+      * **damped** — ``μ·diag(H)`` added to the GN Hessian for a robust
+        direction even when the measurement is barely informative;
       * **capped** to a maximum relative parameter change ``max_rel_step`` per
-        pass (genuinely small steps); and
-      * **backtracked** — ``μ`` is grown until the regularised MAP objective does
-        not increase. The step direction ``(H+μ·diag)⁻¹ g`` is always a descent
-        direction, so a small enough step always reduces the objective; if the
-        schedule is exhausted the mean is left unchanged.
+        pass; and
+      * **backtracked** — ``μ`` is grown until the regularised MAP objective
+        does not increase.
 
-    The loop therefore crawls gradually toward truth over many passes and
-    essentially never diverges. The measurement information ``𝓘`` (Fisher at the
-    anchor) is always added to the posterior precision ``Λ``, so the reported
-    uncertainty shrinks monotonically as measurements accumulate.
+    ``Lambda`` accumulates regardless of whether a step is taken, so the
+    posterior covariance shrinks monotonically as measurements accumulate.
 
     Parameters
     ----------
     freq, model, H_meas, H_err, Lambda
-        ``model`` is the current mean = incoming posterior mean = linearisation
-        anchor; ``Lambda`` is the incoming posterior precision.
+        ``model`` is the current posterior mean (= linearisation anchor);
+        ``Lambda`` is the incoming posterior precision.
     max_rel_step
-        Cap on ``max_i |Δθ_i| / |θ_i|`` per call — the conservativeness knob.
+        Cap on ``max_i |Δθ_i| / |θ_i|`` per call.
     lm_init, lm_grow, lm_max, max_backtrack
         Levenberg-Marquardt damping schedule.
 
     Returns
     -------
-    model_new  : ``TFModel`` after one damped step.
-    Lambda_new : ``Lambda + 𝓘`` (information accrues regardless of step size).
+    model_new  : model after one damped step (same type as input).
+    Lambda_new : ``Lambda + I`` (information accrues regardless of step).
     """
     freq = np.asarray(freq, dtype=float)
     H_meas = np.asarray(H_meas, dtype=complex)
@@ -174,48 +173,40 @@ def bayesian_update(
     valid = np.isfinite(H_err) & (H_err > 0)
     wt = np.where(valid, 1.0 / H_err ** 2, 0.0)
 
-    n_num = model.n_num
-    n_den = len(model.den)
-    par0 = model.params.astype(float)
-    par0 = par0 / par0[n_num]                    # gauge: den[0] = 1
-    n_par_full = len(par0)
-    keep = [k for k in range(n_par_full) if k != n_num]
-    n_par_red = len(keep)
-    theta_anchor = par0[keep].copy()             # incoming posterior mean (anchor)
+    theta_anchor = np.asarray(model.params, dtype=float).copy()
+    n_par = theta_anchor.size
 
-    # Gauss-Newton information 𝓘 and gradient g at the anchor (mirrors fisher.py).
-    gauged = model_from_reduced(theta_anchor, n_num, n_den)
-    logflag = np.zeros(n_par_full, dtype=bool)
-    dH = gauged.jacobian(freq, dpar=dpar, logflag=logflag)
-    dH[n_num, :] = 0.0
-    J = dH[keep, :]
-    r = H_meas - gauged.eval(freq)
-    I_mat = np.zeros((n_par_red, n_par_red))
-    g = np.zeros(n_par_red)
-    for i in range(n_par_red):
+    # Jacobian and residual at the anchor.
+    J = model.jacobian(freq)          # (n_par, n_bin), complex
+    r = H_meas - model.eval(freq)
+
+    # Gauss-Newton information 𝓘 and gradient g.
+    I_mat = np.zeros((n_par, n_par))
+    g = np.zeros(n_par)
+    for i in range(n_par):
         wJi = wt * np.conj(J[i])
-        for k in range(i, n_par_red):
+        for k in range(i, n_par):
             val = float(np.sum(np.real(wJi * J[k])))
             I_mat[i, k] = val
             I_mat[k, i] = val
         g[i] = float(np.sum(np.real(wJi * r)))
 
-    # Levenberg-Marquardt damped + capped + backtracked step.
-    H = Lambda + I_mat
-    diagH = np.clip(np.diag(H), 1e-30, None)
-    # floored scale so a single near-zero coefficient cannot dominate the cap
+    # Levenberg-Marquardt: damped + capped + backtracked step.
+    H_mat = Lambda + I_mat
+    diagH = np.clip(np.diag(H_mat), 1e-30, None)
+    # floored scale so a near-zero parameter cannot dominate the relative cap
     scale = np.maximum(np.abs(theta_anchor), 1e-3 * np.max(np.abs(theta_anchor)))
-    obj0 = _map_objective(theta_anchor, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor)
+    obj0 = _map_objective(theta_anchor, model, freq, H_meas, wt, Lambda, theta_anchor)
 
-    theta_new = theta_anchor                     # default: don't move if nothing helps
+    theta_new = theta_anchor          # default: no movement if nothing helps
     mu = lm_init
     for _ in range(max_backtrack):
-        step = np.linalg.solve(H + mu * np.diag(diagH), g)
+        step = np.linalg.solve(H_mat + mu * np.diag(diagH), g)
         rel = float(np.max(np.abs(step) / scale))
         if rel > max_rel_step:
             step = step * (max_rel_step / rel)   # cap (preserves direction)
         cand = theta_anchor + step
-        if _map_objective(cand, n_num, n_den, freq, H_meas, wt, Lambda, theta_anchor) <= obj0:
+        if _map_objective(cand, model, freq, H_meas, wt, Lambda, theta_anchor) <= obj0:
             theta_new = cand
             break
         mu *= lm_grow
@@ -223,22 +214,23 @@ def bayesian_update(
             break
 
     Lambda_new = Lambda + I_mat
-    return model_from_reduced(theta_new, n_num, n_den), Lambda_new
+    return model.with_params(theta_new), Lambda_new
 
 
 # ---------------------------------------------------------------------------
-# Fractional uncertainty
+# Fractional uncertainty  (model-agnostic)
 # ---------------------------------------------------------------------------
 
-def frac_uncertainty(model: TFModel, Lambda: np.ndarray) -> float:
-    """Maximum gauge-relative posterior standard deviation.
+def frac_uncertainty(model, Lambda: np.ndarray) -> float:
+    """Maximum fractional posterior standard deviation.
 
     ``max_i( sqrt(Σ_ii) / max(|θ_i|, 1) )``  where ``Σ = Λ⁻¹``.
 
-    Zero-valued parameters are protected by dividing by 1 instead of 0.
+    Zero-valued parameters are protected by the ``max(·, 1)`` denominator.
+    Works on any model that exposes ``.params``.
     """
     Sigma = np.linalg.inv(Lambda)
-    theta, _, _ = reduced_params(model)
+    theta = np.asarray(model.params, dtype=float)
     sigma_diag = np.sqrt(np.clip(np.diag(Sigma), 0.0, None))
     denom = np.where(np.abs(theta) > 0, np.abs(theta), 1.0)
     return float(np.max(sigma_diag / denom))
