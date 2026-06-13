@@ -36,12 +36,15 @@ class ResonatorModel:
 
     f0: np.ndarray  # resonance frequencies [Hz], shape (m,)
     Q: np.ndarray   # quality factors, shape (m,)
-    gain: float     # DC gain
+    gain: float     # numerator constant (see module docstring)
+    log: bool = False  # if True, the estimation params are (log f0, log Q, log|gain|)
 
     def __post_init__(self) -> None:
         self.f0 = np.atleast_1d(np.asarray(self.f0, dtype=float))
         self.Q = np.atleast_1d(np.asarray(self.Q, dtype=float))
         self.gain = float(self.gain)
+        # sign of gain is carried separately so log|gain| can be a free param
+        self._gain_sign = -1.0 if self.gain < 0 else 1.0
         if self.f0.shape != self.Q.shape:
             raise ValueError("f0 and Q must have the same length")
 
@@ -52,19 +55,34 @@ class ResonatorModel:
     # -- parameter vector ----------------------------------------------------
     @property
     def params(self) -> np.ndarray:
-        """Physical parameter vector ``[f0_0..,  Q_0..,  gain]``."""
+        """Estimation parameter vector ``[f0.., Q.., gain]``.
+
+        In ``log`` mode this is ``[log f0.., log Q.., log|gain|]`` — strictly
+        positive, decade-spanning physical quantities are far better conditioned
+        for a Gauss-Newton/MAP step in log-space (and a "fractional uncertainty"
+        becomes literally the log-sigma). ``eval`` is always physical.
+        """
+        if self.log:
+            return np.concatenate([np.log(self.f0), np.log(self.Q), [np.log(abs(self.gain))]])
         return np.concatenate([self.f0, self.Q, [self.gain]])
 
     def with_params(self, theta: np.ndarray) -> "ResonatorModel":
         """Rebuild from a parameter vector laid out like :attr:`params`."""
         theta = np.asarray(theta, dtype=float)
         m = self.n_modes
+        if self.log:
+            return ResonatorModel(
+                f0=np.exp(theta[:m]), Q=np.exp(theta[m:2 * m]),
+                gain=self._gain_sign * np.exp(theta[2 * m]), log=True,
+            )
         return ResonatorModel(f0=theta[:m], Q=theta[m:2 * m], gain=theta[2 * m])
 
     @classmethod
-    def from_resonances(cls, resonances: Sequence[tuple[float, float]], gain: float) -> "ResonatorModel":
+    def from_resonances(
+        cls, resonances: Sequence[tuple[float, float]], gain: float, log: bool = False
+    ) -> "ResonatorModel":
         res = np.asarray(resonances, dtype=float).reshape(-1, 2)
-        return cls(f0=res[:, 0], Q=res[:, 1], gain=gain)
+        return cls(f0=res[:, 0], Q=res[:, 1], gain=gain, log=log)
 
     # -- numeric surface -----------------------------------------------------
     def eval(self, freq: np.ndarray) -> np.ndarray:
