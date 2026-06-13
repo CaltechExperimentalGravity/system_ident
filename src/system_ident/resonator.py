@@ -153,3 +153,82 @@ def resonator_from_tf(tf, log: bool = False) -> "ResonatorModel":
     target = np.abs(tf.eval(grid))
     gain = float(np.dot(base, target) / np.dot(base, base))
     return ResonatorModel(f0=f0, Q=Q, gain=gain, log=log)
+
+
+def resonator_from_spectrum(freq, mag, f0_guess=None, min_bins=4.0, log=False):
+    """Robust single-resonance estimate from a ``|H|`` spectrum via the half-power
+    (-3 dB) bandwidth — the classic, fit-free way to read Q off a resonance.
+
+    ``f0`` = (parabolically interpolated) peak frequency, ``Q = f0 / df_3dB`` where
+    ``df_3dB`` is the full width where ``|H|`` falls to ``|H_peak| / sqrt(2)``, and
+    ``gain = |H_peak| * w0**2 / Q`` (inverting ``|H(w0)| = gain * Q / w0**2`` for the
+    single-mode :class:`ResonatorModel`).
+
+    Why not least-squares? Fitting a resonator to the complex TF is fragile for
+    sharp peaks: the spectral window distorts the peak *shape* and the SNR-weighted
+    fit chases that distorted shoulder detail, biasing Q badly (it can diverge).
+    The half-power width is set by the bins *around the peak* and is essentially
+    unbiased once the peak is resolved. It does require resolution: the bandwidth
+    ``f0/Q`` must span at least ``min_bins`` frequency bins (use a long enough Welch
+    segment, ``T_seg >~ min_bins * Q / f0``), else the -3 dB points are not
+    measurable and this raises ``ValueError``.
+
+    Parameters
+    ----------
+    freq : (n,) ascending frequency grid [Hz].
+    mag  : (n,) magnitude response ``|H|`` on ``freq``.
+    f0_guess : optional prior peak frequency [Hz]; the peak is sought within
+        ``[0.5, 1.5] * f0_guess`` so a noisy off-resonance bin cannot masquerade
+        as the resonance.
+    min_bins : minimum bins the -3 dB bandwidth must span to be trusted.
+    log : passed through to the returned :class:`ResonatorModel`.
+
+    Returns
+    -------
+    ResonatorModel  with a single ``(f0, Q, gain)`` mode.
+    """
+    fr = np.asarray(freq, dtype=float)
+    m = np.asarray(mag, dtype=float)
+    if fr.size < 3 or m.size != fr.size:
+        raise ValueError("freq/mag must be matching arrays of length >= 3")
+    df = fr[1] - fr[0]
+
+    if f0_guess is not None:
+        sel = np.where((fr > 0.5 * f0_guess) & (fr < 1.5 * f0_guess))[0]
+        if sel.size == 0:
+            raise ValueError("f0_guess lies outside the frequency grid")
+        ipk = int(sel[np.argmax(m[sel])])
+    else:
+        ipk = int(np.argmax(m))
+    if not 0 < ipk < len(m) - 1:
+        raise ValueError("resonance peak is at the band edge — widen the band")
+
+    # sub-bin peak by a parabola through the log-magnitude (Gaussian-ish peak)
+    a, b, c = np.log(m[ipk - 1]), np.log(m[ipk]), np.log(m[ipk + 1])
+    denom = a - 2 * b + c
+    delta = 0.5 * (a - c) / denom if denom != 0 else 0.0
+    f0 = fr[ipk] + delta * df
+    peak = float(m[ipk])
+    half = peak / np.sqrt(2.0)
+
+    def _crossing(indices, step):
+        for i in indices:
+            if m[i] < half:               # interpolate between i and the bin toward the peak
+                f1, f2, m1, m2 = fr[i], fr[i + step], m[i], m[i + step]
+                return f1 + (half - m1) * (f2 - f1) / (m2 - m1)
+        return np.nan
+
+    f_lo = _crossing(range(ipk, 0, -1), +1)        # walk down in freq, step back up toward peak
+    f_hi = _crossing(range(ipk, len(m) - 1), -1)
+    if not (np.isfinite(f_lo) and np.isfinite(f_hi)):
+        raise ValueError("half-power points not found within the band (peak unresolved or band too narrow)")
+    bw = f_hi - f_lo
+    if bw < min_bins * df:
+        raise ValueError(
+            f"resonance under-resolved: -3dB bandwidth {bw:.4g} Hz spans "
+            f"< {min_bins} bins (df={df:.4g} Hz). Use a longer Welch segment."
+        )
+    Q = f0 / bw
+    w0 = 2.0 * np.pi * f0
+    gain = peak * w0 ** 2 / Q
+    return ResonatorModel(f0=np.array([f0]), Q=np.array([Q]), gain=gain, log=log)
