@@ -2,22 +2,43 @@
 title: "Closing the loop"
 ---
 
-## The estimator: from measured TF to updated model
+## The estimator: from measured FRF to updated model
 
-With a measured transfer function `H_meas(f)` and measurement uncertainty
-`σ(f) = |H_err(f)|` in hand, the **estimator** re-fits the model.
+With a leakage-free, reference-based frequency response `H_meas(f)` and its
+measured per-bin standard error `σ(f) = |H_err(f)|` in hand — both produced by the
+periodic-multisine measurement of the previous step — the **estimator** re-fits the
+model by **maximum likelihood**.
 
-The default `InvfreqsEstimator` is a weighted least-squares fit — a
-modernised `invfreqs` — that minimises
+The estimator is `GMLEstimator`, the Pintelon–Schoukens Gaussian
+maximum-likelihood fit. It minimises the negative-log-likelihood
 
 $$
-\sum_k \frac{|H_{\text{meas}}(f_k) - G(f_k;\theta)|^2}{\sigma^2(f_k)}
+\mathcal{C}(\theta) = \sum_k \frac{|H_{\text{meas}}(f_k) - G(f_k;\theta)|^2}{\sigma^2(f_k)}
 $$
 
-holding the model order fixed at the prior's.  The prior provides the initial
-parameter guess and the polynomial structure; the estimator updates the coefficients.
-This is a nonlinear optimisation (the denominator parameters appear nonlinearly),
-solved by iterative linearisation around the current parameter estimate.
+to convergence by **Gauss-Newton / Levenberg–Marquardt**, holding the model order
+fixed at the prior's.  Each residual is weighted by its own measured variance
+$\sigma^2(f_k)$, so the fit trusts the well-measured resonance bins and discounts
+the noisy ones.  This estimator is **asymptotically unbiased** and **efficient**:
+when the per-bin noise is correct it attains the Cramér–Rao bound, and the inverse
+of the Gauss-Newton (Fisher) Hessian at the optimum *is* the parameter covariance.
+
+::: {.callout-note}
+## Two parameterisations, one objective
+
+For a physical [`ResonatorModel`](model.qmd) in `(f0, Q, gain)` the gradient
+`∂H/∂f0` directly *relocates* a resonance, so the Gauss-Newton step can move a peak
+that sits away from the prior — and the fit is naturally multi-mode.  For a
+polynomial `TFModel`, a linear least-squares stage (a Sanathanan–Koerner
+re-weighting that updates the denominator each iterate, rather than freezing it at
+the prior) gives a well-conditioned starting point, then the exact ML objective is
+polished by Gauss-Newton / LM.  Both paths share the same four-method model
+protocol and the same likelihood.
+:::
+
+The prior provides the initial parameter guess and the polynomial structure;
+the estimator updates the coefficients — a nonlinear optimisation, since the
+denominator parameters enter `G(f;θ)` nonlinearly.
 
 ::: {.callout-note}
 ## Why fixed order?
@@ -74,7 +95,7 @@ from system_ident.loop import SysIDLoop
 
 result = SysIDLoop(
     backend,    # TwinBackend or future CDS backend
-    estimator,  # InvfreqsEstimator
+    estimator,  # GMLEstimator (Gaussian maximum likelihood)
     designer,   # PintelonSchoukensDesigner
     watchdog,   # Watchdog (checks actuator sat + RMS each segment)
 ).run(config, priors, seed=0)
@@ -89,15 +110,16 @@ for a full executed run with convergence and Bode plots.
 
 ## History and diagnostics
 
-`result.history` is a list of `LoopResult` records — one per (DoF, pass) pair —
-each carrying:
+`result.history` is a list of `IterationRecord` entries — one per (DoF, pass)
+pair — each carrying:
 
 | Field | Meaning |
 |-------|---------|
+| `iteration` | pass index (0-based) |
 | `dof` | degree of freedom |
-| `iteration` | pass index (1-based) |
-| `model` | `TFModel` at the end of that pass |
-| `max_frac_uncertainty` | worst-parameter fractional uncertainty |
-| `done` | whether the DoF had already converged |
+| `max_frac_uncertainty` | worst-parameter fractional uncertainty (from the accumulated Cramér–Rao covariance) |
+| `output_rms` | measured readback RMS for that pass |
 
-These records are the raw material for convergence plots.
+The fitted models themselves live in `result.models` (keyed by DoF), updated in
+place as the campaign runs.  These records are the raw material for convergence
+plots — see the [multi-DoF suspension example](../examples/04-suspension-multidof.qmd).

@@ -15,11 +15,12 @@ toc: false
     A flat broadband injection spends drive power uniformly — the vast majority
     on frequencies where the model is already well-constrained.
     <strong style="color:rgba(255,255,255,0.92);">system_ident</strong>
-    solves the information-theoretic inverse: given a prior model and a fixed
-    drive-power budget, it calculates <em>exactly</em> where each Hz of bandwidth
-    buys the most Fisher information, piles the excitation there,
-    measures, re-fits, and repeats — all with hardware-safe Tukey ramps
-    and an operator STOP.
+    runs the Pintelon–Schoukens method end to end: given a prior model and a fixed
+    drive-power budget, it computes <em>exactly</em> where each Hz of bandwidth
+    buys the most Fisher information, lays a low-crest periodic multisine there,
+    measures the response <em>leakage-free</em>, fits the plant by
+    <em>maximum likelihood</em> at the Cramér–Rao bound, and repeats — all with
+    hardware-safe Tukey ramps and an operator STOP.
   </p>
   <div class="hero-ctas">
     <a href="tutorial/overview.html" class="btn btn-primary btn-lg">Understand the method</a>
@@ -207,20 +208,24 @@ fig.show()
 
     <div class="feature-card">
       <span class="feature-icon">&#128257;</span>
-      <h3>Iterative prior refinement</h3>
-      <p>Each pass produces a new model estimate, which becomes the prior for the next
-         excitation design. The loop accumulates per-frequency transfer function estimates
-         by inverse-variance weighting across passes — early broadband coverage is never
-         thrown away, only enriched.</p>
+      <h3>Leakage-free measurement, ML fit</h3>
+      <p>The periodic multisine makes the response DFT leakage-free — a sharp resonance is
+         measured at its true peak with no near-resonance bias. A reference-based,
+         ratio-of-averages FRF cancels the controller in closed loop, and the Gaussian
+         maximum-likelihood estimator turns it into model parameters at the Cramér–Rao
+         bound. Passes accumulate by inverse-variance weighting, so broadband coverage is
+         never thrown away, only enriched.</p>
     </div>
 
     <div class="feature-card">
       <span class="feature-icon">&#9741;</span>
       <h3>Hardware-safe injection</h3>
-      <p>Every time-series excitation is Tukey-windowed (configurable ramp duration),
-         keeping the actuation envelope within the drive-saturation budget even during
-         startup and teardown. The watchdog monitors actuator and RMS levels every
-         read segment; a breach or operator STOP triggers an immediate safe handoff.</p>
+      <p>The multisine carries low-crest <strong>Schroeder phases</strong>, so a
+         saturation-limited actuator delivers the most in-band power for a fixed peak.
+         Every waveform is Tukey-windowed (configurable ramp), keeping the actuation
+         envelope within budget at startup and teardown. The watchdog monitors actuator
+         and RMS levels every read segment; a breach or operator STOP triggers an
+         immediate safe handoff.</p>
     </div>
 
     <div class="feature-card">
@@ -256,7 +261,9 @@ fig.show()
     <span class="qs-keyword">&gt;&gt;&gt; </span><span class="qs-keyword">from</span> system_ident.config <span class="qs-keyword">import</span> RunConfig<br>
     <span class="qs-keyword">&gt;&gt;&gt; </span><span class="qs-keyword">from</span> system_ident.loop   <span class="qs-keyword">import</span> SysIDLoop<br>
     <span class="qs-keyword">&gt;&gt;&gt; </span>rc = RunConfig.load(<span class="qs-string">"src/system_ident/configs/twin_demo.yml"</span>)<br>
-    <span class="qs-keyword">&gt;&gt;&gt; </span>loop = SysIDLoop(rc.build_twin_backend(), ...)<br>
+    <span class="qs-keyword">&gt;&gt;&gt; </span>backend = rc.build_twin_backend(seed=0)<br>
+    <span class="qs-keyword">&gt;&gt;&gt; </span>loop = SysIDLoop(backend, rc.build_estimator(),<br>
+    <span class="qs-keyword">... </span>                rc.build_designer(), rc.build_watchdog(backend))<br>
     <span class="qs-keyword">&gt;&gt;&gt; </span>result = loop.run(rc.raw, rc.build_priors(), seed=0)<br>
     <span class="qs-keyword">&gt;&gt;&gt; </span>result.done<br>
     <span class="qs-output">True</span>

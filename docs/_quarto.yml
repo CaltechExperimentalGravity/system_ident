@@ -43,6 +43,8 @@ website:
             text: "04  Multi-DoF suspension"
           - href: examples/05-closed-loop-arm.qmd
             text: "05  Closed-loop arm"
+          - href: examples/06-two-by-two-coupled.qmd
+            text: "06  2×2 coupled (MIMO)"
       - href: reference/index.qmd
         text: API Reference
     right:
@@ -99,7 +101,7 @@ quartodoc:
       desc: "Fit a transfer function to measured data."
       contents:
         - estimators.base.Estimator
-        - estimators.invfreqs.InvfreqsEstimator
+        - estimators.gml.GMLEstimator
         - estimators.invfreqs.invfreqs
     - title: Input design
       desc: "Design the excitation spectrum."

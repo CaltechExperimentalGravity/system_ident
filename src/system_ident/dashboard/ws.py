@@ -32,9 +32,9 @@ SNAPSHOT_FIELDS = (
     "output_rms",
 )
 
-# Optional keys present only when the model is a physical ResonatorModel
-# (Bayesian / hybrid refinement phase); absent for coefficient-space TFModel
-# (broadband_ls). The dashboard shows them when available.
+# Optional keys present only when the model exposes physical (f0, Q, gain)
+# parameters; absent for coefficient-space TFModel. The dashboard shows them
+# when available.
 OPTIONAL_SNAPSHOT_FIELDS = (
     "model_f0",
     "model_Q",

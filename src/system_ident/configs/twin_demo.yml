@@ -28,7 +28,7 @@ measurement:
   t_ramp: 4.0
 
 strategy:
-  estimator: invfreqs
+  estimator: gml
   input_designer: pintelon_schoukens
   n_design_iter: 3
 

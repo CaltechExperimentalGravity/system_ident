@@ -16,6 +16,12 @@ measurement, not a dangerous one.  What matters for safety is:
 
 Both are monitored by `Watchdog` at every read segment during a pass.
 
+The excitation itself is designed to stay clear of the first limit: the periodic
+multisine is built with low-crest **Schroeder phases**, which minimise the
+peak-to-RMS ratio so a given in-band power lands well inside the actuator's range
+(a random-phase drive of the same RMS would saturate far sooner). The watchdog is
+the backstop, not the first line of defence.
+
 ## The safe-handoff routine
 
 When an abort condition is detected — or the operator presses STOP, or the
@@ -52,7 +58,7 @@ safety:
   ramp_down_secs: 2.0           # cosine ramp duration at abort
 ```
 
-The `watchdog` checks these limits after each Welch segment.  On a breach it
+The `watchdog` checks these limits after each measurement segment.  On a breach it
 logs the offending metric and its value alongside the abort record.
 
 ## CLI and the STOP button
@@ -80,7 +86,7 @@ not a SIGKILL.
 ::: {.callout-tip}
 ## Twin mode during development
 
-The `TwinBackend` simulates a full campaign including Welch averaging, sensor
+The `TwinBackend` simulates a full campaign including periodic-multisine averaging, sensor
 noise, and the Tukey-ramped injection.  Developing and validating a config
 against the twin before running on hardware is strongly recommended.
 

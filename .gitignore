@@ -34,3 +34,6 @@ docs/.quarto/
 docs/reference/
 docs/objects.json
 .jupyter_cache/
+
+# Local agent scratch / working notes (kept in-repo, not part of the package)
+.claude/

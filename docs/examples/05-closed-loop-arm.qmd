@@ -1,143 +1,222 @@
 ---
-title: "05 — Closed-loop LIGO arm"
+title: "05 — Closed-loop suspension (loop-bias, cancelled)"
 ---
 
-The most realistic case: a suspension in series with a Fabry–Pérot cavity,
-measured **with the feedback loop closed**.
+The most realistic case: a suspension identified **with its damping loop closed**.
+The feedback fights the very resonance we are trying to measure, so the instrument
+no longer shows the open-loop plant `P`. It shows the *closed-loop* response
 
-What the instrument sees is the closed-loop response
-$$T = \frac{P}{1+PC}$$
-not the open-loop plant `P`.  Fitting `T` and calling it the plant is *biased* —
-the feedback suppresses the resonance in `T`, so a loop-ignorant fit understates
-the plant gain near the resonance.  Knowing the controller `C`, we recover the
-unbiased plant estimate:
-$$\hat{P} = \frac{\hat{T}}{1 - \hat{T} \cdot C}$$
+$$
+T = \frac{P}{1 + PC},
+$$
 
-We use `python-control` (a dependency) for the series/feedback algebra, and the
-package's `TFModel` + `InvfreqsEstimator` for the fit.
+whose resonant peak is suppressed by the loop gain $1 + PC$. Fitting `T` and calling
+it the plant is **biased** — a loop-ignorant fit understates the plant gain near the
+resonance.
+
+The classic fix is to measure `T`, then divide the controller back out,
+$\hat{P} = \hat{T}/(1 - \hat{T}C)$. That needs the controller `C` as a known object
+and a fragile hand-division *after* the fit — and an earlier version of this example
+listed a "controller-aware estimator" as future work.
+
+**That future work now exists.** With the loop genuinely closed in the digital twin,
+the Pintelon–Schoukens **reference-based FRF** — the ratio of period-averaged spectra
+$\overline{Y}/\overline{X}$ read off the drive monitor and the response — cancels the
+controller automatically and returns the **open-loop plant directly**. No controller
+object, no division. We inject a periodic multisine, measure the leakage-free FRF, and
+fit it by maximum likelihood with `GMLEstimator`. We still use `python-control`, but
+only to *draw* the suppressed closed-loop `T` for the bias story — never in the fit.
 
 ```{python}
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import control as ct
 
+from system_ident.backends.twin import TwinBackend
+from system_ident.plant import SuspensionPlant
 from system_ident.model import TFModel
-from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.excitation import multisine_from_psd
+from system_ident.loop import SysIDLoop
+from system_ident.estimators.gml import GMLEstimator
 
+FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
+TOTAL = NPERSEG * N_PERIODS / FS
+
+# True open-loop plant: a single 1 Hz, Q = 20 suspension resonance.
+P_TRUE = TFModel.from_resonances([(1.0, 20.0)], 100.0)
+plant = SuspensionPlant({"POS": P_TRUE}, FS)
+
+# Velocity-damping controller C(s) = k s / (1 + s/wc), proper, negative feedback.
+k, wc = 2e-3, 2 * np.pi * 12.0
+C = ([k, 0.0], [1.0 / wc, 1.0])
+
+# Close the loop *inside* the twin by passing controllers=.
+tw = TwinBackend(
+    plant, {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS,
+    sensor_asd=1e-4, disturbance_asd=1e-4, controllers={"POS": C}, seed=3,
+)
+
+# Synchronous excitation grid: every line lands exactly on a DFT bin.
+f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
+band = (f_all >= 0.1) & (f_all <= 5.0)
+freq = f_all[band]
+Pxx = np.ones_like(freq)            # flat in-band budget (the FRF is scale-free)
+```
+
+## Measure through the closed loop — and recover the open-loop plant
+
+We inject the periodic multisine as the loop *reference*, then read the **drive
+monitor** (`C1:EXC`, the actuator signal the loop actually sends) and the
+**response** (`C1:RSP`). The reference-based ratio-of-averages
+$\overline{Y}/\overline{X}$ projects onto the deterministic multisine, which is
+uncorrelated with the fed-back loop and sensor noise; that projection **cancels the
+controller** and the returned `H` is the *open-loop* plant — with **no** manual
+$1/(1 - TC)$ step anywhere.
+
+```{python}
+tw.inject("C1:EXC", multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0), FS)
+seg = tw.read(["C1:EXC", "C1:RSP"], TOTAL)
+
+# THIS H is already the OPEN-LOOP plant — the loop is cancelled by the ratio.
+H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["C1:EXC"], seg["C1:RSP"], FS, NPERSEG, band)
+exc = np.isfinite(H_err)
+
+prior = TFModel.from_resonances([(1.3, 14.0)], 130.0)   # ~30% off in f0 and Q
+P_hat = GMLEstimator().fit(freq, H, H_err, prior)
+
+
+def _f0_q(model):
+    p = np.roots(np.asarray(model.den, float))
+    p = p[p.imag > 1e-9][0]
+    w0 = abs(p)
+    return w0 / (2 * np.pi), w0 / (2 * abs(p.real))
+
+
+f0t, qt = _f0_q(P_TRUE)
+f0h, qh = _f0_q(P_hat)
+print(f"true open-loop  : f0 = {f0t:.3f} Hz, Q = {qt:.1f}")
+print(f"recovered P_hat : f0 = {f0h:.3f} Hz, Q = {qh:.1f}   (no controller-division)")
+```
+
+## Is the drive gentle? — the measurement time series
+
+Even with the loop closed, the reference is a periodic Schroeder multisine: a smooth,
+bounded, low-crest waveform, not an impulsive kick. The drive monitor (the signal the
+controller actually pushes) stays well inside a safe actuator range, and the response
+is a steady bounded oscillation — partly knocked down by the feedback.
+
+```{python}
+#| label: fig-closedloop-timeseries
+#| fig-cap: "First ~64 s of the closed-loop measurement. The drive monitor (top) is a smooth low-crest multisine; the response (bottom) is a bounded oscillation, partly suppressed by the damping loop. Peak drive stays well inside a safe actuator range."
+
+SKY, GOLD, RED, GRAY = '#1F8AC0', '#C8973A', '#E53E3E', '#94A3B8'
+t = np.arange(int(64 * FS)) / FS
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+    subplot_titles=['<b>Drive monitor</b> — actuator signal (Schroeder multisine, loop closed)',
+                    '<b>Response</b> — suspension motion (damped by the loop)'],
+)
+fig.add_trace(go.Scatter(x=t, y=seg['C1:EXC'][:t.size], mode='lines',
+              line=dict(color=SKY, width=1.3), name='drive monitor'), row=1, col=1)
+fig.add_trace(go.Scatter(x=t, y=seg['C1:RSP'][:t.size], mode='lines',
+              line=dict(color=GOLD, width=1.5), name='response'), row=2, col=1)
+fig.update_layout(template='plotly_white', height=460,
+                  margin=dict(l=60, r=20, t=50, b=50),
+                  font=dict(family='Outfit, Inter, sans-serif', size=12),
+                  legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1))
+fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.show()
+```
+
+## The bias story — and its cancellation
+
+For the picture only, we use `python-control` to form the closed-loop response
+$T = \text{feedback}(P, C)$ that the instrument *would* report if you fit the raw
+closed-loop transfer function. Its resonant peak is visibly suppressed — that is the
+bias. The recovered $\hat{P}$, by contrast, lands right on the true open-loop plant.
+
+```{python}
 def to_tfmodel(sys):
-    """Convert a python-control TransferFunction to TFModel."""
+    """Convert a python-control TransferFunction to TFModel (for plotting |T| only)."""
     sys = ct.tf(sys)
     num = np.atleast_1d(np.asarray(sys.num[0][0], dtype=float))
     den = np.atleast_1d(np.asarray(sys.den[0][0], dtype=float))
     return TFModel(num=num, den=den)
 
-# Open-loop plant: suspension (1 Hz, Q=20) × cavity pole (100 Hz)
-wn, Q = 2 * np.pi * 1.0, 20.0
-susp  = ct.tf([wn**2], [1, wn/Q, wn**2])      # DC gain = 1
-wc    = 2 * np.pi * 100.0
-cav   = ct.tf([wc], [1, wc])                  # DC gain = 1
-P     = ct.minreal(susp * cav)
-
-C     = ct.tf([2.0], [1.0])                   # proportional controller, gain = 2
-T     = ct.minreal(ct.feedback(P, C))         # closed-loop
-
-P_model = to_tfmodel(P)
-T_model = to_tfmodel(T)
-```
-
-## Measure the closed loop and fit it
-
-```{python}
-freq  = np.logspace(-1, np.log10(50.0), 500)    # 0.1 .. 50 Hz
-H_T   = T_model.eval(freq)
-rng   = np.random.default_rng(0)
-H_err  = np.abs(H_T) * 0.02
-H_meas = H_T + (rng.standard_normal(freq.size) + 1j * rng.standard_normal(freq.size)) * H_err / np.sqrt(2)
-
-prior = TFModel(num=T_model.num.copy(), den=T_model.den.copy())
-T_hat = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
-```
-
-## Recover open-loop P by dividing out the controller
-
-```{python}
-T_hat_ct = ct.tf(list(T_hat.num), list(T_hat.den))
-P_hat    = ct.minreal(T_hat_ct / (1 - T_hat_ct * C))
-P_hat_model = to_tfmodel(P_hat)
+P_ct = ct.tf(list(P_TRUE.num), list(P_TRUE.den))
+C_ct = ct.tf(*C)
+T_model = to_tfmodel(ct.minreal(ct.feedback(P_ct, C_ct)))   # closed-loop, suppressed
 ```
 
 ```{python}
 #| label: fig-closedloop
-#| fig-cap: "Loop-ignorant fit overstates suppression near the resonance; controller-division recovers the true open-loop plant. Zoom in near 1 Hz to compare. Use the legend to toggle traces."
+#| fig-cap: "The closed loop suppresses the resonance in T (grey dotted), so fitting T is biased. The Pintelon–Schoukens reference-based FRF (grey points) sits on the true open-loop plant P (blue) with the loop closed, and the ML fit P̂ (gold dashed) recovers it — with no controller-division. Zoom near 1 Hz; toggle traces in the legend."
 
-SKY  = '#1F8AC0'
-GOLD = '#C8973A'
-RED  = '#E53E3E'
-GRAY = '#94A3B8'
+fgrid = np.logspace(np.log10(0.1), np.log10(5.0), 600)
 
 fig = go.Figure()
-
 fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(P_model.eval(freq)), mode='lines',
-    line=dict(color=SKY, width=2.8),
-    name='True open-loop plant P',
-    hovertemplate='%{x:.3f} Hz   |P| = %{y:.5f}<extra></extra>',
-))
+    x=fgrid, y=np.abs(P_TRUE.eval(fgrid)), mode='lines',
+    line=dict(color=SKY, width=2.8), name='True open-loop plant P',
+    hovertemplate='%{x:.3f} Hz   |P| = %{y:.4g}<extra></extra>'))
 fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(T_model.eval(freq)), mode='lines',
+    x=fgrid, y=np.abs(T_model.eval(fgrid)), mode='lines',
     line=dict(color=GRAY, width=1.8, dash='dot'),
     name='Closed-loop T  (biased — feedback suppresses resonance)',
-    hovertemplate='%{x:.3f} Hz   |T| = %{y:.5f}<extra></extra>',
-))
+    hovertemplate='%{x:.3f} Hz   |T| = %{y:.4g}<extra></extra>'))
 fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(P_hat_model.eval(freq)), mode='lines',
+    x=freq[exc], y=np.abs(H[exc]), mode='markers',
+    marker=dict(color='rgba(148,163,184,0.6)', size=4),
+    name='Reference-based FRF  (open-loop, loop closed)',
+    hovertemplate='%{x:.3f} Hz   |H| = %{y:.4g}<extra></extra>'))
+fig.add_trace(go.Scatter(
+    x=fgrid, y=np.abs(P_hat.eval(fgrid)), mode='lines',
     line=dict(color=GOLD, width=2.2, dash='dash'),
-    name='Recovered P̂  (controller-division)',
-    hovertemplate='%{x:.3f} Hz   |P̂| = %{y:.5f}<extra></extra>',
-))
+    name='Recovered P̂  (ML fit, no controller-division)',
+    hovertemplate='%{x:.3f} Hz   |P̂| = %{y:.4g}<extra></extra>'))
 
-# Annotate the resonance
-idx_res = np.argmax(np.abs(P_model.eval(freq)))
+idx_res = int(np.argmax(np.abs(P_TRUE.eval(fgrid))))
 fig.add_annotation(
-    x=freq[idx_res], y=np.abs(P_model.eval(freq))[idx_res],
+    x=np.log10(fgrid[idx_res]), y=np.log10(np.abs(T_model.eval(fgrid))[idx_res]),
     text='<b>Resonance<br>suppressed in T</b>',
-    showarrow=True, arrowhead=2, arrowsize=1.1,
-    arrowcolor='rgba(148,163,184,0.7)',
-    ax=-80, ay=30,
-    font=dict(size=10, color=GRAY, family='Outfit, sans-serif'),
-)
+    showarrow=True, arrowhead=2, arrowsize=1.1, arrowcolor='rgba(148,163,184,0.7)',
+    ax=-80, ay=30, font=dict(size=10, color=GRAY, family='Outfit, sans-serif'))
 
 fig.update_layout(
-    template='plotly_white', height=420,
+    template='plotly_white', height=440,
     margin=dict(l=60, r=20, t=20, b=55),
     font=dict(family='Outfit, Inter, sans-serif', size=12),
     legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
                 bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1,
                 font=dict(size=10)),
     xaxis=dict(title='Frequency  [Hz]', type='log', gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
-)
+    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'))
 fig.show()
 ```
 
 ::: {.callout-important}
-## The bias is significant
+## The bias is real — and it is cancelled, not corrected
 
-Near the 1 Hz resonance, the proportional controller with gain 2 suppresses
-the closed-loop response by roughly `1/(1+PC)`.  A loop-ignorant estimator
-reports a flat, well-behaved plant; the controller-division step reveals the
-sharp resonant peak that was hidden.  At LIGO, where control gain can be 40 dB
-or more near a pendulum resonance, the bias from loop-ignoring is severe.
+Near the 1 Hz resonance the damping loop suppresses the closed-loop peak by the loop
+gain $1 + PC$: a loop-ignorant fit of `T` reports a softened, understated resonance.
+The old remedy measured `T` and *divided* the controller back out by hand. Here the
+reference-based ratio-of-averages **cancels the loop in the measurement itself** — the
+grey FRF points already lie on the open-loop plant, so `P̂` is unbiased without ever
+naming `C` in the fit. At LIGO, where control gain can be 40 dB or more near a pendulum
+resonance, cancelling the loop at the measurement is far more robust than a post-hoc
+division.
 :::
 
-::: {.callout-tip}
-## Future work: controller-aware estimator
+::: {.callout-note}
+## Controller-aware identification is now built in
 
-The current workflow requires the operator to supply the controller `C` as a
-known `python-control` object and perform the division manually after fitting.
-A controller-aware estimator that folds `C` into the cost function — so the fit
-directly targets `P` rather than `T` — is a natural extension.
-See the design spec's "future work" section.
+There is nothing left as "future work" here: closing the loop in the twin and reading
+the reference-based FRF *is* the controller-aware estimator. The same code path a real
+closed-loop measurement uses — inject a periodic multisine, read the drive monitor and
+response, average the spectra over periods — returns the open-loop plant directly.
 :::
 
 **You've reached the end of the examples.**

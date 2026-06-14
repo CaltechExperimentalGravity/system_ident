@@ -2,90 +2,175 @@
 title: "The method"
 ---
 
-System identification here is an iterative, information-optimal loop.
-The key insight is that **measurement time on a real interferometer is expensive**,
-and drive amplitude is bounded — so you must spend both wisely.
-Rather than sweeping uniformly across frequency and hoping for the best,
-`system_ident` solves the inverse problem: *given a prior model and a fixed
-drive-power budget, where should the excitation energy go to extract the most
-information about the model parameters?*
+System identification here is an iterative, information-optimal loop built on the
+**Pintelon–Schoukens frequency-domain method**. Two facts drive the design:
+**measurement time on a real interferometer is expensive**, and **drive amplitude
+is bounded by actuator saturation** — so both must be spent wisely. Rather than
+sweeping uniformly across frequency and hoping for the best, `system_ident` solves
+the inverse problem: *given a prior model and a fixed drive-power budget, where
+should the excitation energy go to extract the most information about the model
+parameters?* — then measures **leakage-free** and fits by **maximum likelihood**.
 
-The answer comes from Fisher information theory.
+The answer to *where* comes from Fisher information theory; the answer to *how to
+measure and fit* comes from the periodic-multisine, leakage-free FRF and the
+Gaussian maximum-likelihood estimator.
 
 ## The loop
 
 ```
-   prior model ──► design optimal excitation ──► inject (Tukey-ramped) ──► measure
-        ▲                                                                      │
-        └────────── re-fit model (invfreqs) ◄─── accumulate (inv-var weight) ◄┘
+  prior model ──► optimal multisine design ──► inject + read (Schroeder, Tukey-ramped)
+       ▲                                                       │
+       │                                                       ▼
+  Fisher / CRB ◄── ML fit (GMLEstimator) ◄── accumulate ◄── leakage-free reference FRF
+   (stop test)      (Gauss-Newton / LM)     (inv-variance)    (synchronous DFT, per-bin σ)
 ```
 
 ::: {.callout-note}
 ## One sentence
 
 Given a prior model, `system_ident` computes exactly how much each frequency
-contributes to parameter information, puts the drive energy there, measures,
-re-fits, and repeats — converging to parameter uncertainties far below what
-equal-power flat excitation can achieve.
+contributes to parameter information, lays a periodic multisine there, measures
+its frequency response *without spectral leakage*, fits the plant by maximum
+likelihood, and repeats — converging to parameter uncertainties at the
+Cramér–Rao bound, far below what equal-power flat excitation can achieve.
 :::
 
-Each iteration does four things:
+Each iteration does five things:
 
-1. **Design** — compute the dispersion function ν(f) from the current model,
-   readout noise ASD, and drive budget; run the Pintelon–Schoukens fixed-point
-   iteration to obtain the optimal excitation ASD.
+1. **Design** — compute the dispersion function $\nu(f)$ from the current model,
+   the quiet-time readout-noise PSD $P_{yy}(f)$, and the drive budget; run the
+   Pintelon–Schoukens fixed-point iteration to obtain the optimal excitation PSD
+   $P_{xx}(f)$. (See [Fisher & excitation](fisher.qmd).)
 
-2. **Inject** — synthesise a time series from the ASD (random-phase, Tukey-ramped),
-   send it through the backend (twin or CDS hardware), and record the response.
+2. **Inject** — realise $P_{xx}(f)$ as a **periodic multisine**: a sum of
+   harmonically related sinusoids whose period is exactly the analysis window,
+   tiled over the record and Tukey-ramped at the leading edge. The phases are
+   the deterministic **Schroeder phases**, which minimise the crest factor so a
+   saturation-limited actuator carries the most in-band power for a fixed peak.
+   Inject through the backend (twin or CDS hardware) and read both the drive
+   monitor and the response.
 
-3. **Accumulate** — inverse-variance-weight the new transfer-function estimate
-   with all previous ones, frequency bin by frequency bin.  The first pass uses
-   a flat broadband excitation for global conditioning; the accumulated estimate
-   carries that broadband coverage forward permanently.
+3. **Measure (leakage-free)** — because the drive is periodic over the window, a
+   synchronous (integer-period) DFT of the response is **leakage-free**. The FRF
+   is the *reference-based, ratio-of-averages* estimate
+   $\hat H = \overline{Y}/\overline{X}$ (period-averaged spectra), and the per-bin
+   noise covariance comes from the **period-to-period scatter** of the residual.
+   Leading periods that still carry the start transient are dropped.
 
-4. **Re-fit** — run `InvfreqsEstimator` on the accumulated TF estimate to update
-   the model; check the fractional-uncertainty stop criterion.
+4. **Accumulate** — inverse-variance-weight the new FRF estimate with all previous
+   ones, frequency bin by frequency bin. The first pass uses a flat, broadband
+   excitation for global conditioning; the accumulated estimate carries that
+   broadband coverage forward permanently while later concentrated passes sharpen
+   the resonances.
+
+5. **Fit (maximum likelihood)** — re-fit the model on the accumulated FRF with the
+   `GMLEstimator`, minimising the Gaussian negative-log-likelihood by
+   Gauss-Newton / Levenberg–Marquardt. Update the Fisher information, read off the
+   Cramér–Rao parameter covariance, and test the fractional-uncertainty stop
+   criterion.
+
+## Why a periodic multisine?
+
+A one-off random record is *not* periodic over the analysis window, so its DFT
+**leaks**: a sharp resonance smears its power into neighbouring bins, biasing the
+near-peak measurement exactly where the information is densest. Windowing reduces
+the leakage but distorts the bin shape and throws away record. A **periodic
+multisine** sidesteps the problem entirely — over an integer number of periods the
+synchronous DFT is leakage-free by construction, so a high-$Q$ mode is measured at
+its true peak with no near-resonance bias (Pintelon & Schoukens, *System
+Identification: A Frequency Domain Approach*, 2nd ed., Wiley-IEEE Press, 2012 —
+periodic excitation and leakage-free measurement). Tiling many periods also gives
+an *internal*, model-free noise estimate: the scatter of the per-period response
+about its average is the measurement uncertainty on each bin, with no assumption
+about the noise shape.
+
+The **Schroeder phases** (P&S §4) set the relative phase of each line so the
+waveform's peak-to-RMS ratio (crest factor) is near-minimal. Under a hard actuator
+limit this is what lets the drive deliver substantial in-band power without
+clipping — a random-phase multisine of the same RMS would saturate far sooner.
+
+## Why a reference-based FRF?
+
+The estimate is the *ratio of period-averaged spectra*
+$\hat H = \overline{Y}/\overline{X}$, **not** the average of per-period ratios and
+**not** the cross-/auto-spectrum estimator $S_{yx}/S_{xx}$. Averaging the complex
+spectra projects the response onto the *known, deterministic* multisine, which is
+uncorrelated with the loop and sensor noise. In **closed loop** this is decisive:
+the controller feeds sensor noise back onto the drive, so $S_{yx}/S_{xx}$ is biased,
+but the reference-based ratio cancels the controller and returns the *open-loop
+plant* — with no controller model and no division by a fed-back signal (the
+Pintelon–Schoukens closed-loop / reference-based measurement). Because the drive
+monitor itself supplies $X$, no separate reference channel is needed.
+
+## Why maximum likelihood?
+
+Once the FRF and its per-bin noise covariance are in hand, the **Gaussian
+maximum-likelihood** estimator is the right way to turn them into model
+parameters. Minimising
+
+$$
+\mathcal{C}(\theta) \;=\; \sum_k
+  \frac{\bigl|\,\hat H(f_k) - G(f_k;\theta)\,\bigr|^2}{\sigma^2(f_k)}
+$$
+
+(the $\sigma(f_k)$ are the measured per-bin standard errors) is the
+Pintelon–Schoukens Gaussian maximum-likelihood estimator: **asymptotically
+unbiased** and **efficient** — it attains the Cramér–Rao bound when the noise
+weights are correct. Weighting each residual by its own measured variance is what
+makes the
+fit trust the well-measured resonance bins and discount the noisy ones, instead of
+the uniform weighting an unweighted least-squares fit would impose.
 
 ## Why Fisher information?
 
-The Fisher information matrix `I(θ)` bounds how precisely any unbiased estimator
-can recover parameters θ from data. Its inverse `I(θ)⁻¹` is the Cramér–Rao lower
-bound on parameter covariance. For a linear system driven by a stationary input
-with PSD `Pxx(f)` and measured in readout noise with PSD `Pyy(f)`:
+The Fisher information matrix $I(\theta)$ bounds how precisely *any* unbiased
+estimator can recover parameters $\theta$ from data; its inverse $I(\theta)^{-1}$
+is the Cramér–Rao lower bound on the parameter covariance. For an LTI system driven
+by a stationary input with PSD $P_{xx}(f)$ and measured in readout noise with PSD
+$P_{yy}(f)$ over time $T$:
 
 $$
-I_{ij}(\theta) \propto T \int \frac{P_{xx}(f)}{P_{yy}(f)} \frac{\partial G^*(f)}{\partial \theta_i} \frac{\partial G(f)}{\partial \theta_j} \, df
+I_{ij}(\theta) = 2\,T \int
+  \frac{P_{xx}(f)}{P_{yy}(f)} \,
+  \operatorname{Re}\!\left[
+    \frac{\partial G^*(f;\theta)}{\partial \theta_i}
+    \frac{\partial G(f;\theta)}{\partial \theta_j}
+  \right] df .
 $$
 
-The optimal `Pxx(f)` maximises `log det I(θ)` — the log volume of the uncertainty
-ellipsoid — subject to ∫ Pxx(f) df = constant (fixed power budget).  This leads to
-a closed-form water-filling condition whose fixed point is the dispersion-weighted
-allocation in `design.pintelon`.
+The optimal $P_{xx}(f)$ maximises $\log\det I(\theta)$ — the log-volume of the
+information ellipsoid, the **D-optimal** design criterion — subject to
+$\int P_{xx}(f)\,df = \text{const}$ (fixed power budget). Its fixed point is the
+**dispersion-function** reweighting implemented in `design.pintelon`
+(P&S §5.4.2); see [Fisher & excitation](fisher.qmd) for the construction.
 
 ## Why iterative?
 
-The optimal excitation depends on the current model through the Jacobian ∂G/∂θ
-and the dispersion function. As the model improves pass by pass, so does the
-excitation design — the loop progressively sharpens its focus toward the
-frequencies that are most informative *given what it has already learned*.
+The optimal excitation depends on the current model through the Jacobian
+$\partial G/\partial\theta$ and hence through the dispersion function. As the model
+improves pass by pass, so does the excitation design — the loop progressively
+sharpens its focus toward the frequencies that are most informative *given what it
+has already learned*.
 
 ::: {.callout-tip}
 ## The first pass is special
 
-`SysIDLoop` always runs pass 1 with a flat, broadband excitation.
-This ensures the global transfer function is well-sampled before the optimal
-designer concentrates power on specific features — preventing the model from
-converging to a local minimum caused by poor initial coverage.
+`SysIDLoop` always runs pass 1 with a flat, broadband excitation. This ensures the
+global transfer function is well-sampled before the optimal designer concentrates
+power on specific features — keeping the maximum-likelihood refit well conditioned
+and preventing convergence to a local minimum caused by poor initial coverage.
 :::
 
 ## References
 
 Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
-2nd ed., IEEE Press / Wiley, 2012 — §5.4.2 (optimal excitation design),
-§7 (weighted least-squares estimation).
+2nd ed., Wiley-IEEE Press, 2012 — periodic / leakage-free measurement and the
+reference-based (closed-loop) FRF; multisine design and Schroeder phases (§4);
+dispersion-function optimal input design (§5.4.2); and the Gaussian
+maximum-likelihood estimator with its Cramér–Rao efficiency.
 
-[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) — Fisher expressions for
-suspension parameters.
+[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) — Fisher-information
+expressions for suspension parameters (the form carried by `fisher.fisher_matrix`).
 
 [LIGO-G1400084](https://dcc.ligo.org/LIGO-G1400084) (Larry Price) — original
 motivation and prior work.

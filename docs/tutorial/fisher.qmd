@@ -19,7 +19,7 @@ For a single-input / single-output LTI system `G(f; θ)` driven with PSD `Pxx(f)
 measured in additive noise with PSD `Pyy(f)`, over time `T`:
 
 $$
-I_{ij}(\theta) = T \int_0^{f_s/2}
+I_{ij}(\theta) = 2\,T \int_0^{f_s/2}
   \frac{P_{xx}(f)}{P_{yy}(f)}
   \operatorname{Re}\!\left[
     \frac{\partial G^*(f;\theta)}{\partial \theta_i}
@@ -27,24 +27,44 @@ I_{ij}(\theta) = T \int_0^{f_s/2}
   \right] df
 $$
 
-`system_ident` exposes this as `fisher.fisher_matrix` and `fisher.parameter_covariance`.
+(the factor 2 is the circular-complex measurement-noise convention also carried by
+the maximum-likelihood fit). `system_ident` exposes this as `fisher.fisher_matrix`
+and `fisher.parameter_covariance`; the leading denominator coefficient is held
+fixed at 1 (the standard transfer-function gauge), so its row and column are
+removed and the matrix is full-rank for any well-excited measurement.
 
 ## The dispersion function
 
-Define the **dispersion** at frequency f as the per-bin log-det Fisher gain
-per unit drive power:
+Let $M(f)$ be the **marginal Fisher information per unit drive power** at
+frequency $f$ — the per-Hz integrand of $I(\theta)$ with the $P_{xx}(f)$ factor
+stripped out:
 
 $$
-\nu(f) = \log \det\left[I(\theta) + \frac{1}{P_{yy}(f)} \frac{\partial G}{\partial \theta}
-   \frac{\partial G^\dagger}{\partial \theta}\right] - \log \det I(\theta)
+M(f) = \frac{2\,T}{P_{yy}(f)}
+  \operatorname{Re}\!\left[\frac{\partial G^*}{\partial \theta}\,
+  \frac{\partial G}{\partial \theta}\right],
+\qquad
+I(\theta) = \int P_{xx}(f)\, M(f)\, df .
 $$
 
-High ν(f) means that a marginal unit of drive power at frequency f
-adds the most information to the experiment — it is where the resonance is
-strongly excited and the readout noise is not overwhelming the response.
-Reallocating drive power toward high-ν bins — under a fixed total-power budget —
-is the Pintelon–Schoukens fixed-point iteration that converges to the optimal
-excitation spectrum.
+The **dispersion function** (Pintelon & Schoukens §5.4.2) is the scalar
+
+$$
+\nu(f) = P_{\text{tot}} \,\operatorname{tr}\!\left[\, I(\theta)^{-1}\, M(f)\,\right] ,
+$$
+
+the sensitivity of the information ellipsoid to a marginal unit of drive power
+placed at $f$. High $\nu(f)$ marks the bins where the resonance is strongly
+excited *and* the readout noise is not overwhelming the response — exactly where
+each extra Hz of drive buys the most parameter information.
+
+By construction the power-weighted average of $\nu$ is the parameter count,
+$\int P_{xx}(f)\,\nu(f)\,df / P_{\text{tot}} = \operatorname{tr}[I^{-1}I] = n_\theta$.
+The **equivalence theorem** of D-optimal design (Kiefer–Wolfowitz) then says the
+information-maximising spectrum is the one for which $\nu(f) = n_\theta$ on the
+support of $P_{xx}$ and $\nu(f) \le n_\theta$ elsewhere. Reweighting drive power
+toward high-$\nu$ bins under a fixed total-power budget is the Pintelon–Schoukens
+fixed-point iteration that flattens $\nu$ to this optimum.
 
 ## Interactive comparison
 
@@ -198,13 +218,32 @@ Pxx = optimal_excitation(
 
 ## What happens at each iteration
 
-Starting from a flat initial guess `Pxx⁽⁰⁾`, each iteration:
+Starting from a flat initial guess `Pxx⁽⁰⁾`, each iteration applies the
+multiplicative dispersion reweighting of `design.pintelon.optimal_excitation`:
 
-1. Compute the Fisher matrix `I(θ; Pxx⁽ᵏ⁾)` and its Jacobian.
-2. Evaluate the dispersion `ν⁽ᵏ⁾(f)` at every frequency bin.
-3. Water-fill: `Pxx⁽ᵏ⁺¹⁾(f) ∝ max(ν⁽ᵏ⁾(f) − λ, 0)` where λ is chosen so
-   `∫ Pxx⁽ᵏ⁺¹⁾ df = Px_tot`.
-4. Repeat.
+1. Build the Fisher matrix `I(θ; Pxx⁽ᵏ⁾)` and the per-bin information density
+   `M(f)` from the current model's Jacobian and the readout noise `Pyy`.
+2. Evaluate the dispersion `ν⁽ᵏ⁾(f) = P_tot · tr[I⁻¹ M(f)]` at every bin.
+3. Reweight and renormalise:
+   `Pxx⁽ᵏ⁺¹⁾(f) ∝ Pxx⁽ᵏ⁾(f) · ν⁽ᵏ⁾(f)`, rescaled so `∫ Pxx⁽ᵏ⁺¹⁾ df = Px_tot`.
+   Power flows toward bins with `ν > n_θ` and away from bins with `ν < n_θ`; the
+   fixed point is reached when `ν` is flat (`= n_θ`) across the support.
+4. Repeat. Two or three iterations usually suffice — pushing further makes the
+   design lean too heavily on the (still imperfect) prior model.
 
-After convergence the excitation is synthesised as a time series via
-`excitation.timeseries_from_asd` (random phases, Tukey-windowed, sample-rate aware).
+After convergence the excitation is synthesised as a **periodic multisine** via
+`excitation.multisine_from_psd`: lines placed on the synchronous bin grid at
+amplitudes `√(2·Pxx·df)`, with low-crest **Schroeder phases** and a leading Tukey
+ramp. Because the waveform is periodic over the analysis window, the response DFT
+is leakage-free — see [the method overview](overview.qmd) and the
+[worked examples](../examples/01-single-resonance.qmd).
+
+## References
+
+Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
+2nd ed., Wiley-IEEE Press, 2012 — §5.4.2 (dispersion-function optimal input
+design), within the book's Fisher-information / Cramér–Rao framework. The
+D-optimal equivalence theorem is due to Kiefer & Wolfowitz (1960).
+
+[LIGO-G2101503](https://dcc.ligo.org/LIGO-G2101503) — Fisher-information
+expressions for suspension parameters, the form ported into `fisher.fisher_matrix`.

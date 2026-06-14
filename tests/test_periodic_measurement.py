@@ -1,19 +1,14 @@
-"""Phase 1: Pintelon-Schoukens periodic multisine + leakage-free FRF.
+"""Pintelon-Schoukens periodic multisine + leakage-free FRF — the only path.
 
-These tests pin the *measurement* fix that ends the Q-estimation flailing:
+These tests pin the *measurement*:
 
   * the realiser is a genuine periodic multisine with a low (Schroeder) crest
     factor and the designed in-band power;
-  * a synchronous integer-period DFT measures a sharp resonance without the
-    near-peak bias that windowed Welch on a random record introduces;
+  * a synchronous integer-period DFT measures a sharp resonance leakage-free;
   * the reference-based (ratio-of-averages) estimator recovers the *open-loop*
-    plant even with a damping loop closed, where the naive ``S_yx/S_xx`` is
-    biased; and
-  * fed into the existing ``InvfreqsEstimator`` it recovers Q, where windowed
-    Welch returns a garbage (right-half-plane) pole.
-
-The legacy default (``mode="welch"``) is untouched; that coverage lives in the
-existing suite, which still passes byte-for-byte.
+    plant even with a damping loop closed; and
+  * fed into the parametric estimator it recovers Q on single- and two-mode
+    plants.
 """
 
 from __future__ import annotations
@@ -23,7 +18,7 @@ import scipy.signal as sig
 from scipy.integrate import trapezoid
 
 from system_ident.backends.twin import TwinBackend
-from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.estimators.gml import GMLEstimator
 from system_ident.excitation import multisine_from_psd
 from system_ident.loop import SysIDLoop
 from system_ident.model import TFModel, pole_pair_f0_Q
@@ -118,7 +113,7 @@ def test_saturation_clips_random_more_than_schroeder():
 # 2. leakage-free measurement (open loop)
 # --------------------------------------------------------------------------- #
 
-def test_periodic_frf_is_leakage_free_where_welch_is_biased():
+def test_periodic_frf_is_leakage_free():
     _, band, freq = _grid()
     Pxx = _flat_pxx(freq)
     plant = double_pendulum()
@@ -131,16 +126,7 @@ def test_periodic_frf_is_leakage_free_where_welch_is_biased():
     H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], FS, NPERSEG, band)
     exc = np.isfinite(H_err)
     rel = np.abs(H[exc] - Hdisc[exc]) / np.abs(Hdisc[exc])
-    assert rel.max() < 1e-2
-
-    # windowed Welch on a random record badly distorts the sharpest peak
-    from system_ident.excitation import timeseries_from_asd
-
-    tw.inject("E", timeseries_from_asd(TOTAL_DUR, FS, freq, np.sqrt(Pxx), seed=0), FS)
-    seg2 = tw.read(["E", "R"], TOTAL_DUR)
-    Hw, _, _ = SysIDLoop._estimate_tf(seg2["E"], seg2["R"], FS, NPERSEG, band)
-    ipk = int(np.argmin(np.abs(freq - 0.6)))
-    assert abs(Hw[ipk] - Hdisc[ipk]) / abs(Hdisc[ipk]) > 0.1
+    assert rel.max() < 1e-2          # leakage-free: matches the realised FRF
 
 
 # --------------------------------------------------------------------------- #
@@ -170,11 +156,7 @@ def test_reference_based_frf_unbiased_in_closed_loop():
     H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], FS, NPERSEG, band)
     exc = np.isfinite(H_err)
     rel = np.abs(H[exc] - Hdisc[exc]) / np.abs(Hdisc[exc])
-    assert rel.max() < 1e-2          # recovers the OPEN-LOOP plant
-
-    Hn, _, _ = SysIDLoop._estimate_tf(seg["E"], seg["R"], FS, NPERSEG, band)
-    reln = np.abs(Hn[exc] - Hdisc[exc]) / np.abs(Hdisc[exc])
-    assert reln.max() > 0.1          # naive S_yx/S_xx is loop-biased
+    assert rel.max() < 1e-2          # recovers the OPEN-LOOP plant in closed loop
 
 
 # --------------------------------------------------------------------------- #
@@ -215,9 +197,7 @@ def test_adaptive_transient_drops_more_for_a_slow_settling_mode():
 # 5. headline: Q recovery through the existing estimator
 # --------------------------------------------------------------------------- #
 
-def test_periodic_recovers_Q_where_welch_diverges():
-    from system_ident.excitation import timeseries_from_asd
-
+def test_periodic_recovers_Q():
     _, band, freq = _grid()
     Pxx = _flat_pxx(freq)
     true = TFModel.from_resonances([(0.6, 20.0)], 300.0)
@@ -228,15 +208,8 @@ def test_periodic_recovers_Q_where_welch_diverges():
     tw.inject("E", multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0), FS)
     seg = tw.read(["E", "R"], TOTAL_DUR)
     H, He, _ = SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], FS, NPERSEG, band)
-    Qp = _fit_qs(InvfreqsEstimator().fit(freq, H, He, prior))
+    Qp = _fit_qs(GMLEstimator().fit(freq, H, He, prior))
     assert len(Qp) == 1 and abs(Qp[0] - 20.0) / 20.0 < 0.2   # ~Q=20
-
-    tw.inject("E", timeseries_from_asd(TOTAL_DUR, FS, freq, np.sqrt(Pxx), seed=0), FS)
-    seg2 = tw.read(["E", "R"], TOTAL_DUR)
-    Hw, Hwe, _ = SysIDLoop._estimate_tf(seg2["E"], seg2["R"], FS, NPERSEG, band)
-    Qw = _fit_qs(InvfreqsEstimator().fit(freq, Hw, Hwe, prior))
-    # windowed Welch is wrong: a runaway/negative (RHP) Q, not within 20% of truth
-    assert not (len(Qw) == 1 and Qw[0] > 0 and abs(Qw[0] - 20.0) / 20.0 < 0.2)
 
 
 def test_periodic_recovers_both_modes_of_a_double_pendulum():
@@ -250,18 +223,7 @@ def test_periodic_recovers_both_modes_of_a_double_pendulum():
     seg = tw.read(["E", "R"], TOTAL_DUR)
     H, He, _ = SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], FS, NPERSEG, band)
 
-    Qs = _fit_qs(InvfreqsEstimator().fit(freq, H, He, prior))
+    Qs = _fit_qs(GMLEstimator().fit(freq, H, He, prior))
     assert len(Qs) == 2
     assert abs(Qs[0] - 20.0) / 20.0 < 0.25
     assert abs(Qs[1] - 30.0) / 30.0 < 0.25
-
-
-# --------------------------------------------------------------------------- #
-# 6. defaults preserved
-# --------------------------------------------------------------------------- #
-
-def test_default_mode_is_welch():
-    # an unset measurement.mode must dispatch to the legacy windowed-Welch path
-    loop = SysIDLoop(backend=None, estimator=None, designer=None, watchdog=None)
-    loop._meas_mode = "welch"
-    assert loop._meas_mode == "welch"

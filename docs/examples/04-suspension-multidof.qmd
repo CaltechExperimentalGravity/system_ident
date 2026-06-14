@@ -4,11 +4,16 @@ title: "04 — Multi-DoF suspension (full campaign)"
 
 A 3-DoF suspension (POS / PIT / YAW) run through the real `TwinBackend` and
 `SysIDLoop` — the same code path the CLI executes.  This is the reference
-example for a full system-identification campaign.
+example for a full **Pintelon-Schoukens** campaign: every DoF is driven by a
+*periodic* multisine, the response is turned into a **leakage-free** reference-based
+FRF, and each accumulated FRF is fit by the Gaussian **maximum-likelihood**
+estimator (`gml`).
 
 The campaign exercises every component end to end:
-- the optimal excitation designer for each DoF sequentially
-- inverse-variance accumulation across passes
+
+- the Pintelon-Schoukens optimal-excitation designer for each DoF sequentially
+- the periodic-multisine, leakage-free FRF measurement (no windowing, no leakage)
+- maximum-likelihood (`gml`) parametric fits with inverse-variance accumulation across passes
 - the fractional-uncertainty stop criterion
 - Plotly-rendered convergence and Bode plots
 
@@ -19,6 +24,8 @@ from plotly.subplots import make_subplots
 
 from system_ident.config import RunConfig
 from system_ident.loop import SysIDLoop
+from system_ident.excitation import multisine_from_psd
+from system_ident.design.pintelon import optimal_excitation
 
 cfg = {
     "run": {"name": "susp3dof", "excitation_mode": "sequential"},
@@ -31,7 +38,7 @@ cfg = {
         "segment_duration": 64.0, "n_segments": 4, "px_total": 1.0,
     },
     "strategy": {
-        "estimator": "invfreqs",
+        "estimator": "gml",
         "input_designer": "pintelon_schoukens",
         "n_design_iter": 3,
     },
@@ -61,7 +68,73 @@ backend  = rc.build_twin_backend(seed=0)
 priors   = rc.build_priors()
 watchdog = rc.build_watchdog(backend)
 loop     = SysIDLoop(backend, rc.build_estimator(), rc.build_designer(), watchdog)
-result   = loop.run(rc.raw, priors, seed=0)
+```
+
+## Is the excitation safe? — the measurement time series
+
+Before trusting any campaign result, look at the **raw time series** of one
+injection.  Here we reproduce exactly what the loop does for a single DoF (POS):
+design the Pintelon-Schoukens optimal *periodic* multisine, inject it, and read
+back the drive monitor and the mirror response.  The drive is a smooth, bounded,
+low-crest Schroeder waveform — the suspension is being *coaxed*, not slammed —
+and its peak sits far inside the `actuator_sat = 1000` limit.
+
+```{python}
+#| label: fig-suspension-timeseries
+#| fig-cap: "One POS injection, first ~60 s. The drive (top) is a smooth, low-crest periodic multisine; the mirror response (bottom) is a bounded steady oscillation. The peak drive stays well inside the actuator-saturation limit, so the optimal excitation is safe to run on the real suspension."
+
+SKY, GOLD, GREEN = '#1F8AC0', '#C8973A', '#2D9D6B'
+
+m         = cfg["measurement"]
+fs        = float(m["fs"])
+nperseg   = int(m["segment_duration"] * fs)
+n_periods = int(m["n_segments"])
+px_total  = float(m["px_total"])
+dur       = nperseg * n_periods / fs
+
+f_all   = np.fft.rfftfreq(nperseg, 1 / fs)
+band    = (f_all >= m["freq_min"]) & (f_all <= m["freq_max"])
+freq_ms = f_all[band]
+
+exc_ch = cfg["channels"]["excitation"]["POS"]
+rb_ch  = cfg["channels"]["readback"]["POS"]
+
+# Quiet readback PSD -> design weighting (the same Pyy the loop uses), then the
+# Pintelon-Schoukens optimal drive PSD and its periodic-multisine realisation.
+Pyy   = SysIDLoop._noise_psd(backend.read([rb_ch], dur)[rb_ch], fs, nperseg, band)
+Pxx   = optimal_excitation(freq_ms, priors["POS"], Pyy, px_total, n_iter=3)
+drive = multisine_from_psd(Pxx, fs, nperseg, n_periods, freq_ms, seed=0)
+
+backend.inject(exc_ch, drive, fs)
+seg = backend.read([exc_ch, rb_ch], dur)
+backend.inject(exc_ch, np.zeros_like(drive), fs)   # clear the demo drive for a clean campaign
+
+t = np.arange(int(60 * fs)) / fs
+fig0 = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
+    subplot_titles=['<b>Drive</b> — POS actuator (Pintelon-Schoukens multisine)',
+                    '<b>Mirror motion</b> — POS response'],
+)
+fig0.add_trace(go.Scatter(x=t, y=seg[exc_ch][:t.size], mode='lines',
+               line=dict(color=SKY, width=1.3), name='drive (POS)'), row=1, col=1)
+fig0.add_trace(go.Scatter(x=t, y=seg[rb_ch][:t.size], mode='lines',
+               line=dict(color=GOLD, width=1.5), name='POS motion'), row=2, col=1)
+fig0.update_layout(
+    template='plotly_white', height=460,
+    margin=dict(l=60, r=20, t=50, b=50),
+    font=dict(family='Outfit, Inter, sans-serif', size=12),
+    legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1),
+)
+fig0.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig0.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig0.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig0.show()
+```
+
+## Run the campaign
+
+```{python}
+result = loop.run(rc.raw, priors, seed=0)
 
 print(f"Campaign done: {result.done}")
 for dof, model in result.models.items():
@@ -74,9 +147,6 @@ for dof, model in result.models.items():
 #| label: fig-convergence
 #| fig-cap: "Fractional parameter uncertainty (worst parameter per DoF) vs campaign iteration. Each DoF is excited sequentially; the uncertainty drops as optimal passes accumulate. Use the legend to toggle individual DoFs."
 
-SKY    = '#1F8AC0'
-GOLD   = '#C8973A'
-GREEN  = '#2D9D6B'
 colors = {'POS': SKY, 'PIT': GOLD, 'YAW': GREEN}
 symbols = {'POS': 'circle', 'PIT': 'square', 'YAW': 'diamond'}
 
@@ -168,9 +238,11 @@ fig2.show()
 
 The config sets `excitation_mode: sequential` — one DoF is driven at a time,
 which keeps the response measurement unambiguous (no cross-coupling between
-excitation channels in the Welch estimate).  A future `simultaneous` mode
+excitation channels in the periodic FRF estimate).  A future `simultaneous` mode
 would require careful coherence-based channel separation.
 :::
 
 **Next:** [Closed-loop arm](05-closed-loop-arm.qmd) — the realistic case where
 the suspension is measured inside a Fabry–Pérot cavity with feedback closed.
+</content>
+</invoke>

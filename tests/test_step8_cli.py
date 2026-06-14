@@ -42,15 +42,6 @@ def test_unknown_strategy_rejected(tmp_path):
         RunConfig.load(p)
 
 
-def test_unknown_loop_mode_rejected(tmp_path):
-    raw = yaml.safe_load(DEMO.read_text())
-    raw["strategy"]["loop"] = "unknown_mode"
-    p = tmp_path / "c.yml"
-    p.write_text(yaml.safe_dump(raw))
-    with pytest.raises(ConfigError, match="strategy.loop"):
-        RunConfig.load(p)
-
-
 def test_apply_overrides():
     cfg = RunConfig.load(DEMO)
     cfg.apply_overrides(segment_duration=32.0, px_total=2.0)

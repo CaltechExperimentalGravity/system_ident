@@ -52,6 +52,7 @@ class TwinBackend(ChannelBackend):
         controllers: dict[str, tuple] | None = None,
         response_delay_samples: int = 0,
         saturate: float | None = None,
+        coupling: dict | None = None,
     ) -> None:
         self.plant = plant
         self.exc_channels = dict(exc_channels)
@@ -79,6 +80,19 @@ class TwinBackend(ChannelBackend):
         self.response_delay_samples = int(response_delay_samples)
         self.saturate = None if saturate is None else float(saturate)
         self._cl = self._build_closed_loop() if self.controllers else {}
+        # MIMO cross-coupling: off-diagonal plant terms H_{i<-j} so a drive on
+        # input ``j`` shows up on output ``i``. Keys are (output_dof, input_dof);
+        # the diagonal stays in ``plant.transfer_functions``. Default None -> pure
+        # SISO (byte-identical to before).
+        if coupling and self.controllers:
+            raise NotImplementedError(
+                "twin MIMO coupling is not supported together with closed-loop "
+                "controllers (open-loop measurement only)"
+            )
+        self._ba_cross = {
+            (out_dof, in_dof): sig.bilinear(tf.num, tf.den, self.fs)
+            for (out_dof, in_dof), tf in (coupling or {}).items()
+        }
 
     @classmethod
     def from_config(
@@ -164,6 +178,13 @@ class TwinBackend(ChannelBackend):
         u = self._fit_length(drive, n) if drive is not None else np.zeros(n)
         w = self._disturbance(n)
         resp = sig.lfilter(b, a, u + w)
+        # MIMO cross-coupling: add every other input's contribution to this output
+        for (out_dof, in_dof), (bc, ac) in self._ba_cross.items():
+            if out_dof != dof:
+                continue
+            dj = self._drives.get(in_dof)
+            if dj is not None:
+                resp = resp + sig.lfilter(bc, ac, self._fit_length(dj, n))
         return self._delay(resp) + self._sensor_noise(n)
 
     def _build_closed_loop(self) -> dict:

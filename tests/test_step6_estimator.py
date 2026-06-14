@@ -1,8 +1,8 @@
-"""Step-6: the invfreqs weighted-LS estimator.
+"""Step-6: the ``invfreqs`` weighted-LS solver and the ML estimator built on it.
 
-Validated against the legacy ``update_par_dict_from_data`` oracle, plus a
-recovery check (fitting near-noiseless data returns the true model) and an
-order-preservation check.
+The ``invfreqs()`` linear solver is validated against the legacy ``sysIDlib``
+oracle; the loop estimator (:class:`GMLEstimator`) is checked for recovery
+(fitting near-noiseless data returns the true model) and order preservation.
 """
 
 from __future__ import annotations
@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from system_ident.estimators.invfreqs import InvfreqsEstimator, invfreqs
+from system_ident.estimators.gml import GMLEstimator
+from system_ident.estimators.invfreqs import invfreqs
 from system_ident.model import TFModel, resonance_pole_pair
 from system_ident.plant import double_pendulum
 
@@ -34,26 +35,13 @@ def test_invfreqs_matches_oracle(oracle):
     np.testing.assert_allclose(den, den0, rtol=1e-9, atol=1e-12)
 
 
-def test_fit_matches_oracle(oracle):
-    freq = _demo_freq()
-    model = double_pendulum()
-    H = model.eval(freq)
-    H_err = 0.01 * np.abs(H)  # 1% per-point error -> SNR 100
-
-    fitted = InvfreqsEstimator().fit(freq, H, H_err, model)
-    par0 = oracle.update_par_dict_from_data(freq, H, H_err, model.to_dict())
-
-    np.testing.assert_allclose(fitted.num, par0["num"], rtol=1e-7, atol=1e-10)
-    np.testing.assert_allclose(fitted.den, par0["den"], rtol=1e-7, atol=1e-10)
-
-
 def test_fit_recovers_true_model_from_clean_data():
     freq = _demo_freq()
     true = double_pendulum()
     H = true.eval(freq)
     H_err = 1e-6 * np.abs(H)
 
-    fitted = InvfreqsEstimator().fit(freq, H, H_err, true)
+    fitted = GMLEstimator().fit(freq, H, H_err, true)
     # compare the recovered response, which is gauge-invariant
     np.testing.assert_allclose(fitted.eval(freq), H, rtol=1e-4)
 
@@ -62,7 +50,7 @@ def test_fit_preserves_model_order():
     freq = _demo_freq()
     model = double_pendulum()
     H = model.eval(freq)
-    fitted = InvfreqsEstimator().fit(freq, H, 0.01 * np.abs(H), model)
+    fitted = GMLEstimator().fit(freq, H, 0.01 * np.abs(H), model)
     assert fitted.num.shape == model.num.shape
     assert fitted.den.shape == model.den.shape
 
@@ -111,6 +99,6 @@ def test_fit_recovers_odd_order_models(true, freq):
     """Recovery for odd-order systems (the closed-loop arm / cavity examples)."""
     H = true.eval(freq)
     H_err = 1e-6 * np.abs(H)
-    fitted = InvfreqsEstimator().fit(freq, H, H_err, true)
+    fitted = GMLEstimator().fit(freq, H, H_err, true)
     assert np.all(np.isfinite(fitted.den))
     np.testing.assert_allclose(fitted.eval(freq), H, rtol=1e-3)

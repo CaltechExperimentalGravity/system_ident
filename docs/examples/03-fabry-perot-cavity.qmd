@@ -6,67 +6,132 @@ Different physics: an optical cavity is a single-pole low-pass,
 
 $$G(s) = \frac{\omega_c}{s + \omega_c}$$
 
-with the cavity pole `fc` setting the bandwidth.
-There is no sharp resonance to aim at; the identification is signal-to-noise
-limited — the parameter of interest (`fc`) affects the shape of `|G(f)|`
-near the pole, which here sits at 100 Hz.
+with the cavity pole `fc` setting the bandwidth (DC gain 1). There is **no sharp
+resonance** to aim at — the identification is **signal-to-noise limited**. The
+parameter of interest (`fc`) only bends the shape of `|G(f)|` near the pole,
+which here sits at 100 Hz, so the whole rolloff has to be measured cleanly for
+the fit to lock onto it. That is a nice contrast to the resonance examples,
+where a tall peak hands the estimator a high-SNR target.
 
-This example shows the estimator recovering the cavity pole from a noisy
-measurement with a 30% wrong prior.
+We do this the Pintelon–Schoukens way, exactly as in the other examples: drive
+a digital twin of the cavity with a **periodic multisine**, take the
+**leakage-free reference-based FRF**, and recover the pole by **maximum
+likelihood** from a 30 %-wrong prior. Because the pole is at 100 Hz we sample
+fast enough (8 kHz) that the measurement band spans a decade either side,
+~1 Hz … 1 kHz, with the top of the band still well below Nyquist.
 
 ```{python}
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from system_ident.model import TFModel
-from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.plant import SuspensionPlant
+from system_ident.backends.twin import TwinBackend
+from system_ident.excitation import multisine_from_psd
+from system_ident.loop import SysIDLoop
+from system_ident.estimators.gml import GMLEstimator
 
-fc = 100.0                              # true cavity pole [Hz]
+SKY, GOLD, RED, GRAY = '#1F8AC0', '#C8973A', '#E53E3E', '#94A3B8'
+
+FS, NPERSEG, N_PERIODS = 8192.0, 32768, 8    # period = 4 s, 8 periods -> 32 s
+TOTAL = NPERSEG * N_PERIODS / FS
+
+fc = 100.0                                   # true cavity pole [Hz]
 wc = 2 * np.pi * fc
-true  = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)    # DC gain = 1
+cavity = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)   # DC gain = 1
 
-freq = np.logspace(0, 3, 400)          # 1 Hz … 1 kHz (log-spaced)
-H    = true.eval(freq)
+# Synchronous measurement grid: 1 Hz … 1 kHz on the leakage-free bin lattice.
+f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
+band = (f_all >= 1.0) & (f_all <= 1000.0)
+freq = f_all[band]
 ```
 
-## Measurement and fit
+## Periodic measurement — multisine + leakage-free FRF
+
+The twin discretises the continuous cavity and filters the drive through it,
+adding white sensor noise. We inject a flat-budget Schroeder multisine (a smooth,
+bounded, low-crest waveform), read back the drive monitor and the cavity
+response, and form the reference-based FRF `H = mean(Y)/mean(X)` over periods —
+leakage-free because the drive is periodic over `NPERSEG`.
 
 ```{python}
-rng   = np.random.default_rng(0)
-H_err = np.abs(H) * 0.05               # 5% noise
-H_meas = H + (rng.standard_normal(freq.size) + 1j * rng.standard_normal(freq.size)) * H_err / np.sqrt(2)
+tw = TwinBackend(
+    SuspensionPlant({"CAV": cavity}, FS),
+    {"C1:EXC": "CAV"}, {"C1:RSP": "CAV"},
+    fs=FS, sensor_asd=0.09,                   # white sensor noise -> ~5% FRF scatter near the pole
+)
 
-# Prior: 30% off on the pole location
-prior = TFModel.from_zpk(zeros=[], poles=[-2*np.pi*70.0], gain=2*np.pi*70.0)
-fit   = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
+Pxx = np.ones_like(freq)                      # flat in-band budget (the FRF is scale-free)
+drive = multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0)
+tw.inject("C1:EXC", drive, FS)
+seg = tw.read(["C1:EXC", "C1:RSP"], TOTAL)
 
-# Extract the fitted pole frequency
-f_pole_fit   = abs(fit.den[1]) / (2 * np.pi)
+H, H_err, _ = SysIDLoop._estimate_tf_periodic(
+    seg["C1:EXC"], seg["C1:RSP"], FS, NPERSEG, band
+)
+```
+
+## Is the drive gentle? — the measurement time series
+
+Even for a low-pass with nothing to resonate, the excitation is worth a look:
+the drive is a smooth, bounded multisine, and the cavity response is a
+low-pass-smoothed version of it — no impulsive kicks, just a steady bounded
+oscillation the actuator can live with.
+
+```{python}
+#| label: fig-cavity-timeseries
+#| fig-cap: "One injection, first ~8 s (2 periods). The drive (top) is a smooth low-crest Schroeder multisine; the cavity response (bottom) is the low-pass-smoothed motion. The drive stays well inside a safe actuator range."
+
+idx = np.arange(0, int(8 * FS), 2)             # first 2 periods, decimated 2x for display
+t = idx / FS
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
+    subplot_titles=['<b>Drive</b> — cavity actuator (Schroeder multisine)',
+                    '<b>Cavity response</b> — single-pole low-pass output'],
+)
+fig.add_trace(go.Scatter(x=t, y=seg["C1:EXC"][idx], mode='lines',
+              line=dict(color=SKY, width=1.2), name='drive'), row=1, col=1)
+fig.add_trace(go.Scatter(x=t, y=seg["C1:RSP"][idx], mode='lines',
+              line=dict(color=GOLD, width=1.4), name='response'), row=2, col=1)
+fig.update_layout(template='plotly_white', height=440,
+                  margin=dict(l=60, r=20, t=50, b=50),
+                  font=dict(family='Outfit, Inter, sans-serif', size=12),
+                  legend=dict(orientation='h', yanchor='bottom', y=1.06, xanchor='right', x=1))
+fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='response [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.show()
+```
+
+## Fit the cavity pole by maximum likelihood
+
+```{python}
+# Prior: 30% off on the pole location (70 Hz instead of 100 Hz).
+prior = TFModel.from_zpk(zeros=[], poles=[-2 * np.pi * 70.0], gain=2 * np.pi * 70.0)
+fit = GMLEstimator().fit(freq, H, H_err, prior)
+
 f_pole_prior = abs(prior.den[1]) / (2 * np.pi)
+f_pole_fit = abs(fit.den[1]) / (2 * np.pi)
 print(f"Prior cavity pole:  {f_pole_prior:.1f} Hz  (30% wrong)")
 print(f"True  cavity pole:  {fc:.1f} Hz")
-print(f"Fit   cavity pole:  {f_pole_fit:.2f} Hz  (error: {abs(f_pole_fit-fc)/fc*100:.2f}%)")
+print(f"Fit   cavity pole:  {f_pole_fit:.2f} Hz  (error: {abs(f_pole_fit - fc) / fc * 100:.2f}%)")
 ```
 
 ```{python}
 #| label: fig-cavity
-#| fig-cap: "Single-pole cavity: noisy measurement and recovered fit. Use the log x-axis to see the pole region near 100 Hz. The prior (70 Hz) is shown in red; the fit converges to the true 100 Hz pole."
+#| fig-cap: "Single-pole cavity on a log–log Bode plot: true plant (blue), leakage-free measured points (grey), the 30 %-wrong prior (red dotted), and the ML fit (gold dashed). The fit converges from the 70 Hz prior to the true 100 Hz pole even though the noise grows in the far-from-pole rolloff."
 
-SKY  = '#1F8AC0'
-GOLD = '#C8973A'
-RED  = '#E53E3E'
-GRAY = '#94A3B8'
-
+ex = np.isfinite(H_err)
 fig = go.Figure()
-
 fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(H), mode='lines',
+    x=freq, y=np.abs(cavity.eval(freq)), mode='lines',
     line=dict(color=SKY, width=2.5), name=f'True plant  (f_c = {fc:.0f} Hz)',
     hovertemplate='%{x:.2f} Hz   |G| = %{y:.5f}<extra></extra>',
 ))
 fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(H_meas), mode='markers',
-    marker=dict(color='rgba(148,163,184,0.45)', size=3), name='Measured (5% noise)',
+    x=freq[ex], y=np.abs(H[ex]), mode='markers',
+    marker=dict(color='rgba(148,163,184,0.45)', size=3), name='Measured (multisine FRF)',
     hovertemplate='%{x:.2f} Hz   |Hmeas| = %{y:.5f}<extra></extra>',
 ))
 fig.add_trace(go.Scatter(
@@ -82,10 +147,7 @@ fig.add_trace(go.Scatter(
     hovertemplate='%{x:.2f} Hz   |G_fit| = %{y:.5f}<extra></extra>',
 ))
 
-# Annotate the true pole
-fig.add_vline(
-    x=fc, line_color='rgba(31,138,192,0.35)', line_dash='dot', line_width=1.5,
-)
+fig.add_vline(x=fc, line_color='rgba(31,138,192,0.35)', line_dash='dot', line_width=1.5)
 fig.add_annotation(
     x=np.log10(fc), y=0.0, xref='x', yref='paper',
     text=f'<b>f_c = {fc:.0f} Hz</b>',
@@ -93,7 +155,6 @@ fig.add_annotation(
     font=dict(size=11, color=SKY, family='Outfit, sans-serif'),
     xshift=8, yshift=6,
 )
-
 fig.update_layout(
     template='plotly_white', height=400,
     margin=dict(l=60, r=20, t=20, b=55),
@@ -107,13 +168,17 @@ fig.show()
 ```
 
 ::: {.callout-note}
-## Log-spaced frequency grid
+## Log-frequency view of a single-pole system
 
-For a single-pole system, the pole region spans roughly a decade around `fc`.
-Using a log-spaced frequency grid (as here) samples this region well; a
-linear grid would waste most of its points on frequencies far from the pole.
-The `InvfreqsEstimator` naturally handles non-uniform frequency grids since
-it weights each bin by the measurement variance.
+For a single-pole system the interesting structure — the bend at `fc` — spans
+roughly a decade around the pole, so we view it on a **log frequency axis**: the
+pole region fills the plot instead of being crushed against the left edge. The
+periodic FRF is necessarily measured on the *linear* synchronous bin lattice
+(`k·fs/NPERSEG`), which is what makes it leakage-free; the densely-sampled
+high-frequency rolloff is also the **noisiest** part, since `|G|` is small there.
+That is fine: `GMLEstimator` weights every bin by its measured variance
+(`H_err`), so the noisy far-from-pole bins are automatically down-weighted and
+the fit is dominated by the well-measured region around the pole.
 :::
 
 **Next:** [Multi-DoF suspension](04-suspension-multidof.qmd) — the full

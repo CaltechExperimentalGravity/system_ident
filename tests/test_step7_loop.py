@@ -7,7 +7,7 @@ import pytest
 
 from system_ident.backends.twin import TwinBackend
 from system_ident.design.pintelon import PintelonSchoukensDesigner
-from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.estimators.gml import GMLEstimator
 from system_ident.loop import SysIDLoop
 from system_ident.model import TFModel
 from system_ident.plant import SuspensionPlant, double_pendulum
@@ -42,7 +42,7 @@ def _build(config, sensor_asd=1e-9, seed=0):
     backend = TwinBackend.from_config(config, plant, fs=FS, sensor_asd=sensor_asd, seed=seed)
     limits = SafetyLimits.from_config(config)
     wd = Watchdog(backend, limits)
-    loop = SysIDLoop(backend, InvfreqsEstimator(), PintelonSchoukensDesigner(), wd)
+    loop = SysIDLoop(backend, GMLEstimator(), PintelonSchoukensDesigner(), wd)
     return backend, loop
 
 

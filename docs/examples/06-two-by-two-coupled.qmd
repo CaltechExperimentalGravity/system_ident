@@ -1,0 +1,182 @@
+---
+title: "06 — Two-by-two coupled suspension (MIMO)"
+---
+
+Real suspensions do not move one degree of freedom at a time: a length (POS) drive
+leaks into pitch (PIT) and vice-versa. The honest model is a **2×2 transfer-function
+matrix**
+
+$$
+\begin{bmatrix} y_{\text{POS}} \\ y_{\text{PIT}} \end{bmatrix}
+=
+\begin{bmatrix} H_{11} & H_{12} \\ H_{21} & H_{22} \end{bmatrix}
+\begin{bmatrix} u_{\text{POS}} \\ u_{\text{PIT}} \end{bmatrix},
+$$
+
+where the off-diagonal $H_{12}, H_{21}$ are the cross-coupling. We identify the whole
+matrix the standard MIMO way — **one input at a time**: drive input $j$ with a periodic
+multisine, measure *both* outputs, and the leakage-free reference-based FRF gives column
+$j$ of the matrix. Each element is then fit by maximum likelihood.
+
+Before trusting any of it, we look at the **measurement time series** to confirm the
+excitation is a gentle, low-crest drive — not something that slams the suspension around.
+
+```{python}
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+from system_ident.backends.twin import TwinBackend
+from system_ident.plant import SuspensionPlant
+from system_ident.model import TFModel
+from system_ident.excitation import multisine_from_psd
+from system_ident.loop import SysIDLoop
+from system_ident.estimators.gml import GMLEstimator
+
+FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
+TOTAL = NPERSEG * N_PERIODS / FS
+INPUTS = ["POS", "PIT"]
+
+# True 2x2 plant: diagonal modes + genuine cross-coupling.
+TRUE = {
+    ("POS", "POS"): TFModel.from_resonances([(0.8, 20.0)], 100.0),  # length mode
+    ("PIT", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  80.0),  # pitch mode
+    ("PIT", "POS"): TFModel.from_resonances([(0.8, 20.0)],  25.0),  # length -> pitch
+    ("POS", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  15.0),  # pitch -> length
+}
+
+plant = SuspensionPlant({"POS": TRUE[("POS", "POS")], "PIT": TRUE[("PIT", "PIT")]}, FS)
+coupling = {("PIT", "POS"): TRUE[("PIT", "POS")], ("POS", "PIT"): TRUE[("POS", "PIT")]}
+exc = {"POS": "C1:EXC_POS", "PIT": "C1:EXC_PIT"}
+rsp = {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT"}
+tw = TwinBackend(
+    plant, {c: d for d, c in exc.items()}, {c: d for d, c in rsp.items()},
+    fs=FS, sensor_asd=2e-3, coupling=coupling,
+)
+
+f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
+band = (f_all >= 0.1) & (f_all <= 5.0)
+freq = f_all[band]
+Pxx = np.ones_like(freq)                       # flat in-band budget (FRF is scale-free)
+```
+
+## Measure the matrix, one input at a time
+
+```{python}
+meas, drives, responses = {}, {}, {}
+zero = np.zeros(int(round(TOTAL * FS)))
+for j in INPUTS:
+    for k in INPUTS:                            # only input j is driven
+        tw.inject(exc[k], zero, FS)
+    tw.inject(exc[j], multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0), FS)
+    seg = tw.read([exc[j], rsp["POS"], rsp["PIT"]], TOTAL)
+    drives[j] = seg[exc[j]]
+    for i in INPUTS:                            # both outputs -> column j
+        H, He, _ = SysIDLoop._estimate_tf_periodic(seg[exc[j]], seg[rsp[i]], FS, NPERSEG, band)
+        meas[(i, j)] = (H, He)
+        responses[(i, j)] = seg[rsp[i]]
+```
+
+## Is the drive gentle? — the measurement time series
+
+When POS is driven, *both* mirror DoFs respond (the pitch motion is the cross-coupling).
+The drive is a periodic Schroeder multisine: a smooth, bounded, low-crest waveform, not an
+impulsive kick. The motion stays a steady bounded oscillation — the suspension is being
+*coaxed*, not slammed.
+
+```{python}
+#| label: fig-mimo-timeseries
+#| fig-cap: "One injection (POS driven), first ~64 s. The drive (top) is a smooth low-crest multisine; both outputs (bottom) are bounded oscillations — POS is the direct response, PIT is the cross-coupling. Peak drive stays well inside a safe actuator range."
+
+SKY, GOLD, GRAY, ROSE = '#1F8AC0', '#C8973A', '#94A3B8', '#D2698E'
+t = np.arange(int(64 * FS)) / FS
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+    subplot_titles=['<b>Drive</b> — POS actuator (Schroeder multisine)',
+                    '<b>Mirror motion</b> — both DoFs respond'],
+)
+fig.add_trace(go.Scatter(x=t, y=drives['POS'][:t.size], mode='lines',
+              line=dict(color=SKY, width=1.3), name='drive (POS)'), row=1, col=1)
+fig.add_trace(go.Scatter(x=t, y=responses[('POS', 'POS')][:t.size], mode='lines',
+              line=dict(color=GOLD, width=1.5), name='POS motion (direct)'), row=2, col=1)
+fig.add_trace(go.Scatter(x=t, y=responses[('PIT', 'POS')][:t.size], mode='lines',
+              line=dict(color=ROSE, width=1.5), name='PIT motion (cross-coupling)'), row=2, col=1)
+fig.update_layout(template='plotly_white', height=460,
+                  margin=dict(l=60, r=20, t=50, b=50),
+                  font=dict(family='Outfit, Inter, sans-serif', size=12),
+                  legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1))
+fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.show()
+```
+
+## Fit all four elements by maximum likelihood
+
+```{python}
+PRIOR = {                                       # each ~30% off in f0 / Q
+    ("POS", "POS"): TFModel.from_resonances([(1.0, 15.0)], 130.0),
+    ("PIT", "PIT"): TFModel.from_resonances([(1.7, 18.0)], 110.0),
+    ("PIT", "POS"): TFModel.from_resonances([(1.0, 15.0)],  35.0),
+    ("POS", "PIT"): TFModel.from_resonances([(1.7, 18.0)],  22.0),
+}
+gml = GMLEstimator()
+fit = {key: gml.fit(freq, *meas[key], PRIOR[key]) for key in TRUE}
+
+def _f0_q(model):
+    p = np.roots(np.asarray(model.den, float))
+    p = p[p.imag > 1e-9][0]
+    w0 = abs(p)
+    return w0 / (2 * np.pi), w0 / (2 * abs(p.real))
+
+print(f"{'element':>12}   {'true (f0,Q)':>16}   {'fit (f0,Q)':>16}")
+for key in [("POS","POS"), ("PIT","POS"), ("POS","PIT"), ("PIT","PIT")]:
+    f0t, qt = _f0_q(TRUE[key]); f0f, qf = _f0_q(fit[key])
+    print(f"  H[{key[0]}<-{key[1]}]   ({f0t:.2f} Hz, {qt:4.1f})   ({f0f:.2f} Hz, {qf:4.1f})")
+```
+
+## The recovered 2×2 matrix
+
+```{python}
+#| label: fig-mimo-matrix
+#| fig-cap: "The full 2×2 magnitude matrix: measured points (grey), ML fit (gold dashed), truth (blue). Rows are outputs (POS, PIT); columns are inputs. The off-diagonal panels are the cross-coupling — small but cleanly recovered."
+
+fig = make_subplots(
+    rows=2, cols=2, shared_xaxes=True,
+    subplot_titles=[f'H[{i}&larr;{j}]' for i in INPUTS for j in INPUTS],
+    vertical_spacing=0.10, horizontal_spacing=0.08,
+)
+for r, i in enumerate(INPUTS):
+    for c, j in enumerate(INPUTS):
+        H, He = meas[(i, j)]
+        ex = np.isfinite(He)
+        showleg = (r == 0 and c == 0)
+        fig.add_trace(go.Scatter(x=freq, y=np.abs(TRUE[(i, j)].eval(freq)), mode='lines',
+                      line=dict(color=SKY, width=2.3), name='true', showlegend=showleg,
+                      legendgroup='t'), row=r+1, col=c+1)
+        fig.add_trace(go.Scatter(x=freq[ex], y=np.abs(H[ex]), mode='markers',
+                      marker=dict(color='rgba(148,163,184,0.6)', size=3), name='measured',
+                      showlegend=showleg, legendgroup='m'), row=r+1, col=c+1)
+        fig.add_trace(go.Scatter(x=freq, y=np.abs(fit[(i, j)].eval(freq)), mode='lines',
+                      line=dict(color=GOLD, width=1.9, dash='dash'), name='ML fit',
+                      showlegend=showleg, legendgroup='f'), row=r+1, col=c+1)
+fig.update_xaxes(type='log', gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(type='log', gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='Frequency [Hz]', row=2)
+fig.update_layout(template='plotly_white', height=560,
+                  margin=dict(l=55, r=20, t=50, b=50),
+                  font=dict(family='Outfit, Inter, sans-serif', size=11),
+                  legend=dict(orientation='h', yanchor='bottom', y=1.04, xanchor='right', x=1))
+fig.show()
+```
+
+::: {.callout-note}
+## One input at a time recovers the whole matrix
+
+Each single-input injection gives one *column* of the matrix: drive POS, read both DoFs →
+$H_{11}, H_{21}$; drive PIT → $H_{12}, H_{22}$. Because the multisine is periodic and the
+FRF is the reference-based ratio-of-averages, every element is leakage-free, so even the
+small cross terms (peaks 4–6× below the diagonal) are recovered to a percent. The digital
+twin applies the coupling for real — driving POS genuinely moves pitch — so this is the
+same code path a real MIMO measurement would use.
+:::

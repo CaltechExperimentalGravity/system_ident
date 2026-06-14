@@ -21,17 +21,14 @@ import yaml
 from .backends.twin import TwinBackend
 from .design.pintelon import PintelonSchoukensDesigner
 from .estimators.gml import GMLEstimator
-from .estimators.invfreqs import InvfreqsEstimator
 from .model import TFModel
 from .plant import SuspensionPlant
 from .safety import SafetyLimits, Watchdog
 
-# Strategy-name -> implementation. Remaining stub strategies (weighted_ls,
-# vectfit, sho, white) are intentionally absent until their build steps land, so
-# an unsupported choice fails loudly instead of silently doing the wrong thing.
-# "gml"/"ml" are the Pintelon-Schoukens maximum-likelihood estimator.
+# Strategy-name -> implementation. Only the Pintelon-Schoukens maximum-
+# likelihood estimator ("gml"/"ml") is wired; any other choice fails loudly
+# instead of silently doing the wrong thing.
 ESTIMATORS = {
-    "invfreqs": InvfreqsEstimator,
     "gml": GMLEstimator,
     "ml": GMLEstimator,
 }
@@ -82,8 +79,6 @@ class RunConfig:
         cls._validate(raw)
         return cls(raw=raw, path=path)
 
-    _VALID_LOOP_MODES = {"broadband_ls", "bayesian", "hybrid"}
-
     @staticmethod
     def _validate(raw: dict) -> None:
         for section, keys in REQUIRED.items():
@@ -101,12 +96,6 @@ class RunConfig:
         if des not in DESIGNERS:
             raise ConfigError(
                 f"input_designer {des!r} not available; choose from {sorted(DESIGNERS)}"
-            )
-        loop_mode = raw["strategy"].get("loop", "broadband_ls")
-        valid = RunConfig._VALID_LOOP_MODES
-        if loop_mode not in valid:
-            raise ConfigError(
-                f"strategy.loop {loop_mode!r} is not valid; choose from {sorted(valid)}"
             )
 
     # -- CLI flag overrides --------------------------------------------------
@@ -146,22 +135,10 @@ class RunConfig:
         )
 
     def build_priors(self) -> dict:
-        """Return per-DoF prior models.
-
-        In ``bayesian`` loop mode the priors are :class:`ResonatorModel` (physical
-        (f0, Q, gain) parameterisation for the gauge-free MAP estimator).
-        In all other modes (``broadband_ls``) they are :class:`TFModel` as before.
-        """
+        """Return per-DoF prior :class:`TFModel` models (one per DoF)."""
         if "priors" not in self.raw:
             raise ConfigError("runs need a 'priors' section (one model per DoF)")
         spec = _resonance_spec(self.raw["priors"])
-        loop_mode = self.raw["strategy"].get("loop", "broadband_ls")
-        if loop_mode == "bayesian":
-            from .resonator import ResonatorModel
-            return {
-                dof: ResonatorModel.from_resonances(d["resonances"], d["gain"])
-                for dof, d in spec.items()
-            }
         return {
             dof: TFModel.from_resonances(d["resonances"], d["gain"], zeros=d["zeros"])
             for dof, d in spec.items()

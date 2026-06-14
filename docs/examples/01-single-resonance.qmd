@@ -2,12 +2,19 @@
 title: "01 — Single resonance (SHO)"
 ---
 
-The smallest complete system-identification experiment: a simple harmonic oscillator
-at 1 Hz with Q = 20.  We design an optimal excitation, quantify the variance reduction
-versus a flat drive, and recover the model from a noisy measurement.
+The smallest complete **Pintelon–Schoukens** experiment: a simple harmonic oscillator
+at 1 Hz with Q = 20. We run the whole pipeline end to end —
 
-This example is intentionally minimal — one mode, synthetic noise, no hardware — so
-the signal flow is clear before the ladder adds complexity.
+1. **design** an optimal periodic multisine that puts drive power where the model is
+   most uncertain, and quantify the variance reduction over a flat drive;
+2. **measure** the frequency-response function (FRF) *leakage-free* by injecting that
+   multisine into a digital twin and taking a synchronous, integer-period DFT;
+3. **fit** the plant by maximum likelihood, weighting each bin by its measured
+   uncertainty.
+
+No windowing, no spectral leakage, no ad-hoc smoothing — every step is the textbook
+P&S estimator. This example is intentionally minimal (one mode, one twin, no hardware)
+so the signal flow is clear before the ladder adds complexity.
 
 ```{python}
 import numpy as np
@@ -17,34 +24,52 @@ from plotly.subplots import make_subplots
 from system_ident.model import TFModel
 from system_ident.fisher import parameter_covariance
 from system_ident.design.pintelon import optimal_excitation
-from system_ident.estimators.invfreqs import InvfreqsEstimator
+from system_ident.excitation import multisine_from_psd
+from system_ident.backends.twin import TwinBackend
+from system_ident.plant import SuspensionPlant
+from system_ident.loop import SysIDLoop
+from system_ident.estimators.gml import GMLEstimator
 
-# ── plant and prior ────────────────────────────────────────────────────────
-true  = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)   # 1 Hz, Q = 20
-prior = TFModel.from_resonances([(0.95, 18.0)], gain=1.1)  # 5% wrong in f0, 10% in Q
+SKY, GOLD, GRAY = '#1F8AC0', '#C8973A', '#94A3B8'
 
-freq   = np.linspace(0.2, 3.0, 400)
-Pyy    = np.ones_like(freq)          # white readout noise
+# ── experiment geometry ─────────────────────────────────────────────────────
+FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
+TOTAL = NPERSEG * N_PERIODS / FS                 # 512 s of record
+FMIN, FMAX = 0.2, 8.0
+
+# Synchronous DFT grid: the multisine lines must land exactly on these bins so
+# the integer-period DFT is leakage-free.
+f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
+band  = (f_all >= FMIN) & (f_all <= FMAX)
+freq  = f_all[band]
+
+# ── plant and prior ─────────────────────────────────────────────────────────
+true  = TFModel.from_resonances([(1.0, 20.0)],  gain=100.0)  # 1 Hz, Q = 20
+prior = TFModel.from_resonances([(0.95, 18.0)], gain=110.0)  # 5% off f0, 10% off Q
+
+Pyy    = np.ones_like(freq)          # white readout-noise floor
 Px_tot = 1.0                         # fixed drive-power budget
 
+# Optimal drive is designed from the *prior* — all we have before measuring.
 Pxx_opt  = optimal_excitation(freq, prior, Pyy, Px_tot, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
 ```
 
 ## Designed excitation vs the plant
 
+The optimal drive is the fixed point of the Pintelon–Schoukens *dispersion* function:
+it pours power into the bins that carry the most Fisher information about $(f_0, Q)$ —
+the resonance and its skirts — instead of spreading it flat. Same total power, sharper
+parameters.
+
 ```{python}
 #| label: fig-sho-excitation
-#| fig-cap: "Optimal drive concentrates power at the 1 Hz resonance; flat drive spreads it uniformly. Hover to read exact values."
+#| fig-cap: "Top: the plant magnitude with its 1 Hz resonance (the prior used to design the drive is the faint dotted line). Bottom: the optimal drive concentrates power at the resonance; the flat drive spreads it uniformly. Hover to read exact values."
 
-T_tot    = 256.0
-cov_opt  = parameter_covariance(freq, true, Pxx_opt,  Pyy, T_tot)
-cov_flat = parameter_covariance(freq, true, Pxx_flat, Pyy, T_tot)
+cov_opt  = parameter_covariance(freq, true, Pxx_opt,  Pyy, TOTAL)
+cov_flat = parameter_covariance(freq, true, Pxx_flat, Pyy, TOTAL)
 ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-SKY  = '#1F8AC0'
-GOLD = '#C8973A'
-GRAY = '#94A3B8'
 resp = np.abs(true.eval(freq))
 
 fig = make_subplots(
@@ -63,13 +88,14 @@ fig.add_trace(go.Scatter(
 ), row=1, col=1)
 
 fig.add_trace(go.Scatter(
-    x=freq, y=resp * 0 + 0,  # invisible, just for prior overlay
-    mode='lines', line=dict(color='rgba(200,151,58,0.4)', width=1.5, dash='dot'),
-    showlegend=False,
+    x=freq, y=np.abs(prior.eval(freq)), mode='lines',
+    line=dict(color='rgba(200,151,58,0.55)', width=1.5, dash='dot'),
+    name='|G(f)| — prior (design model)',
+    hovertemplate='%{x:.3f} Hz   |G_prior| = %{y:.4f}<extra></extra>',
 ), row=1, col=1)
 
 # Mark resonance
-f0_idx = np.argmax(resp)
+f0_idx = int(np.argmax(resp))
 fig.add_annotation(
     x=freq[f0_idx], y=resp[f0_idx], xref='x', yref='y',
     text='<b>f₀ = 1.0 Hz, Q = 20</b>', showarrow=True,
@@ -109,7 +135,7 @@ fig.show()
 ## Parameter variance: same power, lower uncertainty
 
 ```{python}
-print(f"Measurement time T = {T_tot} s")
+print(f"Measurement time T = {TOTAL:.0f} s   ({N_PERIODS} periods of {NPERSEG} samples at {FS:.0f} Hz)")
 print()
 print(f"  Flat (equal power)  — max parameter variance: {np.max(np.diag(cov_flat)):.3e}")
 print(f"  Optimal             — max parameter variance: {np.max(np.diag(cov_opt)):.3e}")
@@ -117,58 +143,131 @@ print(f"  Variance ratio:  {ratio:.1f}×  (optimal is {ratio:.0f}x better)")
 ```
 
 ::: {.callout-note}
-The {ratio:.0f}× reduction in worst-parameter variance does not require any extra
-measurement time or drive power — only a smarter allocation of the same budget.
+The reduction in worst-parameter variance shown above does not require any extra
+measurement time or drive power — only a smarter allocation of the *same* budget. This
+is the entire promise of optimal experiment design.
 :::
 
-## Model recovery from a noisy measurement
+## Measure the FRF leakage-free
 
-We simulate a 2%-noise measurement and fit the model from the prior:
+We now realise the optimal spectrum as a periodic **Schroeder multisine** — a sum of
+harmonically related sinusoids whose period is exactly `NPERSEG` samples — inject it
+into a digital twin of the suspension, and read back both the drive monitor and the
+mirror motion. Because the drive is periodic over the analysis window, a synchronous
+(integer-period) DFT of the response is leakage-free: the sharp resonance is measured
+without the near-peak bias a windowed transform of a random record would smear in.
 
 ```{python}
-rng = np.random.default_rng(0)
-H      = true.eval(freq)
-H_err  = np.abs(H) * 0.02
-H_meas = H + (rng.standard_normal(freq.size) + 1j * rng.standard_normal(freq.size)) * H_err / np.sqrt(2)
+plant = SuspensionPlant({"POS": true}, FS)
+tw = TwinBackend(
+    plant, {"C1:EXC": "POS"}, {"C1:RSP": "POS"},
+    fs=FS, sensor_asd=5e-3,
+)
 
-fit = InvfreqsEstimator().fit(freq, H_meas, H_err, prior)
+drive = multisine_from_psd(Pxx_opt, FS, NPERSEG, N_PERIODS, freq, seed=0)
+tw.inject("C1:EXC", drive, FS)
+seg = tw.read(["C1:EXC", "C1:RSP"], TOTAL)
 
-print("True model  den:", np.round(true.den, 4))
-print("Prior model den:", np.round(prior.den, 4))
-print("Fitted      den:", np.round(fit.den,  4))
+# Reference-based (ratio-of-averages) FRF over the excited band — the P&S path.
+H, H_err, coh = SysIDLoop._estimate_tf_periodic(
+    seg["C1:EXC"], seg["C1:RSP"], FS, NPERSEG, band
+)
+```
+
+## Is the drive gentle? — the measurement time series
+
+The Schroeder phasing gives the multisine a low crest factor: a smooth, bounded
+waveform rather than an impulsive kick. The mirror settles into a steady bounded
+oscillation — the suspension is being *coaxed*, not slammed. We plot the first ~64 s
+(exactly one period of the drive).
+
+```{python}
+#| label: fig-sho-timeseries
+#| fig-cap: "First ~64 s of the experiment (one full drive period). The drive (top) is a smooth, low-crest Schroeder multisine; the mirror motion (bottom) is a bounded oscillation dominated by the 1 Hz resonance. Peak drive stays well inside a safe actuator range."
+
+t = np.arange(int(64 * FS)) / FS
+fig = make_subplots(
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+    subplot_titles=['<b>Drive</b> — POS actuator (Schroeder multisine)',
+                    '<b>Mirror motion</b> — response at the 1 Hz mode'],
+)
+fig.add_trace(go.Scatter(x=t, y=seg['C1:EXC'][:t.size], mode='lines',
+              line=dict(color=SKY, width=1.3), name='drive'), row=1, col=1)
+fig.add_trace(go.Scatter(x=t, y=seg['C1:RSP'][:t.size], mode='lines',
+              line=dict(color=GOLD, width=1.5), name='mirror motion'), row=2, col=1)
+fig.update_layout(template='plotly_white', height=460,
+                  margin=dict(l=60, r=20, t=50, b=50),
+                  font=dict(family='Outfit, Inter, sans-serif', size=12),
+                  legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1))
+fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.show()
+```
+
+## Fit by maximum likelihood
+
+Starting from the (deliberately wrong) prior, `GMLEstimator` finds the transfer function
+that best explains the measured FRF, weighting every bin by its own measured error bar
+`H_err`. The undriven bins carry infinite error and simply drop out.
+
+```{python}
+fit = GMLEstimator().fit(freq, H, H_err, prior)
+
+def _f0_q(model):
+    p = np.roots(np.asarray(model.den, float))
+    p = p[p.imag > 1e-9][0]
+    w0 = abs(p)
+    return w0 / (2 * np.pi), w0 / (2 * abs(p.real))
+
+f0_t, q_t = _f0_q(true)
+f0_p, q_p = _f0_q(prior)
+f0_f, q_f = _f0_q(fit)
+
+print(f"{'':>10}{'f0 [Hz]':>12}{'Q':>10}")
+print(f"{'true':>10}{f0_t:>12.4f}{q_t:>10.2f}")
+print(f"{'prior':>10}{f0_p:>12.4f}{q_p:>10.2f}")
+print(f"{'fit':>10}{f0_f:>12.4f}{q_f:>10.2f}")
+print()
+print(f"recovery error:  f0 {100*abs(f0_f-f0_t)/f0_t:.2f}%   Q {100*abs(q_f-q_t)/q_t:.2f}%")
 ```
 
 ## Recovered vs measured vs true
 
 ```{python}
 #| label: fig-sho-fit
-#| fig-cap: "Noisy measurement and recovered model overlay on the true plant. Zoom in near 1 Hz to compare."
+#| fig-cap: "The leakage-free measurement (grey points, error bars from period-to-period scatter), the maximum-likelihood fit (gold dashed), and the true plant (blue). Power is concentrated at the resonance, so that is where the measurement is densest and the fit is pinned."
+
+ex = np.isfinite(H_err)
 
 fig2 = go.Figure()
 
 fig2.add_trace(go.Scatter(
-    x=freq, y=np.abs(H), mode='lines',
+    x=freq, y=np.abs(true.eval(freq)), mode='lines',
     line=dict(color=SKY, width=2.5), name='True plant',
     hovertemplate='%{x:.3f} Hz   |G| = %{y:.4f}<extra></extra>',
 ))
 fig2.add_trace(go.Scatter(
-    x=freq, y=np.abs(H_meas), mode='markers',
-    marker=dict(color='rgba(148,163,184,0.5)', size=3), name='Measured (2% noise)',
-    hovertemplate='%{x:.3f} Hz   |Hmeas| = %{y:.4f}<extra></extra>',
+    x=freq[ex], y=np.abs(H[ex]), mode='markers',
+    marker=dict(color='rgba(148,163,184,0.6)', size=4),
+    error_y=dict(type='data', array=H_err[ex], visible=True,
+                 color='rgba(148,163,184,0.4)', thickness=1, width=0),
+    name='Measured (leakage-free FRF)',
+    hovertemplate='%{x:.3f} Hz   |H| = %{y:.4f}<extra></extra>',
 ))
 fig2.add_trace(go.Scatter(
     x=freq, y=np.abs(fit.eval(freq)), mode='lines',
-    line=dict(color=GOLD, width=2.0, dash='dash'), name='Fitted model',
+    line=dict(color=GOLD, width=2.0, dash='dash'), name='ML fit',
     hovertemplate='%{x:.3f} Hz   |G_fit| = %{y:.4f}<extra></extra>',
 ))
 
 fig2.update_layout(
-    template='plotly_white', height=360,
+    template='plotly_white', height=380,
     margin=dict(l=60, r=20, t=20, b=55),
     font=dict(family='Outfit, Inter, sans-serif', size=12),
     legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
                 bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
-    xaxis=dict(title='Frequency  [Hz]', gridcolor='rgba(30,60,100,0.07)'),
+    xaxis=dict(title='Frequency  [Hz]', type='log', gridcolor='rgba(30,60,100,0.07)'),
     yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
 )
 fig2.show()
@@ -176,3 +275,5 @@ fig2.show()
 
 **Next:** the [double-pendulum example](02-double-pendulum.qmd) shows how the
 optimal drive splits power across two modes.
+</content>
+</invoke>

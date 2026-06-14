@@ -10,7 +10,7 @@ that exposes the four-method protocol::
 
 No gauge row/column is removed (``ResonatorModel`` is fully identifiable).
 The TFModel-gauge versions in ``fisher.py`` / ``design/pintelon.py`` remain
-unchanged and are used by the ``broadband_ls`` path.
+unchanged and are used by the loop's TFModel path.
 
 Functions
 ---------

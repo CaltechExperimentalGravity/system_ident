@@ -1,9 +1,11 @@
-"""Default estimator: weighted frequency-domain transfer-function fit.
+"""Weighted inverse-frequency transfer-function fit.
 
-Port of ``sys_id_dev/sysIDlib.py`` ``invfreqs`` + ``update_par_dict_from_data``.
-Given a measured complex response with per-point uncertainty and a prior model
-(which fixes the model order), it solves the linear, SVD-regularised
-inverse-frequency least-squares problem for an updated :class:`TFModel`.
+Port of ``sys_id_dev/sysIDlib.py`` ``invfreqs`` (Semlyen & Deri). Given a
+measured complex response with per-point weights and a denominator order, it
+solves the linear, SVD-regularised inverse-frequency least-squares problem for
+``(num, den)`` coefficients. Used by
+:class:`~system_ident.estimators.gml.GMLEstimator` as the Sanathanan-Koerner
+linearisation step.
 
 Validated against the legacy engine in ``tests/test_step6_estimator.py``.
 """
@@ -11,10 +13,6 @@ Validated against the legacy engine in ``tests/test_step6_estimator.py``.
 from __future__ import annotations
 
 import numpy as np
-import scipy.signal as sig
-
-from ..model import TFModel
-from .base import Estimator
 
 
 def invfreqs(w: np.ndarray, H: np.ndarray, wt: np.ndarray, nb: int):
@@ -83,32 +81,3 @@ def invfreqs(w: np.ndarray, H: np.ndarray, wt: np.ndarray, nb: int):
     num = xx[:nb]
     den = np.hstack((1, xx[nb:]))
     return num[::-1], den[::-1]
-
-
-class InvfreqsEstimator(Estimator):
-    """Weighted least-squares TF fit (port of ``update_par_dict_from_data``)."""
-
-    def fit(
-        self,
-        freq: np.ndarray,
-        H_meas: np.ndarray,
-        H_err: np.ndarray,
-        model: TFModel,
-    ) -> TFModel:
-        freq = np.asarray(freq, dtype=float)
-        n_num = model.n_num
-        n_den = len(model.den)
-
-        # The weight is divided by |A(w)| of the prior denominator so the
-        # minimised residual approximates the desired |B/A - H| fit.
-        _, Gden = sig.freqs([1.0], model.den, worN=2.0 * np.pi * freq)
-        df = np.gradient(freq)
-        wt = 1.0 / (H_err * np.sqrt(df)) * np.abs(Gden)
-
-        num, den = invfreqs(2.0 * np.pi * freq, H_meas, wt, n_den - 1)
-
-        # match the prior model order and normalise the leading coefficient
-        num = num[-n_num:]
-        num = num / den[-n_den]
-        den = den / den[-n_den]
-        return TFModel(num=num, den=den)
