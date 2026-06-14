@@ -1,5 +1,8 @@
 ---
 title: "02 — Double pendulum"
+description: "Two modes (0.6 Hz Q20, 1.5 Hz Q30): the optimal drive splits its power across both resonances."
+image: thumbnails/02.png
+categories: [SISO, multi-mode]
 ---
 
 The canonical two-mode plant: a double pendulum with modes at 0.6 Hz (Q = 20) and

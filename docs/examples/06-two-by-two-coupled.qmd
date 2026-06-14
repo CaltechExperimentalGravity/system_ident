@@ -1,5 +1,8 @@
 ---
 title: "06 — Two-by-two coupled suspension (MIMO)"
+description: "A genuine 2×2 plant: length and pitch cross-couple, identified one input column at a time."
+image: thumbnails/06.png
+categories: [MIMO, coupling]
 ---
 
 Real suspensions do not move one degree of freedom at a time: a length (POS) drive leaks

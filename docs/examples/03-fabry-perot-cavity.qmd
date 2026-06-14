@@ -1,5 +1,8 @@
 ---
 title: "03 — Fabry–Pérot cavity"
+description: "A single-pole low-pass with no resonance to aim at — identification is SNR-limited."
+image: thumbnails/03.png
+categories: [SISO, SNR-limited]
 ---
 
 Different physics: an optical cavity is a single-pole low-pass,

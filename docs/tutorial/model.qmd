@@ -38,22 +38,18 @@ Construct a `TFModel` however is natural for your system:
 from system_ident.model import TFModel
 import numpy as np
 
-# ── from (f0 [Hz], Q) resonances ──────────────────────────────────────────
-# Suspension mode at 1 Hz, Q = 20; optionally with additional resonances.
-g1 = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
+g1 = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)                 # <1>
+g2 = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], gain=250.0)  # <2>
 
-# Double pendulum: 0.6 Hz Q20 + 1.5 Hz Q30
-g2 = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], gain=250.0)
+wc = 2 * np.pi * 100.0                                                # <3>
+g3 = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)                 # <3>
 
-# ── from zeros / poles / gain ─────────────────────────────────────────────
-# Fabry–Pérot cavity pole at 100 Hz
-wc = 2 * np.pi * 100.0
-g3 = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)
-
-# ── from a raw {num, den} dict ────────────────────────────────────────────
-# Matches the format stored by the sysIDlib MATLAB code
-g4 = TFModel.from_dict({"num": [1.0], "den": [1.0, 6.28, 39.5]})
+g4 = TFModel.from_dict({"num": [1.0], "den": [1.0, 6.28, 39.5]})      # <4>
 ```
+1. A single 1 Hz, Q = 20 resonance — the simplest suspension plant.
+2. Two resonances at once: the canonical double pendulum (0.6 Hz Q20 + 1.5 Hz Q30).
+3. Zeros / poles / gain — here a single Fabry–Pérot cavity pole at 100 Hz.
+4. A raw `{num, den}` dict, matching the legacy `sysIDlib` MATLAB format.
 
 All constructors normalise to the leading-den-1 convention before storing.
 

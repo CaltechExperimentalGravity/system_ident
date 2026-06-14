@@ -1,0 +1,24 @@
+---
+title: "Worked examples"
+listing:
+  id: examples-gallery
+  contents:
+    - "0*.qmd"
+  type: grid
+  grid-columns: 3
+  sort: false
+  image-height: "200px"
+  fields: [image, title, description, categories]
+  categories: true
+  feed: false
+page-layout: full
+---
+
+Six end-to-end **Pintelon–Schoukens** campaigns, ordered from the simplest single
+resonance to a fully coupled 2×2 MIMO suspension. Every example runs the *same* full
+diagnostic set — excitation design, measurement time series, magnitude/phase/coherence
+Bode, residuals, Cramér–Rao parameter recovery, drive-safety margins, convergence, and
+the pass-by-pass overlay — so you can read any one and know your way around all of them.
+
+::: {#examples-gallery}
+:::

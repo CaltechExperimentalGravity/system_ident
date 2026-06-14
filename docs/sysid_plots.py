@@ -445,6 +445,79 @@ def pass_overlay(freq, per_pass, true_mag, *, height=440, ylabel="|G(f)|"):
     return style(fig, height=height, legend="v")
 
 
+# ── animated convergence (play button + slider over passes) ──────────────────
+def _play_pause(steps_label="pass ", n=0, x=0.0, slider_y=-0.06):
+    play = dict(type="buttons", showactive=False, x=x, y=1.16, xanchor="left",
+                yanchor="top", direction="left", pad=dict(t=0, r=8),
+                buttons=[
+                    dict(label="▶ Play", method="animate",
+                         args=[None, dict(frame=dict(duration=750, redraw=True),
+                                          fromcurrent=True, transition=dict(duration=300))]),
+                    dict(label="⏸ Pause", method="animate",
+                         args=[[None], dict(frame=dict(duration=0, redraw=False),
+                                            mode="immediate")])])
+    steps = [dict(method="animate", label=f"{i + 1}",
+                  args=[[f"{i + 1}"], dict(mode="immediate",
+                        frame=dict(duration=600, redraw=True),
+                        transition=dict(duration=300))]) for i in range(n)]
+    slider = dict(active=0, x=0.1, len=0.88, y=slider_y, currentvalue=dict(prefix=steps_label),
+                  pad=dict(t=4), steps=steps)
+    return [play], [slider]
+
+
+def animate_passes(freq, true_mag, per_pass, *, height=640):
+    """Animated convergence over passes: Bode magnitude (true / measured / fit) above
+    the reshaping drive ASD, with a play button + slider.
+
+    `per_pass` = list of dicts: ``meas_mag, mask, fit_mag, drive_asd``.
+    """
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
+        subplot_titles=["<b>Bode magnitude</b> — the fit tightening onto the plant",
+                        "<b>Drive ASD</b> — power reallocating toward the resonance"])
+    p0 = per_pass[0]
+    m0 = p0["mask"]
+    fig.add_trace(go.Scatter(x=freq, y=true_mag, mode="lines",
+        line=dict(color=INK, width=2.6), name="true plant"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=freq[m0], y=np.asarray(p0["meas_mag"])[m0], mode="markers",
+        marker=dict(color=GRAY, size=MK_DATA), name="measured"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=freq, y=p0["fit_mag"], mode="lines",
+        line=dict(color=GOLD, width=2.6, dash="dash"), name="ML fit"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=freq, y=p0["drive_asd"], mode="lines", fill="tozeroy",
+        fillcolor="rgba(200,151,58,0.18)", line=dict(color=GOLD, width=2.4),
+        name="drive ASD"), row=2, col=1)
+    fig.frames = [go.Frame(name=f"{i + 1}", traces=[1, 2, 3], data=[
+        go.Scatter(x=freq[p["mask"]], y=np.asarray(p["meas_mag"])[p["mask"]]),
+        go.Scatter(x=freq, y=p["fit_mag"]),
+        go.Scatter(x=freq, y=p["drive_asd"]),
+    ]) for i, p in enumerate(per_pass)]
+    fig.update_yaxes(title_text="|G(f)|", type="log", row=1, col=1)
+    fig.update_yaxes(title_text="drive ASD", type="log", row=2, col=1)
+    fig.update_xaxes(title_text="Frequency  [Hz]", type="log", row=2, col=1)
+    fig.update_xaxes(type="log", row=1, col=1)
+    um, sl = _play_pause("pass ", n=len(per_pass))
+    fig.update_layout(updatemenus=um, sliders=sl)
+    return style(fig, height=height, legend_y=1.16)
+
+
+def animate_design(freq, plant_mag, asd_iters, *, height=440):
+    """Hero animation: the optimal drive ASD forming over design iterations,
+    under the plant magnitude. `asd_iters` = list of ASD arrays (iter 0..N).
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=freq, y=plant_mag / np.max(plant_mag), mode="lines",
+        line=dict(color=SKY, width=3), name="plant |G(f)|"))
+    a0 = asd_iters[0]
+    fig.add_trace(go.Scatter(x=freq, y=a0 / np.max(asd_iters[-1]), mode="lines", fill="tozeroy",
+        fillcolor="rgba(200,151,58,0.20)", line=dict(color=GOLD, width=3), name="drive ASD"))
+    fig.frames = [go.Frame(name=f"{i + 1}", traces=[1],
+        data=[go.Scatter(x=freq, y=a / np.max(asd_iters[-1]))]) for i, a in enumerate(asd_iters)]
+    fig.update_xaxes(title_text="Frequency  [Hz]", type="log")
+    fig.update_yaxes(title_text="normalized", type="log", range=[-3, 0.2])
+    um, sl = _play_pause("iteration ", n=len(asd_iters))
+    fig.update_layout(updatemenus=um, sliders=sl)
+    return style(fig, height=height, legend_y=1.16)
+
+
 # ── small color utilities ─────────────────────────────────────────────────────
 def _hex2rgb(h):
     h = h.lstrip("#")

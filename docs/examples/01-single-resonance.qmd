@@ -1,5 +1,8 @@
 ---
 title: "01 — Single resonance (SHO)"
+description: "The smallest complete experiment: a 1 Hz, Q = 20 oscillator, end to end through the full diagnostic set."
+image: thumbnails/01.png
+categories: [SISO, resonance]
 ---
 
 The smallest complete **Pintelon–Schoukens** experiment: a simple harmonic oscillator
@@ -131,6 +134,23 @@ sp.param_table(["step", "f₀ [Hz]", "Q", "DC gain |G(0)|", "σ/θ (CRB)"], rows
                caption="Parameters at each step")
 ```
 
+## ▶ Watch the loop converge
+
+Press **Play** to watch six passes of the loop: the drive ASD (bottom) reallocates power
+toward the resonance while the maximum-likelihood fit (top, gold dashed) tightens onto the
+true plant. Drag the slider to step through passes by hand.
+
+```{python}
+#| code-summary: "Animated convergence over passes"
+anim = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+                       n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
+                       px_total=Px_tot, n_passes=6, prior_uncertainty=0.5, seed=1)
+sp.animate_passes(freq, np.abs(true.eval(freq)),
+    [dict(meas_mag=np.abs(h["H"]), mask=h["mask"],
+          fit_mag=np.abs(h["model"].eval(freq)), drive_asd=np.sqrt(h["Pxx"]))
+     for h in anim]).show()
+```
+
 ## 3 — Is the drive gentle? The measurement time series
 
 The Schroeder phasing gives the multisine a low crest factor: a smooth, bounded waveform
@@ -234,6 +254,46 @@ sp.pass_overlay(freq,
     [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),
           mask=h["mask"]) for h in hist],
     np.abs(true.eval(freq))).show()
+```
+
+## 🎛 Try it yourself
+
+Drag the sliders — the Bode magnitude of a second-order resonance updates live in your
+browser (no server, no re-run). Move $f_0$ to slide the peak; raise $Q$ to make it taller
+and sharper. This is the very shape the loop above is built to measure.
+
+```{ojs}
+//| echo: false
+//| panel: input
+viewof f0 = Inputs.range([0.3, 3.0], {value: 1.0, step: 0.01, label: "f₀  [Hz]"})
+viewof Q  = Inputs.range([2, 80],   {value: 20,  step: 1,    label: "Q"})
+```
+
+```{ojs}
+//| echo: false
+bode = {
+  const w0 = 2 * Math.PI * f0;
+  const data = d3.range(0.1, 5.0001, 0.01).map(f => {
+    const w = 2 * Math.PI * f;
+    const re = w0 * w0 - w * w;
+    const im = w0 * w / Q;
+    return { f, mag: (w0 * w0) / Math.hypot(re, im) };   // DC-normalized, |G(0)| = 1
+  });
+  return Plot.plot({
+    width: 820, height: 380, marginLeft: 64, marginBottom: 52,
+    x: { type: "log", label: "Frequency  [Hz] →", grid: true },
+    y: { type: "log", label: "↑ |G(f)|", grid: true, domain: [0.02, 100] },
+    style: { fontFamily: "Outfit, Inter, sans-serif", fontSize: "15px" },
+    marks: [
+      Plot.areaY(data, { x: "f", y: "mag", fill: "rgba(31,138,192,0.10)" }),
+      Plot.line(data, { x: "f", y: "mag", stroke: "#1F8AC0", strokeWidth: 3 }),
+      Plot.ruleX([f0], { stroke: "#C8973A", strokeDasharray: "5,4", strokeWidth: 2 }),
+      Plot.text([{ f: f0, mag: Q }], {
+        x: "f", y: "mag", text: [`f₀ = ${f0.toFixed(2)} Hz,  Q = ${Q}`],
+        dy: -12, fill: "#C8973A", fontWeight: 700, fontSize: 14 }),
+    ],
+  });
+}
 ```
 
 **Next:** the [double-pendulum example](02-double-pendulum.qmd) runs the identical

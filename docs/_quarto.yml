@@ -14,6 +14,12 @@ website:
   title: "system_ident"
   description: "Optimal-excitation system identification for LIGO suspensions."
   favicon: "favicon.svg"
+  site-url: "https://caltechexperimentalgravity.github.io/system_ident/"
+  image: "assets/og-card.png"          # default social-card preview
+  open-graph: true
+  twitter-card: true
+  page-navigation: true                 # prev/next links at the page foot
+  back-to-top-navigation: true          # floating back-to-top button
   navbar:
     logo: "favicon.svg"
     logo-alt: "system_ident logo"
@@ -32,26 +38,14 @@ website:
             text: Closing the loop
           - href: tutorial/safety-and-ops.qmd
             text: Safety & operations
-      - text: Examples
-        menu:
-          - href: examples/01-single-resonance.qmd
-            text: "01  Single resonance"
-          - href: examples/02-double-pendulum.qmd
-            text: "02  Double pendulum"
-          - href: examples/03-fabry-perot-cavity.qmd
-            text: "03  Fabry–Pérot cavity"
-          - href: examples/04-suspension-multidof.qmd
-            text: "04  Multi-DoF suspension"
-          - href: examples/05-closed-loop-arm.qmd
-            text: "05  Closed-loop arm"
-          - href: examples/06-two-by-two-coupled.qmd
-            text: "06  2×2 coupled (MIMO)"
+      - href: examples/index.qmd
+        text: Examples
       - href: reference/index.qmd
         text: API Reference
     right:
       - icon: github
-        href: https://github.com/
-        aria-label: GitHub
+        href: https://github.com/CaltechExperimentalGravity/system_ident
+        aria-label: GitHub repository
   sidebar:
     - id: reference
       contents: reference/_sidebar.yml
@@ -73,9 +67,14 @@ format:
     code-fold: true              # collapse code blocks by default — focus on the plots
     code-summary: "Show the code"
     code-tools: true             # page-level expand/collapse-all toggle
+    code-annotations: hover      # numbered callouts on code lines
     code-overflow: wrap
     code-line-numbers: false
     smooth-scroll: true
+    reading-time: true           # "N min read" on each page
+    lightbox: auto               # click any figure to zoom (quarto-ext/lightbox)
+    mermaid:
+      theme: neutral
     include-in-header:
       - text: |
           <link rel="preconnect" href="https://fonts.googleapis.com">

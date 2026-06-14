@@ -17,13 +17,32 @@ Gaussian maximum-likelihood estimator.
 
 ## The loop
 
+```{mermaid}
+%%| label: fig-loop
+%%| fig-cap: "The Pintelon–Schoukens identification loop. Each pass redesigns the excitation from the improved model; the loop stops when the Cramér–Rao fractional uncertainty drops below target."
+flowchart LR
+  A(["Prior model<br/>+ error bars"]):::start --> B["<b>Design</b><br/>optimal multisine<br/>dispersion ν(f)"]:::design
+  B --> C["<b>Inject + read</b><br/>Schroeder phases<br/>Tukey-ramped"]:::act
+  C --> D["<b>Measure</b><br/>leakage-free reference FRF<br/>synchronous DFT, per-bin σ"]:::act
+  D --> E["<b>Accumulate</b><br/>inverse-variance<br/>across passes"]:::act
+  E --> F["<b>Fit</b><br/>ML (GMLEstimator)<br/>Gauss-Newton / LM"]:::fit
+  F --> G{"<b>Fisher / CRB</b><br/>σ/θ &lt; target?"}:::test
+  G -- "no — redesign from<br/>the improved model" --> B
+  G -- yes --> H(["Done<br/>parameters at the CRB"]):::done
+
+  classDef start  fill:#E8F1F8,stroke:#1F8AC0,stroke-width:2px,color:#0B1F33;
+  classDef design fill:#FBF1DD,stroke:#C8973A,stroke-width:2px,color:#0B1F33;
+  classDef act    fill:#F3F6FA,stroke:#5B6B7B,stroke-width:1.5px,color:#1B2733;
+  classDef fit    fill:#FBF1DD,stroke:#C8973A,stroke-width:2px,color:#0B1F33;
+  classDef test   fill:#E8F1F8,stroke:#1F8AC0,stroke-width:2px,color:#0B1F33;
+  classDef done   fill:#E6F4EC,stroke:#2D9D6B,stroke-width:2px,color:#0B1F33;
 ```
-  prior model ──► optimal multisine design ──► inject + read (Schroeder, Tukey-ramped)
-       ▲                                                       │
-       │                                                       ▼
-  Fisher / CRB ◄── ML fit (GMLEstimator) ◄── accumulate ◄── leakage-free reference FRF
-   (stop test)      (Gauss-Newton / LM)     (inv-variance)    (synchronous DFT, per-bin σ)
-```
+
+::: {.column-margin}
+**Pass 1 is special.** It uses a *prior-robust* drive spread over $f_0(1\pm u)$, so even a
+far (±50 %) prior still puts power where the true resonance is; later passes concentrate
+once the model is trusted.
+:::
 
 ::: {.callout-note}
 ## One sentence

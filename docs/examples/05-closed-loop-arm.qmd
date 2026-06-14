@@ -1,5 +1,8 @@
 ---
 title: "05 — Closed-loop suspension (loop-bias, cancelled)"
+description: "Identified with the damping loop closed — the reference-based FRF cancels the controller."
+image: thumbnails/05.png
+categories: [closed-loop]
 ---
 
 The most realistic case: a suspension identified **with its damping loop closed**. The

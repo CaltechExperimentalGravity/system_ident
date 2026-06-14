@@ -29,146 +29,50 @@ toc: false
 </div>
 ```
 
+::: {.column-screen-inset style="max-width:980px; margin:1.5rem auto 0;"}
+
+Press **Play** to watch the Pintelon–Schoukens fixed-point iteration reshape a flat drive
+into the Fisher-optimal excitation — pouring power into the resonance where each Hz buys
+the most information.
+
 ```{python}
 #| echo: false
 #| output: true
 #| warning: false
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-
+import sysid_plots as sp
 from system_ident.model import TFModel
 from system_ident.design.pintelon import optimal_excitation
 from system_ident.fisher import parameter_covariance
 
-# ── plant and prior ────────────────────────────────────────────────────────
 freq   = np.linspace(0.1, 4.0, 600)
 model  = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
-Pyy    = np.ones_like(freq)
-Px_tot = 1.0
+Pyy, Px_tot = np.ones_like(freq), 1.0
+resp = np.abs(model.eval(freq))
 
-Pxx_opt  = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=6)
-Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
-resp     = np.abs(model.eval(freq))
+# every fixed-point iteration, flat -> Fisher-optimal (one call records them all)
+Pxx_rec, _, _ = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=8, rec_progress=True)
+flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+asd_iters = [np.sqrt(flat)] + [np.sqrt(p) for p in Pxx_rec]
 
-T_tot   = 256.0
-cov_opt  = parameter_covariance(freq, model, Pxx_opt,  Pyy, T_tot)
-cov_flat = parameter_covariance(freq, model, Pxx_flat, Pyy, T_tot)
+cov_opt  = parameter_covariance(freq, model, Pxx_rec[-1], Pyy, 256.0)
+cov_flat = parameter_covariance(freq, model, flat,        Pyy, 256.0)
 ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-# ── colour palette matching the site ───────────────────────────────────────
-SKY  = '#1F8AC0'
-GOLD = '#C8973A'
-GRAY = '#94A3B8'
-NAVY = '#0B2447'
-
-fig = make_subplots(
-    rows=2, cols=1,
-    shared_xaxes=True,
-    row_heights=[0.42, 0.58],
-    vertical_spacing=0.04,
-)
-
-# top panel — plant magnitude
-fig.add_trace(go.Scatter(
-    x=freq, y=resp,
-    mode='lines',
-    line=dict(color=SKY, width=2.5),
-    name='|G(f)| — plant response',
-    hovertemplate='%{x:.2f} Hz<br>|G| = %{y:.3f}<extra></extra>',
-), row=1, col=1)
-
-# bottom panel — optimal (filled)
-fig.add_trace(go.Scatter(
-    x=freq, y=np.sqrt(Pxx_opt),
-    mode='lines',
-    fill='tozeroy',
-    fillcolor='rgba(200,151,58,0.18)',
-    line=dict(color=GOLD, width=2.5),
-    name=f'Optimal excitation  (var ratio: {ratio:.0f}×)',
-    hovertemplate='%{x:.2f} Hz<br>ASD = %{y:.4f}<extra></extra>',
-), row=2, col=1)
-
-# bottom panel — flat
-fig.add_trace(go.Scatter(
-    x=freq, y=np.sqrt(Pxx_flat),
-    mode='lines',
-    line=dict(color=GRAY, width=1.8, dash='dash'),
-    name='Flat sweep (equal total power)',
-    hovertemplate='%{x:.2f} Hz<br>ASD = %{y:.4f}<extra></extra>',
-), row=2, col=1)
-
-# resonance annotation on top panel
-f0_idx = np.argmax(resp)
-fig.add_annotation(
-    x=freq[f0_idx], y=resp[f0_idx],
-    xref='x', yref='y',
-    text=f'<b>f₀ = 1 Hz, Q = 20</b>',
-    showarrow=True, arrowhead=2, arrowsize=1.2,
-    arrowcolor='rgba(200,151,58,0.7)',
-    ax=55, ay=-38,
-    font=dict(size=11, color=GOLD, family='Outfit, sans-serif'),
-    bgcolor='rgba(11,36,71,0.0)',
-    bordercolor='rgba(0,0,0,0)',
-    row=1, col=1,
-)
-
-# variance reduction annotation on bottom panel
-fig.add_annotation(
-    x=1.0, y=np.sqrt(Pxx_opt).max() * 0.55,
-    xref='x2', yref='y2',
-    text=f'<b>{ratio:.0f}× lower<br>parameter variance</b>',
-    showarrow=False,
-    font=dict(size=12, color='rgba(200,151,58,0.9)', family='Outfit, sans-serif'),
-    align='center',
-    bgcolor='rgba(11,36,71,0.65)',
-    bordercolor='rgba(200,151,58,0.3)',
-    borderwidth=1,
-    borderpad=6,
-)
-
-fig.update_layout(
-    template='plotly_white',
-    height=460,
-    margin=dict(l=55, r=25, t=18, b=50),
-    font=dict(family='Outfit, Inter, sans-serif', size=12, color='#1A2340'),
-    legend=dict(
-        orientation='h', yanchor='bottom', y=1.02,
-        xanchor='right', x=1,
-        font=dict(size=11),
-        bgcolor='rgba(255,255,255,0.85)',
-        bordercolor='#DCE5F0',
-        borderwidth=1,
-    ),
-    plot_bgcolor='#FFFFFF',
-    paper_bgcolor='#FFFFFF',
-)
-
-fig.update_yaxes(
-    title_text='|G(f)|',
-    type='log', row=1, col=1,
-    gridcolor='rgba(30,60,100,0.07)',
-    linecolor='rgba(30,60,100,0.15)',
-)
-fig.update_yaxes(
-    title_text='Drive ASD  [1/√Hz]',
-    row=2, col=1,
-    gridcolor='rgba(30,60,100,0.07)',
-    linecolor='rgba(30,60,100,0.15)',
-)
-fig.update_xaxes(
-    title_text='Frequency  [Hz]',
-    row=2, col=1,
-    gridcolor='rgba(30,60,100,0.07)',
-    linecolor='rgba(30,60,100,0.15)',
-)
-fig.update_xaxes(
-    gridcolor='rgba(30,60,100,0.07)',
-    row=1, col=1,
-)
-
+fig = sp.animate_design(freq, resp, asd_iters, height=470)
+fig.update_layout(title=dict(
+    text=f"<b>The optimal drive forming</b>  —  {ratio:.0f}× lower parameter variance than a flat sweep",
+    x=0.5, xanchor="center", y=0.98))
 fig.show()
 ```
+
+:::
 
 ```{=html}
 <div style="max-width:860px; margin:0 auto; padding:0 1.5rem;">
