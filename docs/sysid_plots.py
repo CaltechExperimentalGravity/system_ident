@@ -57,9 +57,48 @@ SZ_TITLE = 17       # subplot-title font
 SZ_ANNOT = 14       # in-plot arrow annotations
 
 # ── marker sizes (50 % larger than the old 4–5 px defaults) ──────────────────
-MK_DATA = 7         # measured-FRF points (was ~4–5)
-MK_BIG = 13         # parameter-recovery / convergence markers (was ~9)
-MK_SMALL = 5        # dense scatter (e.g. cavity rolloff, was ~3)
+MK_DATA = 8         # measured-FRF points
+MK_BIG = 14         # parameter-recovery / convergence markers
+MK_SMALL = 7        # dense scatter (e.g. cavity rolloff)
+MK_OVERLAY = 9      # pass-by-pass overlay points
+
+PARAM_COLORS = [SKY, GOLD, GREEN, ROSE, "#7C5CBF", RED, "#0E7C7B"]
+
+
+# ── axis helpers: standard log-frequency ticks + sane log-y auto-ranges ───────
+def _fmt_freq(v):
+    return f"{v:g}"  # 0.1, 0.2, 0.5, 1, 2, 5, 10 — plain decimals
+
+
+def _logx_ticks(fmin, fmax):
+    """1–2–5-per-decade tick values + plain-decimal labels spanning [fmin, fmax]."""
+    import math
+    d0, d1 = math.floor(math.log10(fmin)), math.ceil(math.log10(fmax))
+    vals = [m * 10 ** d for d in range(d0, d1 + 1) for m in (1, 2, 5)]
+    vals = [v for v in vals if fmin * 0.9999 <= v <= fmax * 1.0001]
+    return vals, [_fmt_freq(v) for v in vals]
+
+
+def _apply_logx(fig, fmin, fmax, *, row=None, col=None):
+    """Log frequency axis with standard 1–2–5 ticks and a tight [fmin, fmax] range."""
+    vals, txt = _logx_ticks(fmin, fmax)
+    kw = dict(type="log", range=[np.log10(fmin), np.log10(fmax)],
+              tickmode="array", tickvals=vals, ticktext=txt, ticks="outside",
+              ticklen=5, minor=dict(showgrid=True, gridcolor=GRID, ticklen=3))
+    fig.update_xaxes(**kw) if row is None else fig.update_xaxes(**kw, row=row, col=col)
+
+
+def _logy_range(arrays, *, decades=4.0, hi_pad=2.0, lo_pad=0.7):
+    """A clamped log-y range: hi just above the data, lo no more than `decades` below."""
+    vals = [np.asarray(a, float).ravel() for a in arrays]
+    vals = [a[np.isfinite(a) & (a > 0)] for a in vals]
+    vals = [a for a in vals if a.size]
+    if not vals:
+        return None
+    allv = np.concatenate(vals)
+    hi = float(np.max(allv)) * hi_pad
+    lo = max(float(np.min(allv)) * lo_pad, hi / 10 ** decades)
+    return [np.log10(lo), np.log10(hi)]
 
 
 def style(fig, height=None, legend="h", legend_y=1.02):
@@ -183,10 +222,13 @@ def excitation_design(freq, plant_mag, asd_opt, asd_flat, *, prior_mag=None,
         x=freq, y=asd_flat, mode="lines", line=dict(color=GRAY, width=2.0, dash="dash"),
         name="Flat  (equal total power)",
         hovertemplate="%{x:.3f} Hz   ASD = %{y:.4g}<extra></extra>"), row=2, col=1)
-    fig.update_yaxes(title_text="|G(f)|", type="log", row=1, col=1)
-    fig.update_yaxes(title_text="Drive ASD", type="log", row=2, col=1)
-    fig.update_xaxes(title_text="Frequency  [Hz]", type="log", row=2, col=1)
-    fig.update_xaxes(type="log", row=1, col=1)
+    mags = [plant_mag] + ([prior_mag] if prior_mag is not None else [])
+    fig.update_yaxes(title_text="|G(f)|", type="log",
+                     range=_logy_range(mags, decades=4), row=1, col=1)
+    fig.update_yaxes(title_text="Drive ASD", type="log",
+                     range=_logy_range([asd_opt, asd_flat], decades=2.5), row=2, col=1)
+    fig.update_xaxes(title_text="Frequency  [Hz]", row=2, col=1)
+    _apply_logx(fig, float(np.min(freq)), float(np.max(freq)))
     return style(fig, height=height)
 
 
@@ -229,15 +271,20 @@ def bode(freq, traces, *, coh=None, coh_mask=None, height=720,
         titles.append("<b>Coherence</b>  γ²(f)")
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True,
                         vertical_spacing=0.07, subplot_titles=titles)
+    all_mags, line_phases = [], []
     for tr in traces:
         H = np.asarray(tr["H"])
         mask = tr.get("mask")
         f = freq if mask is None else freq[mask]
         Hm = H if mask is None else H[mask]
         mag = np.abs(Hm)
-        ph = np.unwrap(np.angle(H)) * 180 / np.pi
-        ph = ph if mask is None else ph[mask]
+        all_mags.append(mag)
+        # Unwrap on the *retained* samples only — unwrapping across the
+        # zero-filled unexcited bins is what produced the −900° spikes.
+        ph = np.unwrap(np.angle(Hm)) * 180 / np.pi
         mode = tr.get("mode", "lines")
+        if mode != "markers":
+            line_phases.append(ph)
         color = tr["color"]
         size = tr.get("size", MK_DATA)
         width = tr.get("width", 2.4)
@@ -270,11 +317,18 @@ def bode(freq, traces, *, coh=None, coh_mask=None, height=720,
                       marker=dict(color=SKY, size=MK_DATA), name="coherence",
                       showlegend=False), row=3, col=1)
         fig.update_yaxes(title_text="γ²", range=[0, 1.02], row=3, col=1)
-    fig.update_yaxes(title_text=ylabel, type="log", row=1, col=1)
-    fig.update_yaxes(title_text="phase [deg]", row=2, col=1)
+    fig.update_yaxes(title_text=ylabel, type="log",
+                     range=_logy_range(all_mags, decades=4), row=1, col=1)
+    ph_range = None
+    if line_phases:
+        allp = np.concatenate(line_phases)
+        lo = float(np.floor((np.min(allp) - 10) / 90.0) * 90.0)
+        hi = float(np.ceil((np.max(allp) + 10) / 90.0) * 90.0)
+        ph_range = [lo, hi]
+    fig.update_yaxes(title_text="phase [deg]", dtick=90, range=ph_range, row=2, col=1)
     fig.update_xaxes(title_text="Frequency  [Hz]", row=rows, col=1)
     if logx:
-        fig.update_xaxes(type="log")
+        _apply_logx(fig, float(np.min(freq)), float(np.max(freq)))
     return style(fig, height=height)
 
 
@@ -287,8 +341,9 @@ def coherence(freq, coh, mask=None, *, height=320):
     fig.add_trace(go.Scatter(x=f, y=y, mode="markers",
                   marker=dict(color=SKY, size=MK_DATA), name="γ²(f)"))
     fig.add_hline(y=1.0, line_dash="dot", line_color="rgba(100,120,160,0.5)")
-    fig.update_xaxes(title_text="Frequency  [Hz]", type="log")
+    fig.update_xaxes(title_text="Frequency  [Hz]")
     fig.update_yaxes(title_text="coherence γ²", range=[0, 1.02])
+    _apply_logx(fig, float(np.min(f)), float(np.max(f)))
     return style(fig, height=height, legend="h")
 
 
@@ -389,8 +444,8 @@ def saturation(passes, *, limit=None, rms_ceiling=None, height=360):
 
 
 # ── 8. convergence ────────────────────────────────────────────────────────────
-def convergence(series, *, target=None, height=380, xlabel="pass",
-                ylabel="max fractional uncertainty  σ/θ"):
+def convergence(series, *, target=None, height=420, xlabel="pass",
+                ylabel="fractional uncertainty  σᵢ / θᵢ"):
     """Panel 8 — σ/θ (or any metric) vs pass for one or more DoFs/elements.
 
     `series` = list of dicts: ``name, x, y, color, symbol``.
@@ -429,19 +484,22 @@ def pass_overlay(freq, per_pass, true_mag, *, height=440, ylabel="|G(f)|"):
     fig.add_trace(go.Scatter(x=freq, y=true_mag, mode="lines",
                   line=dict(color=INK, width=2.6), name="true plant"))
     n = len(per_pass)
+    mags = [true_mag]
     for i, p in enumerate(per_pass):
         c = _ramp(i, n)
         mask = p.get("mask")
         f = freq if mask is None else freq[mask]
         mm = p["meas_mag"] if mask is None else np.asarray(p["meas_mag"])[mask]
+        mags += [mm, p["fit_mag"]]
         fig.add_trace(go.Scatter(x=f, y=mm, mode="markers",
-                      marker=dict(color=c, size=MK_SMALL, opacity=0.55),
+                      marker=dict(color=c, size=MK_OVERLAY, opacity=0.7,
+                                  line=dict(color="white", width=0.6)),
                       name=f"meas · pass {i + 1}", legendgroup=f"p{i}"))
         fig.add_trace(go.Scatter(x=freq, y=p["fit_mag"], mode="lines",
                       line=dict(color=c, width=2.0, dash="dash"),
                       name=f"fit · pass {i + 1}", legendgroup=f"p{i}"))
-    fig.update_xaxes(title_text="Frequency  [Hz]", type="log")
-    fig.update_yaxes(title_text=ylabel, type="log")
+    fig.update_yaxes(title_text=ylabel, type="log", range=_logy_range(mags, decades=4))
+    _apply_logx(fig, float(np.min(freq)), float(np.max(freq)))
     return style(fig, height=height, legend="v")
 
 

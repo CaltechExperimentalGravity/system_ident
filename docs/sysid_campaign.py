@@ -80,6 +80,51 @@ def run_siso_passes(backend, exc_ch, rsp_ch, prior, *, fs, nperseg, n_periods,
     return history
 
 
+def physical_value(model, name):
+    """Physical parameter value from a model: ``f0``/``Q`` (first mode),
+    ``f0_<i>``/``Q_<i>`` (i-th mode), ``fc`` (corner), or ``gain`` (DC)."""
+    if name == "gain":
+        return dc_gain(model)
+    if name == "fc":
+        poles = np.roots(np.asarray(model.den, float))
+        return float(np.min(np.abs(poles)) / (2 * np.pi))
+    kind, _, idx = name.partition("_")
+    i = int(idx) if idx else 0
+    ms = modes(model)
+    i = min(i, len(ms) - 1)
+    return ms[i][0] if kind == "f0" else ms[i][1]
+
+
+def frac_history(hist, targets):
+    """Per-pass fractional uncertainty ``σ_i/θ_i`` for each named physical target.
+
+    Returns ``{target: [frac per pass]}`` — the input for a per-parameter
+    convergence plot (every parameter, not just the worst one).
+    """
+    out = {t: [] for t in targets}
+    for h in hist:
+        sig = param_sigmas(h["model"], h["cov"], targets=tuple(targets))
+        for t in targets:
+            v = abs(physical_value(h["model"], t))
+            out[t].append(sig[t] / v if v > 0 else sig[t])
+    return out
+
+
+def param_convergence_series(hist, targets, labels=None):
+    """Ready-to-plot `convergence` series — one line per physical parameter.
+
+    Use with ``sysid_plots.convergence(...)`` to show how *every* parameter's
+    fractional uncertainty converges, not just the worst.
+    """
+    from sysid_plots import PARAM_COLORS
+    fh = frac_history(hist, targets)
+    labels = labels or list(targets)
+    passes = [h["pass"] for h in hist]
+    return [dict(name=labels[k], x=passes, y=fh[t],
+                 color=PARAM_COLORS[k % len(PARAM_COLORS)])
+            for k, t in enumerate(targets)]
+
+
 def param_sigmas(model, cov, targets=("f0", "Q", "gain")):
     """Propagate the CRB covariance to σ on physical params (f0, Q, gain, fc).
 

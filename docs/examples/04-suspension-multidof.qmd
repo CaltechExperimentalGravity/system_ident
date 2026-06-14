@@ -25,7 +25,7 @@ for _c in [_p, *_p.parents]:
 import numpy as np
 import plotly.graph_objects as go
 import sysid_plots as sp
-from sysid_campaign import run_siso_passes, param_sigmas
+from sysid_campaign import run_siso_passes, param_sigmas, param_convergence_series
 
 from system_ident.config import RunConfig
 from system_ident.loop import SysIDLoop
@@ -37,7 +37,7 @@ cfg = {
         "readback":   {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT", "YAW": "C1:RSP_YAW"},
     },
     "measurement": {"fs": 32, "freq_min": 0.1, "freq_max": 5.0,
-                    "segment_duration": 64.0, "n_segments": 4, "px_total": 1.0},
+                    "segment_duration": 128.0, "n_segments": 4, "px_total": 1.0},  # T_fft>3/f_min
     "strategy": {"estimator": "gml", "input_designer": "pintelon_schoukens", "n_design_iter": 3},
     "twin": {"sensor_asd": 1e-3, "plant": {
         "POS": {"resonances": [[0.6, 20], [1.5, 30]], "gain": 300},
@@ -93,12 +93,16 @@ sp.param_table(["DoF · mode", "prior  f₀/Q", "fit  f₀/Q", "true  f₀/Q"], 
                caption="Recovered modes (Hz / Q)")
 ```
 
-## Convergence — every DoF
+## Convergence — worst parameter per DoF (overview)
+
+The worst $\sigma/\theta$ for each DoF (the stop criterion). Every individual parameter's
+convergence is in the per-DoF tabs below.
 
 ```{python}
-#| code-summary: "σ/θ vs pass, all DoFs"
+#| code-summary: "worst σ/θ vs pass, all DoFs"
 sp.convergence([dict(name=d, x=[h["pass"] for h in H[d]], y=[h["frac"] for h in H[d]],
-                     color=COLORS[d]) for d in DOFS], target=0.05).show()
+                     color=COLORS[d]) for d in DOFS], target=0.05,
+               ylabel="worst σ/θ per DoF").show()
 ```
 
 ## Recovered vs true — all DoFs
@@ -163,9 +167,12 @@ def show_dof(d):
     # 7 — saturation
     sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
                   limit=ACT_LIMIT, rms_ceiling=cfg["safety"]["rms_ceiling"][d]).show()
-    # 8 — convergence (this DoF)
-    sp.convergence([dict(name=d, x=[h["pass"] for h in hist], y=[h["frac"] for h in hist],
-                         color=COLORS[d])], target=0.05).show()
+    # 8 — convergence (every parameter of this DoF)
+    tgt, labs = [], []
+    for i in range(len(sp.modes(true))):
+        tgt += [f"f0_{i}", f"Q_{i}"]; labs += [f"f{i+1}", f"Q{i+1}"]
+    tgt.append("gain"); labs.append("gain")
+    sp.convergence(param_convergence_series(hist, tgt, labs), target=0.05).show()
     # 9 — pass overlay
     sp.pass_overlay(freq, [dict(meas_mag=np.abs(h["H"]),
         fit_mag=np.abs(h["model"].eval(freq)), mask=h["mask"]) for h in hist],

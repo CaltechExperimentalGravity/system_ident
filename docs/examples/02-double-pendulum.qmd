@@ -24,7 +24,7 @@ for _c in [_p, *_p.parents]:
 
 import numpy as np
 import sysid_plots as sp
-from sysid_campaign import run_siso_passes, param_sigmas
+from sysid_campaign import run_siso_passes, param_sigmas, param_convergence_series
 
 from system_ident.plant import double_pendulum, SuspensionPlant
 from system_ident.model import TFModel
@@ -32,8 +32,8 @@ from system_ident.fisher import parameter_covariance
 from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends.twin import TwinBackend
 
-FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
-TOTAL = NPERSEG * N_PERIODS / FS                 # 512 s per pass
+FS, NPERSEG, N_PERIODS = 32.0, 4096, 6           # T_fft = 128 s (> 3/f_min), df ≈ 0.008 Hz
+TOTAL = NPERSEG * N_PERIODS / FS
 ACT_LIMIT = 1000.0
 
 true  = double_pendulum()                                                 # 0.6/1.5 Hz
@@ -165,13 +165,16 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
               limit=ACT_LIMIT).show()
 ```
 
-## 8 — Convergence
+## 8 — Convergence — every parameter
+
+Fractional uncertainty for **each** of the four modal parameters (plus gain), pass by
+pass — both modes tracked independently, not collapsed to the worst.
 
 ```{python}
-#| code-summary: "σ/θ vs pass"
-sp.convergence([dict(name="POS (two modes)",
-                     x=[h["pass"] for h in hist], y=[h["frac"] for h in hist],
-                     color=sp.SKY)], target=0.05).show()
+#| code-summary: "σᵢ/θᵢ vs pass, per parameter"
+sp.convergence(param_convergence_series(hist,
+    ["f0_0", "Q_0", "f0_1", "Q_1", "gain"], ["f₁", "Q₁", "f₂", "Q₂", "gain"]),
+    target=0.05).show()
 ```
 
 ## 9 — Pass-by-pass: the measurement sharpening

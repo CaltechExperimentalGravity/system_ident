@@ -32,7 +32,7 @@ for _c in [_p, *_p.parents]:
 
 import numpy as np
 import sysid_plots as sp
-from sysid_campaign import run_siso_passes, param_sigmas
+from sysid_campaign import run_siso_passes, param_sigmas, param_convergence_series
 
 from system_ident.model import TFModel
 from system_ident.fisher import parameter_covariance
@@ -41,8 +41,9 @@ from system_ident.backends.twin import TwinBackend
 from system_ident.plant import SuspensionPlant
 
 # ── experiment geometry ─────────────────────────────────────────────────────
-FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
-TOTAL = NPERSEG * N_PERIODS / FS                  # 512 s per pass
+# NPERSEG/FS sets the analysis window T_fft; keep T_fft > 3/f_min for resolution.
+FS, NPERSEG, N_PERIODS = 32.0, 4096, 6            # T_fft = 128 s, df ≈ 0.008 Hz
+TOTAL = NPERSEG * N_PERIODS / FS
 FMIN, FMAX = 0.2, 8.0
 ACT_LIMIT = 1000.0                                # actuator saturation [cts]
 
@@ -229,16 +230,14 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
               limit=ACT_LIMIT).show()
 ```
 
-## 8 — Convergence
+## 8 — Convergence — every parameter
 
-Worst-parameter fractional uncertainty $\sigma/\theta$ from the accumulated CRB, pass by
-pass — the same stop criterion the real loop uses.
+Fractional uncertainty $\sigma_i/\theta_i$ from the accumulated CRB, pass by pass, for
+**each** parameter — not just the worst. The loop stops when all of them clear target.
 
 ```{python}
-#| code-summary: "σ/θ vs pass"
-sp.convergence([dict(name="POS (1 Hz mode)",
-                     x=[h["pass"] for h in hist],
-                     y=[h["frac"] for h in hist], color=sp.SKY)],
+#| code-summary: "σᵢ/θᵢ vs pass, per parameter"
+sp.convergence(param_convergence_series(hist, ["f0", "Q", "gain"], ["f₀", "Q", "gain"]),
                target=0.05).show()
 ```
 

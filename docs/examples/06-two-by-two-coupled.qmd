@@ -34,7 +34,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sysid_plots as sp
-from sysid_campaign import param_sigmas
+from sysid_campaign import param_sigmas, param_convergence_series
 
 from system_ident.backends.twin import TwinBackend
 from system_ident.plant import SuspensionPlant
@@ -45,7 +45,7 @@ from system_ident.estimators.gml import GMLEstimator
 from system_ident.fisher import fisher_matrix
 from system_ident.design.pintelon import optimal_excitation, prior_robust_excitation
 
-FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
+FS, NPERSEG, N_PERIODS = 32.0, 4096, 6           # T_fft = 128 s (> 3/f_min), df ≈ 0.008 Hz
 TOTAL = NPERSEG * N_PERIODS / FS
 ACT_LIMIT = 1000.0
 INPUTS = ["POS", "PIT"]
@@ -189,13 +189,16 @@ matrix("phase").show()
 matrix("coh", height=460).show()
 ```
 
-## Convergence — all four elements
+## Convergence — worst parameter per element (overview)
+
+The worst $\sigma/\theta$ for each matrix element; per-parameter convergence is in the
+per-element tabs below.
 
 ```{python}
-#| code-summary: "σ/θ vs pass, per element"
+#| code-summary: "worst σ/θ vs pass, per element"
 sp.convergence([dict(name=f"H[{k[0]}←{k[1]}]", x=[h["pass"] for h in hist[k]],
                      y=[h["frac"] for h in hist[k]], color=ECOLOR[k]) for k in ELEMS],
-               target=0.05).show()
+               target=0.05, ylabel="worst σ/θ per element").show()
 ```
 
 ## Drive-safety margins (per input column)
@@ -233,6 +236,8 @@ def show_elem(key):
     sp.pass_overlay(freq, [dict(meas_mag=np.abs(x["H"]),
         fit_mag=np.abs(x["model"].eval(freq)), mask=x["mask"]) for x in h],
         np.abs(TRUE[key].eval(freq))).show()
+    sp.convergence(param_convergence_series(h, ["f0", "Q", "gain"], ["f₀", "Q", "gain"]),
+                   target=0.05).show()
 ```
 
 ::: {.panel-tabset}

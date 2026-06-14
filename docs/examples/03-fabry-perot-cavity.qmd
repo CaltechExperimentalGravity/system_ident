@@ -27,7 +27,7 @@ for _c in [_p, *_p.parents]:
 
 import numpy as np
 import sysid_plots as sp
-from sysid_campaign import run_siso_passes, param_sigmas
+from sysid_campaign import run_siso_passes, param_sigmas, param_convergence_series
 
 from system_ident.model import TFModel
 from system_ident.plant import SuspensionPlant
@@ -35,7 +35,7 @@ from system_ident.fisher import parameter_covariance
 from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends.twin import TwinBackend
 
-FS, NPERSEG, N_PERIODS = 8192.0, 32768, 8        # period = 4 s, 8 periods -> 32 s
+FS, NPERSEG, N_PERIODS = 8192.0, 65536, 6        # T_fft = 8 s (> 3/f_min = 3 s), 6 periods
 TOTAL = NPERSEG * N_PERIODS / FS
 ACT_LIMIT = 1000.0
 
@@ -171,12 +171,12 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
               limit=ACT_LIMIT).show()
 ```
 
-## 8 — Convergence
+## 8 — Convergence — every parameter
 
 ```{python}
-#| code-summary: "σ/θ vs pass"
-sp.convergence([dict(name="cavity pole", x=[h["pass"] for h in hist],
-                     y=[h["frac"] for h in hist], color=sp.SKY)], target=0.05).show()
+#| code-summary: "σᵢ/θᵢ vs pass, per parameter"
+sp.convergence(param_convergence_series(hist, ["fc", "gain"], ["f_c", "gain"]),
+               target=0.05).show()
 ```
 
 ## 9 — Pass-by-pass: the measurement sharpening
