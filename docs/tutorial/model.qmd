@@ -96,44 +96,27 @@ Foton export, so the Fisher, estimator, and designer machinery is unchanged.
 
 ## Plotting a model
 
+A full Bode view — magnitude **and** phase — using the shared house style.
+
 ```{python}
 #| label: fig-bode-model
-#| fig-cap: "Bode-style magnitude plot of a 2-mode suspension model (0.6 Hz Q20, 1.5 Hz Q30)."
+#| fig-cap: "Bode magnitude and phase of a 2-mode suspension model (0.6 Hz Q20, 1.5 Hz Q30)."
+#| code-summary: "Bode magnitude + phase"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
 import numpy as np
-import plotly.graph_objects as go
+import sysid_plots as sp
 from system_ident.model import TFModel
 
 model = TFModel.from_resonances([(0.6, 20.0), (1.5, 30.0)], gain=250.0)
 freq  = np.linspace(0.05, 5.0, 800)
-resp  = np.abs(model.eval(freq))
 
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=freq, y=resp,
-    mode='lines',
-    line=dict(color='#1F8AC0', width=2.5),
-    hovertemplate='%{x:.3f} Hz   |G| = %{y:.4f}<extra></extra>',
-))
-
-for f0, label in [(0.6, 'f₁ = 0.6 Hz'), (1.5, 'f₂ = 1.5 Hz')]:
-    idx = np.argmin(np.abs(freq - f0))
-    fig.add_annotation(
-        x=freq[idx], y=resp[idx],
-        text=f'<b>{label}</b>',
-        showarrow=True, arrowhead=2, arrowsize=1.1,
-        arrowcolor='rgba(200,151,58,0.75)',
-        ax=50, ay=-40,
-        font=dict(size=11, color='#C8973A', family='Outfit, sans-serif'),
-    )
-
-fig.update_layout(
-    template='plotly_white',
-    height=340, margin=dict(l=60, r=20, t=20, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    xaxis=dict(title='Frequency  [Hz]', gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
-)
-fig.show()
+sp.bode(freq, [dict(name="|G(f)| — 2-mode model", H=model.eval(freq), color=sp.SKY,
+                    width=2.6)], height=560).show()
 ```
 
 ## See also

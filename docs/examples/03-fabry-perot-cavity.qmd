@@ -4,182 +4,187 @@ title: "03 — Fabry–Pérot cavity"
 
 Different physics: an optical cavity is a single-pole low-pass,
 
-$$G(s) = \frac{\omega_c}{s + \omega_c}$$
+$$G(s) = \frac{\omega_c}{s + \omega_c},$$
 
-with the cavity pole `fc` setting the bandwidth (DC gain 1). There is **no sharp
-resonance** to aim at — the identification is **signal-to-noise limited**. The
-parameter of interest (`fc`) only bends the shape of `|G(f)|` near the pole,
-which here sits at 100 Hz, so the whole rolloff has to be measured cleanly for
-the fit to lock onto it. That is a nice contrast to the resonance examples,
-where a tall peak hands the estimator a high-SNR target.
-
-We do this the Pintelon–Schoukens way, exactly as in the other examples: drive
-a digital twin of the cavity with a **periodic multisine**, take the
-**leakage-free reference-based FRF**, and recover the pole by **maximum
-likelihood** from a 30 %-wrong prior. Because the pole is at 100 Hz we sample
-fast enough (8 kHz) that the measurement band spans a decade either side,
-~1 Hz … 1 kHz, with the top of the band still well below Nyquist.
+with the cavity pole $f_c$ setting the bandwidth (DC gain 1). There is **no sharp
+resonance** to aim at — the identification is **signal-to-noise limited**. We run the same
+full diagnostic set as the resonance examples and recover the pole by maximum likelihood
+from a 30 %-wrong prior. The interesting twist: even with no peak, the optimal drive is
+*not* flat — the Fisher information about $f_c$ concentrates around the corner, and the
+excitation follows it.
 
 ```{python}
+#| code-summary: "Setup — imports, house plot style, cavity & prior"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import sysid_plots as sp
+from sysid_campaign import run_siso_passes, param_sigmas
 
 from system_ident.model import TFModel
 from system_ident.plant import SuspensionPlant
+from system_ident.fisher import parameter_covariance
+from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends.twin import TwinBackend
-from system_ident.excitation import multisine_from_psd
-from system_ident.loop import SysIDLoop
-from system_ident.estimators.gml import GMLEstimator
 
-SKY, GOLD, RED, GRAY = '#1F8AC0', '#C8973A', '#E53E3E', '#94A3B8'
-
-FS, NPERSEG, N_PERIODS = 8192.0, 32768, 8    # period = 4 s, 8 periods -> 32 s
+FS, NPERSEG, N_PERIODS = 8192.0, 32768, 8        # period = 4 s, 8 periods -> 32 s
 TOTAL = NPERSEG * N_PERIODS / FS
+ACT_LIMIT = 1000.0
 
-fc = 100.0                                   # true cavity pole [Hz]
+fc = 100.0                                       # true cavity pole [Hz]
 wc = 2 * np.pi * fc
-cavity = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)   # DC gain = 1
+cavity = TFModel.from_zpk(zeros=[], poles=[-wc], gain=wc)              # DC gain 1
+prior  = TFModel.from_zpk(zeros=[], poles=[-2 * np.pi * 70.0],
+                          gain=2 * np.pi * 70.0)                       # 70 Hz, 30% off
 
-# Synchronous measurement grid: 1 Hz … 1 kHz on the leakage-free bin lattice.
 f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
-band = (f_all >= 1.0) & (f_all <= 1000.0)
-freq = f_all[band]
+band  = (f_all >= 1.0) & (f_all <= 1000.0)
+freq  = f_all[band]
+Pyy, Px_tot = np.ones_like(freq), 1.0
+
+def fc_of(m):                                    # corner frequency [Hz]
+    return float(np.min(np.abs(np.roots(np.asarray(m.den, float)))) / (2 * np.pi))
 ```
 
-## Periodic measurement — multisine + leakage-free FRF
-
-The twin discretises the continuous cavity and filters the drive through it,
-adding white sensor noise. We inject a flat-budget Schroeder multisine (a smooth,
-bounded, low-crest waveform), read back the drive monitor and the cavity
-response, and form the reference-based FRF `H = mean(Y)/mean(X)` over periods —
-leakage-free because the drive is periodic over `NPERSEG`.
+## The parameter we're chasing
 
 ```{python}
-tw = TwinBackend(
-    SuspensionPlant({"CAV": cavity}, FS),
-    {"C1:EXC": "CAV"}, {"C1:RSP": "CAV"},
-    fs=FS, sensor_asd=0.09,                   # white sensor noise -> ~5% FRF scatter near the pole
-)
-
-Pxx = np.ones_like(freq)                      # flat in-band budget (the FRF is scale-free)
-drive = multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0)
-tw.inject("C1:EXC", drive, FS)
-seg = tw.read(["C1:EXC", "C1:RSP"], TOTAL)
-
-H, H_err, _ = SysIDLoop._estimate_tf_periodic(
-    seg["C1:EXC"], seg["C1:RSP"], FS, NPERSEG, band
-)
+#| code-summary: "Prior vs true"
+sp.param_table(
+    ["", "f_c [Hz]", "DC gain |G(0)|"],
+    [["prior", f"{fc_of(prior):.1f}", f"{sp.dc_gain(prior):.4g}"],
+     ["true",  f"{fc_of(cavity):.1f}", f"{sp.dc_gain(cavity):.4g}"]],
+    caption="Before measuring (prior is 30 % low)")
 ```
 
-## Is the drive gentle? — the measurement time series
-
-Even for a low-pass with nothing to resonate, the excitation is worth a look:
-the drive is a smooth, bounded multisine, and the cavity response is a
-low-pass-smoothed version of it — no impulsive kicks, just a steady bounded
-oscillation the actuator can live with.
+## 1 — Design the excitation
 
 ```{python}
-#| label: fig-cavity-timeseries
-#| fig-cap: "One injection, first ~8 s (2 periods). The drive (top) is a smooth low-crest Schroeder multisine; the cavity response (bottom) is the low-pass-smoothed motion. The drive stays well inside a safe actuator range."
+#| code-summary: "Optimal drive for a single pole vs flat"
+Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
+Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+cov_opt  = parameter_covariance(freq, cavity, Pxx_opt,  Pyy, TOTAL)
+cov_flat = parameter_covariance(freq, cavity, Pxx_flat, Pyy, TOTAL)
+ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-idx = np.arange(0, int(8 * FS), 2)             # first 2 periods, decimated 2x for display
+sp.excitation_design(
+    freq, np.abs(cavity.eval(freq)), np.sqrt(Pxx_opt), np.sqrt(Pxx_flat),
+    prior_mag=np.abs(prior.eval(freq)), ratio=ratio,
+    annotations=[(fc, "f_c = 100 Hz")]).show()
+```
+
+## 2 — Run the campaign
+
+```{python}
+#| code-summary: "Run 3 passes of Pintelon–Schoukens refinement"
+tw = TwinBackend(SuspensionPlant({"CAV": cavity}, FS),
+                 {"C1:EXC": "CAV"}, {"C1:RSP": "CAV"}, fs=FS, sensor_asd=0.09)
+hist = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+                       n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
+                       px_total=Px_tot, n_passes=3, prior_uncertainty=0.5, seed=0)
+final = hist[-1]["model"]
+```
+
+```{python}
+#| code-summary: "Parameter evolution: prior → each pass → true"
+rows = [["prior", f"{fc_of(prior):.2f}", f"{sp.dc_gain(prior):.4g}", "—"]]
+for h in hist:
+    rows.append([f"pass {h['pass']}", f"{fc_of(h['model']):.2f}",
+                 f"{sp.dc_gain(h['model']):.4g}", f"{h['frac']:.2e}"])
+rows.append(["true", f"{fc_of(cavity):.2f}", f"{sp.dc_gain(cavity):.4g}", "—"])
+sp.param_table(["step", "f_c [Hz]", "DC gain |G(0)|", "σ/θ (CRB)"], rows,
+               caption="Parameters at each step")
+```
+
+## 3 — Is the drive gentle? The measurement time series
+
+```{python}
+#| code-summary: "Drive + cavity response, first ~8 s (2 periods)"
+idx = np.arange(0, int(8 * FS), 2)               # 2 periods, decimated 2x for display
 t = idx / FS
-fig = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
-    subplot_titles=['<b>Drive</b> — cavity actuator (Schroeder multisine)',
-                    '<b>Cavity response</b> — single-pole low-pass output'],
-)
-fig.add_trace(go.Scatter(x=t, y=seg["C1:EXC"][idx], mode='lines',
-              line=dict(color=SKY, width=1.2), name='drive'), row=1, col=1)
-fig.add_trace(go.Scatter(x=t, y=seg["C1:RSP"][idx], mode='lines',
-              line=dict(color=GOLD, width=1.4), name='response'), row=2, col=1)
-fig.update_layout(template='plotly_white', height=440,
-                  margin=dict(l=60, r=20, t=50, b=50),
-                  font=dict(family='Outfit, Inter, sans-serif', size=12),
-                  legend=dict(orientation='h', yanchor='bottom', y=1.06, xanchor='right', x=1))
-fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(title_text='response [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.show()
+sp.timeseries(
+    t, [("drive (cavity actuator)", hist[0]["drive"][idx], sp.SKY)],
+    [("cavity response", hist[0]["response"][idx], sp.GOLD)],
+    titles=["<b>Drive</b> — cavity actuator (Schroeder multisine)",
+            "<b>Cavity response</b> — single-pole low-pass output"],
+    motion_unit="response [a.u.]").show()
 ```
 
-## Fit the cavity pole by maximum likelihood
+## 4 — Bode: magnitude, phase, and coherence
 
 ```{python}
-# Prior: 30% off on the pole location (70 Hz instead of 100 Hz).
-prior = TFModel.from_zpk(zeros=[], poles=[-2 * np.pi * 70.0], gain=2 * np.pi * 70.0)
-fit = GMLEstimator().fit(freq, H, H_err, prior)
-
-f_pole_prior = abs(prior.den[1]) / (2 * np.pi)
-f_pole_fit = abs(fit.den[1]) / (2 * np.pi)
-print(f"Prior cavity pole:  {f_pole_prior:.1f} Hz  (30% wrong)")
-print(f"True  cavity pole:  {fc:.1f} Hz")
-print(f"Fit   cavity pole:  {f_pole_fit:.2f} Hz  (error: {abs(f_pole_fit - fc) / fc * 100:.2f}%)")
-```
-
-```{python}
-#| label: fig-cavity
-#| fig-cap: "Single-pole cavity on a log–log Bode plot: true plant (blue), leakage-free measured points (grey), the 30 %-wrong prior (red dotted), and the ML fit (gold dashed). The fit converges from the 70 Hz prior to the true 100 Hz pole even though the noise grows in the far-from-pole rolloff."
-
-ex = np.isfinite(H_err)
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(cavity.eval(freq)), mode='lines',
-    line=dict(color=SKY, width=2.5), name=f'True plant  (f_c = {fc:.0f} Hz)',
-    hovertemplate='%{x:.2f} Hz   |G| = %{y:.5f}<extra></extra>',
-))
-fig.add_trace(go.Scatter(
-    x=freq[ex], y=np.abs(H[ex]), mode='markers',
-    marker=dict(color='rgba(148,163,184,0.45)', size=3), name='Measured (multisine FRF)',
-    hovertemplate='%{x:.2f} Hz   |Hmeas| = %{y:.5f}<extra></extra>',
-))
-fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(prior.eval(freq)), mode='lines',
-    line=dict(color=RED, width=1.8, dash='dot'),
-    name=f'Prior  (f_c = {f_pole_prior:.0f} Hz)',
-    hovertemplate='%{x:.2f} Hz   |G_prior| = %{y:.5f}<extra></extra>',
-))
-fig.add_trace(go.Scatter(
-    x=freq, y=np.abs(fit.eval(freq)), mode='lines',
-    line=dict(color=GOLD, width=2.2, dash='dash'),
-    name=f'Fitted  (f_c = {f_pole_fit:.1f} Hz)',
-    hovertemplate='%{x:.2f} Hz   |G_fit| = %{y:.5f}<extra></extra>',
-))
-
-fig.add_vline(x=fc, line_color='rgba(31,138,192,0.35)', line_dash='dot', line_width=1.5)
-fig.add_annotation(
-    x=np.log10(fc), y=0.0, xref='x', yref='paper',
-    text=f'<b>f_c = {fc:.0f} Hz</b>',
-    showarrow=False, xanchor='left', yanchor='bottom',
-    font=dict(size=11, color=SKY, family='Outfit, sans-serif'),
-    xshift=8, yshift=6,
-)
-fig.update_layout(
-    template='plotly_white', height=400,
-    margin=dict(l=60, r=20, t=20, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
-                bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
-    xaxis=dict(title='Frequency  [Hz]', type='log', gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
-)
-fig.show()
+#| code-summary: "Magnitude / phase / coherence stack"
+mask = hist[-1]["mask"]
+sp.bode(freq, [
+    dict(name=f"true plant (f_c={fc:.0f} Hz)", H=cavity.eval(freq), color=sp.SKY, width=2.6),
+    dict(name="measured (±σ)", H=hist[-1]["H_acc"], color=sp.GRAY, mode="markers",
+         err=hist[-1]["err_acc"], mask=mask, size=sp.MK_SMALL),
+    dict(name="prior (70 Hz)", H=prior.eval(freq), color=sp.RED, dash="dot"),
+    dict(name="ML fit",        H=final.eval(freq), color=sp.GOLD, dash="dash"),
+], coh=hist[-1]["coh"], coh_mask=mask).show()
 ```
 
 ::: {.callout-note}
-## Log-frequency view of a single-pole system
-
-For a single-pole system the interesting structure — the bend at `fc` — spans
-roughly a decade around the pole, so we view it on a **log frequency axis**: the
-pole region fills the plot instead of being crushed against the left edge. The
-periodic FRF is necessarily measured on the *linear* synchronous bin lattice
-(`k·fs/NPERSEG`), which is what makes it leakage-free; the densely-sampled
-high-frequency rolloff is also the **noisiest** part, since `|G|` is small there.
-That is fine: `GMLEstimator` weights every bin by its measured variance
-(`H_err`), so the noisy far-from-pole bins are automatically down-weighted and
-the fit is dominated by the well-measured region around the pole.
+## Why the coherence falls in the rolloff
+Above the pole $|G|$ rolls off as $1/f$, so the response shrinks toward the sensor noise
+floor and the per-bin coherence drops — visible in the bottom panel. The ML fit weights
+each bin by its measured variance, so those noisy far-from-pole bins are automatically
+down-weighted and the fit is dominated by the well-measured region around the corner.
 :::
 
-**Next:** [Multi-DoF suspension](04-suspension-multidof.qmd) — the full
-POS/PIT/YAW campaign with convergence plots.
+## 5 — Fit residuals
+
+```{python}
+#| code-summary: "Normalized residual + histogram"
+resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
+sp.residuals(freq, resid, mask).show()
+```
+
+## 6 — Parameter recovery against the Cramér–Rao bound
+
+```{python}
+#| code-summary: "Parameter recovery with CRB error bars"
+sig = param_sigmas(final, hist[-1]["cov"], targets=("fc", "gain"))
+sp.parameter_recovery([
+    dict(label="f_c [Hz]",       prior=fc_of(prior), fit=fc_of(final),
+         true=fc_of(cavity), sigma=sig["fc"]),
+    dict(label="DC gain |G(0)|", prior=sp.dc_gain(prior), fit=sp.dc_gain(final),
+         true=sp.dc_gain(cavity), sigma=sig["gain"]),
+]).show()
+print(f"cavity pole recovered: {fc_of(final):.2f} Hz "
+      f"(error {abs(fc_of(final) - fc) / fc * 100:.2f}%)")
+```
+
+## 7 — Drive-safety margins
+
+```{python}
+#| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
+sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
+              limit=ACT_LIMIT).show()
+```
+
+## 8 — Convergence
+
+```{python}
+#| code-summary: "σ/θ vs pass"
+sp.convergence([dict(name="cavity pole", x=[h["pass"] for h in hist],
+                     y=[h["frac"] for h in hist], color=sp.SKY)], target=0.05).show()
+```
+
+## 9 — Pass-by-pass: the measurement sharpening
+
+```{python}
+#| code-summary: "Measured FRF + fit, overlaid per pass"
+sp.pass_overlay(freq,
+    [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),
+          mask=h["mask"]) for h in hist],
+    np.abs(cavity.eval(freq))).show()
+```
+
+**Next:** [Multi-DoF suspension](04-suspension-multidof.qmd) — the full POS/PIT/YAW campaign
+through the real `SysIDLoop`, with the same diagnostics per degree of freedom.

@@ -78,10 +78,15 @@ how tightly the optimal drive brackets it.
 ```{python}
 #| label: fig-optimal-excitation
 #| fig-cap: "Optimal excitation vs flat drive of equal power, for a 1 Hz / Q=20 resonance. The optimal drive piles power at the resonance; the flat drive spreads it uniformly. Zoom in on 0.8–1.2 Hz to compare."
-#| echo: false
+#| code-summary: "Optimal vs flat excitation"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import sysid_plots as sp
 
 from system_ident.model import TFModel
 from system_ident.design.pintelon import optimal_excitation
@@ -94,84 +99,15 @@ Px_tot = 1.0
 
 Pxx_opt  = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
-resp     = np.abs(model.eval(freq))
 
 T_tot    = 256.0
 cov_opt  = parameter_covariance(freq, model, Pxx_opt,  Pyy, T_tot)
 cov_flat = parameter_covariance(freq, model, Pxx_flat, Pyy, T_tot)
 ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-SKY  = '#1F8AC0'
-GOLD = '#C8973A'
-GRAY = '#94A3B8'
-
-fig = make_subplots(
-    rows=2, cols=1,
-    shared_xaxes=True,
-    subplot_titles=[
-        '<b>Plant response</b>  |G(f)|',
-        f'<b>Excitation design</b>  — same total power, {ratio:.0f}× variance reduction',
-    ],
-    vertical_spacing=0.08,
-)
-
-# Top: plant response
-fig.add_trace(go.Scatter(
-    x=freq, y=resp,
-    mode='lines', line=dict(color=SKY, width=2.5),
-    name='|G(f)|',
-    hovertemplate='%{x:.2f} Hz   |G| = %{y:.4f}<extra></extra>',
-), row=1, col=1)
-
-f0_idx = np.argmax(resp)
-fig.add_annotation(
-    x=freq[f0_idx], y=resp[f0_idx],
-    xref='x', yref='y',
-    text='<b>f₀ = 1 Hz, Q = 20</b>',
-    showarrow=True, arrowhead=2, arrowsize=1.1,
-    arrowcolor='rgba(200,151,58,0.75)',
-    ax=60, ay=-35,
-    font=dict(size=11, color=GOLD, family='Outfit, sans-serif'),
-    row=1, col=1,
-)
-
-# Bottom: excitations
-fig.add_trace(go.Scatter(
-    x=freq, y=np.sqrt(Pxx_opt),
-    mode='lines',
-    fill='tozeroy', fillcolor='rgba(200,151,58,0.15)',
-    line=dict(color=GOLD, width=2.5),
-    name='Optimal  (Fisher-matched)',
-    hovertemplate='%{x:.2f} Hz   ASD = %{y:.4f}<extra></extra>',
-), row=2, col=1)
-
-fig.add_trace(go.Scatter(
-    x=freq, y=np.sqrt(Pxx_flat),
-    mode='lines', line=dict(color=GRAY, width=1.8, dash='dash'),
-    name='Flat  (equal total power)',
-    hovertemplate='%{x:.2f} Hz   ASD = %{y:.4f}<extra></extra>',
-), row=2, col=1)
-
-fig.update_layout(
-    template='plotly_white', height=500,
-    margin=dict(l=60, r=20, t=50, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(
-        orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
-        font=dict(size=11), bgcolor='rgba(255,255,255,0.9)',
-        bordercolor='#DCE5F0', borderwidth=1,
-    ),
-)
-
-fig.update_yaxes(title_text='|G(f)|', type='log', row=1, col=1,
-                 gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(title_text='Drive ASD', row=2, col=1,
-                 gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(title_text='Frequency  [Hz]', row=2, col=1,
-                 gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(gridcolor='rgba(30,60,100,0.07)', row=1, col=1)
-
-fig.show()
+sp.excitation_design(
+    freq, np.abs(model.eval(freq)), np.sqrt(Pxx_opt), np.sqrt(Pxx_flat),
+    ratio=ratio, annotations=[(1.0, "f₀ = 1 Hz, Q = 20")]).show()
 ```
 
 ::: {.callout-note}
@@ -183,6 +119,38 @@ and the readout noise PSD Pyy(f).  With flat white noise the result is nearly
 Lorentzian, but on real hardware where Pyy rises steeply below ~0.3 Hz,
 the optimal drive shifts to higher frequencies where the SNR is better.
 :::
+
+## The dispersion function, flattened
+
+The D-optimal fixed point is reached when the dispersion $\nu(f)$ equals the
+parameter count $n_\theta$ across the support of the drive. Below, the flat drive
+leaves $\nu$ sharply peaked at the resonance (information left on the table), while
+the optimal drive has **flattened $\nu$ to $n_\theta$** there — the signature of
+convergence.
+
+```{python}
+#| label: fig-dispersion
+#| fig-cap: "Dispersion ν(f) for the flat vs optimal drive. The optimal drive flattens ν to the parameter count nθ across the resonance support (Kiefer–Wolfowitz equivalence); the flat drive leaves it peaked."
+#| code-summary: "Dispersion ν(f): flat vs optimal"
+import plotly.graph_objects as go
+
+nu_flat, gamma_flat = dispersion(freq, model, Pxx_flat, Pyy)
+nu_opt,  gamma_opt  = dispersion(freq, model, Pxx_opt,  Pyy)
+n_theta = gamma_opt.shape[0]
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=freq, y=nu_flat, mode="lines",
+              line=dict(color=sp.GRAY, width=2.0, dash="dash"), name="ν(f) — flat drive"))
+fig.add_trace(go.Scatter(x=freq, y=nu_opt, mode="lines", fill="tozeroy",
+              fillcolor="rgba(200,151,58,0.12)", line=dict(color=sp.GOLD, width=2.6),
+              name="ν(f) — optimal drive"))
+fig.add_hline(y=n_theta, line_dash="dot", line_color="rgba(31,138,192,0.6)",
+              annotation_text=f"  nθ = {n_theta}", annotation_position="right",
+              annotation_font=dict(size=sp.SZ_ANNOT, color=sp.SKY, family=sp.FONT))
+fig.update_xaxes(title_text="Frequency  [Hz]")
+fig.update_yaxes(title_text="dispersion ν(f)")
+sp.style(fig, height=360).show()
+```
 
 ## Variance reduction in numbers
 

@@ -2,223 +2,202 @@
 title: "05 — Closed-loop suspension (loop-bias, cancelled)"
 ---
 
-The most realistic case: a suspension identified **with its damping loop closed**.
-The feedback fights the very resonance we are trying to measure, so the instrument
-no longer shows the open-loop plant `P`. It shows the *closed-loop* response
+The most realistic case: a suspension identified **with its damping loop closed**. The
+feedback fights the very resonance we are measuring, so the instrument shows the
+*closed-loop* response $T = P/(1+PC)$, whose peak is suppressed by the loop gain $1+PC$.
+Fitting $T$ and calling it the plant is **biased**.
 
-$$
-T = \frac{P}{1 + PC},
-$$
-
-whose resonant peak is suppressed by the loop gain $1 + PC$. Fitting `T` and calling
-it the plant is **biased** — a loop-ignorant fit understates the plant gain near the
-resonance.
-
-The classic fix is to measure `T`, then divide the controller back out,
-$\hat{P} = \hat{T}/(1 - \hat{T}C)$. That needs the controller `C` as a known object
-and a fragile hand-division *after* the fit — and an earlier version of this example
-listed a "controller-aware estimator" as future work.
-
-**That future work now exists.** With the loop genuinely closed in the digital twin,
-the Pintelon–Schoukens **reference-based FRF** — the ratio of period-averaged spectra
-$\overline{Y}/\overline{X}$ read off the drive monitor and the response — cancels the
-controller automatically and returns the **open-loop plant directly**. No controller
-object, no division. We inject a periodic multisine, measure the leakage-free FRF, and
-fit it by maximum likelihood with `GMLEstimator`. We still use `python-control`, but
-only to *draw* the suppressed closed-loop `T` for the bias story — never in the fit.
+The Pintelon–Schoukens **reference-based FRF** — the ratio of period-averaged spectra
+$\overline{Y}/\overline{X}$ off the drive monitor and the response — cancels the controller
+automatically and returns the **open-loop plant directly**: no controller object, no
+$1/(1-TC)$ division. We run the full diagnostic set with the loop genuinely closed in the
+twin, and use `python-control` only to *draw* the suppressed $T$ for the bias story —
+never in the fit.
 
 ```{python}
+#| code-summary: "Setup — imports, house plot style, plant, controller, prior"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import control as ct
+import sysid_plots as sp
+from sysid_campaign import run_siso_passes, param_sigmas
 
 from system_ident.backends.twin import TwinBackend
 from system_ident.plant import SuspensionPlant
 from system_ident.model import TFModel
-from system_ident.excitation import multisine_from_psd
-from system_ident.loop import SysIDLoop
-from system_ident.estimators.gml import GMLEstimator
+from system_ident.fisher import parameter_covariance
+from system_ident.design.pintelon import prior_robust_excitation
 
 FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
 TOTAL = NPERSEG * N_PERIODS / FS
+ACT_LIMIT = 1000.0
 
-# True open-loop plant: a single 1 Hz, Q = 20 suspension resonance.
-P_TRUE = TFModel.from_resonances([(1.0, 20.0)], 100.0)
-plant = SuspensionPlant({"POS": P_TRUE}, FS)
+P_TRUE = TFModel.from_resonances([(1.0, 20.0)], 100.0)        # true open-loop plant
+prior  = TFModel.from_resonances([(1.3, 14.0)], 130.0)        # ~30% off in f0 and Q
 
-# Velocity-damping controller C(s) = k s / (1 + s/wc), proper, negative feedback.
-k, wc = 2e-3, 2 * np.pi * 12.0
+k, wc = 2e-3, 2 * np.pi * 12.0                                # velocity-damping C(s)
 C = ([k, 0.0], [1.0 / wc, 1.0])
 
-# Close the loop *inside* the twin by passing controllers=.
-tw = TwinBackend(
-    plant, {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS,
-    sensor_asd=1e-4, disturbance_asd=1e-4, controllers={"POS": C}, seed=3,
-)
+tw = TwinBackend(SuspensionPlant({"POS": P_TRUE}, FS),
+                 {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS,
+                 sensor_asd=1e-4, disturbance_asd=1e-4, controllers={"POS": C}, seed=3)
 
-# Synchronous excitation grid: every line lands exactly on a DFT bin.
 f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
-band = (f_all >= 0.1) & (f_all <= 5.0)
-freq = f_all[band]
-Pxx = np.ones_like(freq)            # flat in-band budget (the FRF is scale-free)
+band  = (f_all >= 0.1) & (f_all <= 5.0)
+freq  = f_all[band]
+Pyy, Px_tot = np.ones_like(freq), 1.0
 ```
 
-## Measure through the closed loop — and recover the open-loop plant
-
-We inject the periodic multisine as the loop *reference*, then read the **drive
-monitor** (`C1:EXC`, the actuator signal the loop actually sends) and the
-**response** (`C1:RSP`). The reference-based ratio-of-averages
-$\overline{Y}/\overline{X}$ projects onto the deterministic multisine, which is
-uncorrelated with the fed-back loop and sensor noise; that projection **cancels the
-controller** and the returned `H` is the *open-loop* plant — with **no** manual
-$1/(1 - TC)$ step anywhere.
+## The parameters we're chasing
 
 ```{python}
-tw.inject("C1:EXC", multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0), FS)
-seg = tw.read(["C1:EXC", "C1:RSP"], TOTAL)
-
-# THIS H is already the OPEN-LOOP plant — the loop is cancelled by the ratio.
-H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["C1:EXC"], seg["C1:RSP"], FS, NPERSEG, band)
-exc = np.isfinite(H_err)
-
-prior = TFModel.from_resonances([(1.3, 14.0)], 130.0)   # ~30% off in f0 and Q
-P_hat = GMLEstimator().fit(freq, H, H_err, prior)
-
-
-def _f0_q(model):
-    p = np.roots(np.asarray(model.den, float))
-    p = p[p.imag > 1e-9][0]
-    w0 = abs(p)
-    return w0 / (2 * np.pi), w0 / (2 * abs(p.real))
-
-
-f0t, qt = _f0_q(P_TRUE)
-f0h, qh = _f0_q(P_hat)
-print(f"true open-loop  : f0 = {f0t:.3f} Hz, Q = {qt:.1f}")
-print(f"recovered P_hat : f0 = {f0h:.3f} Hz, Q = {qh:.1f}   (no controller-division)")
+#| code-summary: "Prior vs true open-loop parameters"
+f0t, Qt = sp.f0_q(P_TRUE); f0p, Qp = sp.f0_q(prior)
+sp.param_table(
+    ["", "f₀ [Hz]", "Q", "DC gain |G(0)|"],
+    [["prior", f"{f0p:.4f}", f"{Qp:.2f}", f"{sp.dc_gain(prior):.4g}"],
+     ["true open-loop", f"{f0t:.4f}", f"{Qt:.2f}", f"{sp.dc_gain(P_TRUE):.4g}"]],
+    caption="Before measuring")
 ```
 
-## Is the drive gentle? — the measurement time series
-
-Even with the loop closed, the reference is a periodic Schroeder multisine: a smooth,
-bounded, low-crest waveform, not an impulsive kick. The drive monitor (the signal the
-controller actually pushes) stays well inside a safe actuator range, and the response
-is a steady bounded oscillation — partly knocked down by the feedback.
+## 1 — Design the excitation
 
 ```{python}
-#| label: fig-closedloop-timeseries
-#| fig-cap: "First ~64 s of the closed-loop measurement. The drive monitor (top) is a smooth low-crest multisine; the response (bottom) is a bounded oscillation, partly suppressed by the damping loop. Peak drive stays well inside a safe actuator range."
+#| code-summary: "Prior-robust drive; variance win vs flat"
+Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
+Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
+cov_opt  = parameter_covariance(freq, P_TRUE, Pxx_opt,  Pyy, TOTAL)
+cov_flat = parameter_covariance(freq, P_TRUE, Pxx_flat, Pyy, TOTAL)
+ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
 
-SKY, GOLD, RED, GRAY = '#1F8AC0', '#C8973A', '#E53E3E', '#94A3B8'
+sp.excitation_design(
+    freq, np.abs(P_TRUE.eval(freq)), np.sqrt(Pxx_opt), np.sqrt(Pxx_flat),
+    prior_mag=np.abs(prior.eval(freq)), ratio=ratio,
+    annotations=[(1.0, "f₀ = 1.0 Hz, Q = 20")]).show()
+```
+
+## 2 — Run the campaign (loop closed)
+
+```{python}
+#| code-summary: "Run 3 passes through the closed loop"
+hist = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+                       n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
+                       px_total=Px_tot, n_passes=3, prior_uncertainty=0.5, seed=0)
+final = hist[-1]["model"]    # already the OPEN-LOOP plant — the loop is cancelled
+```
+
+```{python}
+#| code-summary: "Parameter evolution: prior → each pass → true"
+rows = [["prior", f"{f0p:.4f}", f"{Qp:.2f}", f"{sp.dc_gain(prior):.4g}", "—"]]
+for h in hist:
+    f0, Q = sp.f0_q(h["model"])
+    rows.append([f"pass {h['pass']}", f"{f0:.4f}", f"{Q:.2f}",
+                 f"{sp.dc_gain(h['model']):.4g}", f"{h['frac']:.2e}"])
+rows.append(["true", f"{f0t:.4f}", f"{Qt:.2f}", f"{sp.dc_gain(P_TRUE):.4g}", "—"])
+sp.param_table(["step", "f₀ [Hz]", "Q", "DC gain |G(0)|", "σ/θ (CRB)"], rows,
+               caption="Parameters at each step (recovered with no controller-division)")
+```
+
+## 3 — Is the drive gentle? The measurement time series
+
+```{python}
+#| code-summary: "Drive monitor + response, first ~64 s of pass 1"
 t = np.arange(int(64 * FS)) / FS
-fig = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
-    subplot_titles=['<b>Drive monitor</b> — actuator signal (Schroeder multisine, loop closed)',
-                    '<b>Response</b> — suspension motion (damped by the loop)'],
-)
-fig.add_trace(go.Scatter(x=t, y=seg['C1:EXC'][:t.size], mode='lines',
-              line=dict(color=SKY, width=1.3), name='drive monitor'), row=1, col=1)
-fig.add_trace(go.Scatter(x=t, y=seg['C1:RSP'][:t.size], mode='lines',
-              line=dict(color=GOLD, width=1.5), name='response'), row=2, col=1)
-fig.update_layout(template='plotly_white', height=460,
-                  margin=dict(l=60, r=20, t=50, b=50),
-                  font=dict(family='Outfit, Inter, sans-serif', size=12),
-                  legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1))
-fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.show()
+sp.timeseries(
+    t, [("drive monitor (actuator signal)", hist[0]["drive"], sp.SKY)],
+    [("response (damped by the loop)", hist[0]["response"], sp.GOLD)],
+    titles=["<b>Drive monitor</b> — actuator signal (Schroeder multisine, loop closed)",
+            "<b>Response</b> — suspension motion (suppressed by the damping loop)"]).show()
 ```
 
-## The bias story — and its cancellation
+## 4 — Bode: the bias story, magnitude / phase / coherence
 
-For the picture only, we use `python-control` to form the closed-loop response
-$T = \text{feedback}(P, C)$ that the instrument *would* report if you fit the raw
-closed-loop transfer function. Its resonant peak is visibly suppressed — that is the
-bias. The recovered $\hat{P}$, by contrast, lands right on the true open-loop plant.
+The closed-loop $T$ (grey dotted) has a **suppressed** resonance — fitting it would
+understate the plant. The reference-based measurement (grey points) instead lands on the
+true open-loop $P$, and the fit recovers it.
 
 ```{python}
-def to_tfmodel(sys):
-    """Convert a python-control TransferFunction to TFModel (for plotting |T| only)."""
-    sys = ct.tf(sys)
-    num = np.atleast_1d(np.asarray(sys.num[0][0], dtype=float))
-    den = np.atleast_1d(np.asarray(sys.den[0][0], dtype=float))
-    return TFModel(num=num, den=den)
-
+#| code-summary: "Draw the suppressed T, then the full Bode stack"
 P_ct = ct.tf(list(P_TRUE.num), list(P_TRUE.den))
-C_ct = ct.tf(*C)
-T_model = to_tfmodel(ct.minreal(ct.feedback(P_ct, C_ct)))   # closed-loop, suppressed
-```
+T_ct = ct.minreal(ct.feedback(P_ct, ct.tf(*C)))
+T_model = TFModel(num=np.atleast_1d(np.asarray(ct.tf(T_ct).num[0][0], float)),
+                  den=np.atleast_1d(np.asarray(ct.tf(T_ct).den[0][0], float)))
 
-```{python}
-#| label: fig-closedloop
-#| fig-cap: "The closed loop suppresses the resonance in T (grey dotted), so fitting T is biased. The Pintelon–Schoukens reference-based FRF (grey points) sits on the true open-loop plant P (blue) with the loop closed, and the ML fit P̂ (gold dashed) recovers it — with no controller-division. Zoom near 1 Hz; toggle traces in the legend."
-
-fgrid = np.logspace(np.log10(0.1), np.log10(5.0), 600)
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=fgrid, y=np.abs(P_TRUE.eval(fgrid)), mode='lines',
-    line=dict(color=SKY, width=2.8), name='True open-loop plant P',
-    hovertemplate='%{x:.3f} Hz   |P| = %{y:.4g}<extra></extra>'))
-fig.add_trace(go.Scatter(
-    x=fgrid, y=np.abs(T_model.eval(fgrid)), mode='lines',
-    line=dict(color=GRAY, width=1.8, dash='dot'),
-    name='Closed-loop T  (biased — feedback suppresses resonance)',
-    hovertemplate='%{x:.3f} Hz   |T| = %{y:.4g}<extra></extra>'))
-fig.add_trace(go.Scatter(
-    x=freq[exc], y=np.abs(H[exc]), mode='markers',
-    marker=dict(color='rgba(148,163,184,0.6)', size=4),
-    name='Reference-based FRF  (open-loop, loop closed)',
-    hovertemplate='%{x:.3f} Hz   |H| = %{y:.4g}<extra></extra>'))
-fig.add_trace(go.Scatter(
-    x=fgrid, y=np.abs(P_hat.eval(fgrid)), mode='lines',
-    line=dict(color=GOLD, width=2.2, dash='dash'),
-    name='Recovered P̂  (ML fit, no controller-division)',
-    hovertemplate='%{x:.3f} Hz   |P̂| = %{y:.4g}<extra></extra>'))
-
-idx_res = int(np.argmax(np.abs(P_TRUE.eval(fgrid))))
-fig.add_annotation(
-    x=np.log10(fgrid[idx_res]), y=np.log10(np.abs(T_model.eval(fgrid))[idx_res]),
-    text='<b>Resonance<br>suppressed in T</b>',
-    showarrow=True, arrowhead=2, arrowsize=1.1, arrowcolor='rgba(148,163,184,0.7)',
-    ax=-80, ay=30, font=dict(size=10, color=GRAY, family='Outfit, sans-serif'))
-
-fig.update_layout(
-    template='plotly_white', height=440,
-    margin=dict(l=60, r=20, t=20, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
-                bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1,
-                font=dict(size=10)),
-    xaxis=dict(title='Frequency  [Hz]', type='log', gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'))
-fig.show()
+mask = hist[-1]["mask"]
+sp.bode(freq, [
+    dict(name="true open-loop P",      H=P_TRUE.eval(freq),  color=sp.SKY, width=2.8),
+    dict(name="closed-loop T (biased)", H=T_model.eval(freq), color=sp.GRAY, dash="dot"),
+    dict(name="measured (±σ, open-loop)", H=hist[-1]["H_acc"], color="#5B6B7B",
+         mode="markers", err=hist[-1]["err_acc"], mask=mask),
+    dict(name="ML fit P̂",              H=final.eval(freq),   color=sp.GOLD, dash="dash"),
+], coh=hist[-1]["coh"], coh_mask=mask).show()
 ```
 
 ::: {.callout-important}
-## The bias is real — and it is cancelled, not corrected
-
-Near the 1 Hz resonance the damping loop suppresses the closed-loop peak by the loop
-gain $1 + PC$: a loop-ignorant fit of `T` reports a softened, understated resonance.
-The old remedy measured `T` and *divided* the controller back out by hand. Here the
-reference-based ratio-of-averages **cancels the loop in the measurement itself** — the
-grey FRF points already lie on the open-loop plant, so `P̂` is unbiased without ever
-naming `C` in the fit. At LIGO, where control gain can be 40 dB or more near a pendulum
-resonance, cancelling the loop at the measurement is far more robust than a post-hoc
-division.
+## The bias is cancelled, not corrected
+Near 1 Hz the loop suppresses the closed-loop peak by $1+PC$. The old remedy measured $T$
+and *divided* the controller back out by hand. Here the reference-based ratio-of-averages
+**cancels the loop in the measurement itself** — the grey points already lie on $P$, so
+$\hat P$ is unbiased without ever naming $C$ in the fit. At LIGO, where control gain can be
+40 dB near a pendulum resonance, cancelling at the measurement is far more robust than a
+post-hoc division.
 :::
 
-::: {.callout-note}
-## Controller-aware identification is now built in
+## 5 — Fit residuals
 
-There is nothing left as "future work" here: closing the loop in the twin and reading
-the reference-based FRF *is* the controller-aware estimator. The same code path a real
-closed-loop measurement uses — inject a periodic multisine, read the drive monitor and
-response, average the spectra over periods — returns the open-loop plant directly.
-:::
+```{python}
+#| code-summary: "Normalized residual + histogram"
+resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
+sp.residuals(freq, resid, mask).show()
+```
 
-**You've reached the end of the examples.**
-Return to the [Tutorial](../tutorial/overview.qmd) or browse the
-[API Reference](../reference/index.qmd).
+## 6 — Parameter recovery against the Cramér–Rao bound
+
+```{python}
+#| code-summary: "Parameter recovery with CRB error bars"
+f0f, Qf = sp.f0_q(final)
+sig = param_sigmas(final, hist[-1]["cov"])
+sp.parameter_recovery([
+    dict(label="f₀ [Hz]",        prior=f0p, fit=f0f, true=f0t, sigma=sig["f0"]),
+    dict(label="Q",              prior=Qp,  fit=Qf,  true=Qt,  sigma=sig["Q"]),
+    dict(label="DC gain |G(0)|", prior=sp.dc_gain(prior), fit=sp.dc_gain(final),
+         true=sp.dc_gain(P_TRUE), sigma=sig["gain"], log=True),
+]).show()
+print(f"recovered open-loop P̂:  f0 = {f0f:.3f} Hz, Q = {Qf:.1f}  (no controller-division)")
+```
+
+## 7 — Drive-safety margins
+
+```{python}
+#| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
+sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
+              limit=ACT_LIMIT).show()
+```
+
+## 8 — Convergence
+
+```{python}
+#| code-summary: "σ/θ vs pass"
+sp.convergence([dict(name="POS (loop closed)", x=[h["pass"] for h in hist],
+                     y=[h["frac"] for h in hist], color=sp.SKY)], target=0.05).show()
+```
+
+## 9 — Pass-by-pass: the measurement sharpening
+
+```{python}
+#| code-summary: "Measured FRF + fit, overlaid per pass"
+sp.pass_overlay(freq,
+    [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),
+          mask=h["mask"]) for h in hist],
+    np.abs(P_TRUE.eval(freq))).show()
+```
+
+**You've reached the end of the SISO examples.** Continue to the
+[2×2 coupled MIMO example](06-two-by-two-coupled.qmd), or return to the
+[Tutorial](../tutorial/overview.qmd).

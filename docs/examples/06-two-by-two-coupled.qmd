@@ -2,9 +2,8 @@
 title: "06 — Two-by-two coupled suspension (MIMO)"
 ---
 
-Real suspensions do not move one degree of freedom at a time: a length (POS) drive
-leaks into pitch (PIT) and vice-versa. The honest model is a **2×2 transfer-function
-matrix**
+Real suspensions do not move one degree of freedom at a time: a length (POS) drive leaks
+into pitch (PIT) and vice-versa. The honest model is a **2×2 transfer-function matrix**
 
 $$
 \begin{bmatrix} y_{\text{POS}} \\ y_{\text{PIT}} \end{bmatrix}
@@ -13,18 +12,26 @@ $$
 \begin{bmatrix} u_{\text{POS}} \\ u_{\text{PIT}} \end{bmatrix},
 $$
 
-where the off-diagonal $H_{12}, H_{21}$ are the cross-coupling. We identify the whole
-matrix the standard MIMO way — **one input at a time**: drive input $j$ with a periodic
-multisine, measure *both* outputs, and the leakage-free reference-based FRF gives column
-$j$ of the matrix. Each element is then fit by maximum likelihood.
-
-Before trusting any of it, we look at the **measurement time series** to confirm the
-excitation is a gentle, low-crest drive — not something that slams the suspension around.
+with the off-diagonal terms the cross-coupling. We identify the whole matrix the standard
+MIMO way — **one input at a time**: drive input $j$ with a periodic multisine, measure
+*both* outputs, and the leakage-free reference-based FRF gives column $j$. Each of the four
+elements gets the **full diagnostic set**; the magnitude/phase/coherence matrices are up
+top, the per-element detail is in the tabs.
 
 ```{python}
+#| code-summary: "Setup — true 2×2 plant, twin with coupling, priors"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import sysid_plots as sp
+from sysid_campaign import param_sigmas
 
 from system_ident.backends.twin import TwinBackend
 from system_ident.plant import SuspensionPlant
@@ -32,151 +39,240 @@ from system_ident.model import TFModel
 from system_ident.excitation import multisine_from_psd
 from system_ident.loop import SysIDLoop
 from system_ident.estimators.gml import GMLEstimator
+from system_ident.fisher import fisher_matrix
+from system_ident.design.pintelon import optimal_excitation, prior_robust_excitation
 
 FS, NPERSEG, N_PERIODS = 32.0, 2048, 8
 TOTAL = NPERSEG * N_PERIODS / FS
+ACT_LIMIT = 1000.0
 INPUTS = ["POS", "PIT"]
+ELEMS = [("POS", "POS"), ("PIT", "POS"), ("POS", "PIT"), ("PIT", "PIT")]
+ECOLOR = {("POS", "POS"): sp.SKY, ("PIT", "PIT"): sp.GOLD,
+          ("PIT", "POS"): sp.ROSE, ("POS", "PIT"): sp.GREEN}
 
-# True 2x2 plant: diagonal modes + genuine cross-coupling.
-TRUE = {
-    ("POS", "POS"): TFModel.from_resonances([(0.8, 20.0)], 100.0),  # length mode
-    ("PIT", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  80.0),  # pitch mode
-    ("PIT", "POS"): TFModel.from_resonances([(0.8, 20.0)],  25.0),  # length -> pitch
-    ("POS", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  15.0),  # pitch -> length
-}
+TRUE = {("POS", "POS"): TFModel.from_resonances([(0.8, 20.0)], 100.0),
+        ("PIT", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  80.0),
+        ("PIT", "POS"): TFModel.from_resonances([(0.8, 20.0)],  25.0),
+        ("POS", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  15.0)}
+PRIOR = {("POS", "POS"): TFModel.from_resonances([(1.0, 15.0)], 130.0),
+         ("PIT", "PIT"): TFModel.from_resonances([(1.7, 18.0)], 110.0),
+         ("PIT", "POS"): TFModel.from_resonances([(1.0, 15.0)],  35.0),
+         ("POS", "PIT"): TFModel.from_resonances([(1.7, 18.0)],  22.0)}
 
 plant = SuspensionPlant({"POS": TRUE[("POS", "POS")], "PIT": TRUE[("PIT", "PIT")]}, FS)
 coupling = {("PIT", "POS"): TRUE[("PIT", "POS")], ("POS", "PIT"): TRUE[("POS", "PIT")]}
 exc = {"POS": "C1:EXC_POS", "PIT": "C1:EXC_PIT"}
 rsp = {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT"}
-tw = TwinBackend(
-    plant, {c: d for d, c in exc.items()}, {c: d for d, c in rsp.items()},
-    fs=FS, sensor_asd=2e-3, coupling=coupling,
-)
+tw = TwinBackend(plant, {c: d for d, c in exc.items()}, {c: d for d, c in rsp.items()},
+                 fs=FS, sensor_asd=2e-3, coupling=coupling)
 
 f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
-band = (f_all >= 0.1) & (f_all <= 5.0)
-freq = f_all[band]
-Pxx = np.ones_like(freq)                       # flat in-band budget (FRF is scale-free)
+band = (f_all >= 0.1) & (f_all <= 5.0); freq = f_all[band]
+Pyy, Px_tot = np.ones_like(freq), 1.0
 ```
 
-## Measure the matrix, one input at a time
-
 ```{python}
-meas, drives, responses = {}, {}, {}
+#| code-summary: "Run 3 passes, one input column at a time"
+est = GMLEstimator()
+model = {k: PRIOR[k] for k in ELEMS}
+hist = {k: [] for k in ELEMS}
+accum = {k: {"w": np.zeros(len(freq)), "wH": np.zeros(len(freq), complex)} for k in ELEMS}
+info = {k: np.zeros((PRIOR[k].num.size + PRIOR[k].den.size - 1,) * 2) for k in ELEMS}
+col = {j: [] for j in INPUTS}            # per-column safety + pass-0 time series
+rng = np.random.default_rng(0)
 zero = np.zeros(int(round(TOTAL * FS)))
-for j in INPUTS:
-    for k in INPUTS:                            # only input j is driven
-        tw.inject(exc[k], zero, FS)
-    tw.inject(exc[j], multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=0), FS)
-    seg = tw.read([exc[j], rsp["POS"], rsp["PIT"]], TOTAL)
-    drives[j] = seg[exc[j]]
-    for i in INPUTS:                            # both outputs -> column j
-        H, He, _ = SysIDLoop._estimate_tf_periodic(seg[exc[j]], seg[rsp[i]], FS, NPERSEG, band)
-        meas[(i, j)] = (H, He)
-        responses[(i, j)] = seg[rsp[i]]
+
+for p in range(3):
+    for j in INPUTS:                     # drive column j from its diagonal model
+        diag = model[(j, j)]
+        Pxx = (prior_robust_excitation(freq, diag, Pyy, Px_tot, 0.5, n_iter=6)
+               if p == 0 else optimal_excitation(freq, diag, Pyy, Px_tot, n_iter=6))
+        for kk in INPUTS:
+            tw.inject(exc[kk], zero, FS)
+        drive = multisine_from_psd(Pxx, FS, NPERSEG, N_PERIODS, freq, seed=rng)
+        tw.inject(exc[j], drive, FS)
+        seg = tw.read([exc[j], rsp["POS"], rsp["PIT"]], TOTAL)
+        tw.inject(exc[j], zero, FS)
+        col[j].append(dict(**{"pass": p + 1}, drive=seg[exc[j]],
+                           resp={i: seg[rsp[i]] for i in INPUTS},
+                           peak=float(np.max(np.abs(seg[exc[j]]))),
+                           rms=float(np.std(seg[rsp[j]]))))
+        for i in INPUTS:                 # both outputs -> elements (i, j)
+            key = (i, j)
+            Hh, He, coh = SysIDLoop._estimate_tf_periodic(seg[exc[j]], seg[rsp[i]],
+                                                          FS, NPERSEG, band)
+            Hacc, eacc = SysIDLoop._accumulate(accum[key], Hh, He)
+            model[key] = est.fit(freq, Hacc, eacc, model[key])
+            info[key] = info[key] + fisher_matrix(freq, model[key], Pxx, Pyy, TOTAL)
+            cov = np.linalg.inv(info[key])
+            hist[key].append(dict(**{"pass": p + 1}, H=Hh, H_err=He, coh=coh,
+                mask=np.isfinite(He), H_acc=Hacc, err_acc=eacc, model=model[key],
+                cov=cov, frac=SysIDLoop._frac_uncertainty(model[key], cov)))
+fit = {k: model[k] for k in ELEMS}
 ```
 
-## Is the drive gentle? — the measurement time series
-
-When POS is driven, *both* mirror DoFs respond (the pitch motion is the cross-coupling).
-The drive is a periodic Schroeder multisine: a smooth, bounded, low-crest waveform, not an
-impulsive kick. The motion stays a steady bounded oscillation — the suspension is being
-*coaxed*, not slammed.
+## Parameters recovered — all four elements
 
 ```{python}
-#| label: fig-mimo-timeseries
-#| fig-cap: "One injection (POS driven), first ~64 s. The drive (top) is a smooth low-crest multisine; both outputs (bottom) are bounded oscillations — POS is the direct response, PIT is the cross-coupling. Peak drive stays well inside a safe actuator range."
+#| code-summary: "Prior → fit → true for every element"
+rows = []
+for k in ELEMS:
+    (f0p, qp) = sp.f0_q(PRIOR[k]); (f0t, qt) = sp.f0_q(TRUE[k]); (f0f, qf) = sp.f0_q(fit[k])
+    rows.append([f"H[{k[0]}←{k[1]}]", f"{f0p:.2f}/{qp:.0f}", f"{f0f:.2f}/{qf:.1f}",
+                 f"{f0t:.2f}/{qt:.0f}"])
+sp.param_table(["element", "prior f₀/Q", "fit f₀/Q", "true f₀/Q"], rows,
+               caption="Recovered modes (Hz / Q) — diagonal and cross terms")
+```
 
-SKY, GOLD, GRAY, ROSE = '#1F8AC0', '#C8973A', '#94A3B8', '#D2698E'
+## Is the drive gentle? — time series (POS driven)
+
+```{python}
+#| code-summary: "Drive (POS) + both outputs, first ~64 s of pass 1"
+c0 = col["POS"][0]
 t = np.arange(int(64 * FS)) / FS
-fig = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
-    subplot_titles=['<b>Drive</b> — POS actuator (Schroeder multisine)',
-                    '<b>Mirror motion</b> — both DoFs respond'],
-)
-fig.add_trace(go.Scatter(x=t, y=drives['POS'][:t.size], mode='lines',
-              line=dict(color=SKY, width=1.3), name='drive (POS)'), row=1, col=1)
-fig.add_trace(go.Scatter(x=t, y=responses[('POS', 'POS')][:t.size], mode='lines',
-              line=dict(color=GOLD, width=1.5), name='POS motion (direct)'), row=2, col=1)
-fig.add_trace(go.Scatter(x=t, y=responses[('PIT', 'POS')][:t.size], mode='lines',
-              line=dict(color=ROSE, width=1.5), name='PIT motion (cross-coupling)'), row=2, col=1)
-fig.update_layout(template='plotly_white', height=460,
-                  margin=dict(l=60, r=20, t=50, b=50),
-                  font=dict(family='Outfit, Inter, sans-serif', size=12),
-                  legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1))
-fig.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.show()
+sp.timeseries(t, [("drive (POS)", c0["drive"], sp.SKY)],
+    [("POS motion (direct)", c0["resp"]["POS"], sp.GOLD),
+     ("PIT motion (cross-coupling)", c0["resp"]["PIT"], sp.ROSE)],
+    titles=["<b>Drive</b> — POS actuator (Schroeder multisine)",
+            "<b>Mirror motion</b> — both DoFs respond"]).show()
 ```
 
-## Fit all four elements by maximum likelihood
+## The 2×2 matrix — magnitude, phase, coherence
 
 ```{python}
-PRIOR = {                                       # each ~30% off in f0 / Q
-    ("POS", "POS"): TFModel.from_resonances([(1.0, 15.0)], 130.0),
-    ("PIT", "PIT"): TFModel.from_resonances([(1.7, 18.0)], 110.0),
-    ("PIT", "POS"): TFModel.from_resonances([(1.0, 15.0)],  35.0),
-    ("POS", "PIT"): TFModel.from_resonances([(1.7, 18.0)],  22.0),
-}
-gml = GMLEstimator()
-fit = {key: gml.fit(freq, *meas[key], PRIOR[key]) for key in TRUE}
+#| code-summary: "Helper: a 2×2 matrix of any per-element quantity"
+def matrix(kind, height=560):
+    fig = make_subplots(rows=2, cols=2, shared_xaxes=True,
+        subplot_titles=[f"H[{i}←{j}]" for i in INPUTS for j in INPUTS],
+        vertical_spacing=0.11, horizontal_spacing=0.09)
+    for r, i in enumerate(INPUTS):
+        for c, j in enumerate(INPUTS):
+            key = (i, j); h = hist[key][-1]; mask = h["mask"]; lead = (r == 0 and c == 0)
+            if kind == "coh":
+                fig.add_trace(go.Scatter(x=freq[mask], y=np.asarray(h["coh"])[mask],
+                    mode="markers", marker=dict(color=sp.SKY, size=sp.MK_DATA),
+                    showlegend=False), row=r + 1, col=c + 1)
+                continue
+            fn = (lambda H: np.abs(H)) if kind == "mag" else \
+                 (lambda H: np.unwrap(np.angle(H)) * 180 / np.pi)
+            fig.add_trace(go.Scatter(x=freq, y=fn(TRUE[key].eval(freq)), mode="lines",
+                line=dict(color=sp.SKY, width=2.3), name="true", legendgroup="t",
+                showlegend=lead), row=r + 1, col=c + 1)
+            fig.add_trace(go.Scatter(x=freq[mask], y=fn(h["H_acc"])[mask], mode="markers",
+                marker=dict(color=sp.GRAY, size=sp.MK_SMALL), name="measured",
+                legendgroup="m", showlegend=lead), row=r + 1, col=c + 1)
+            fig.add_trace(go.Scatter(x=freq, y=fn(fit[key].eval(freq)), mode="lines",
+                line=dict(color=sp.GOLD, width=1.9, dash="dash"), name="ML fit",
+                legendgroup="f", showlegend=lead), row=r + 1, col=c + 1)
+    ylab = {"mag": "|G(f)|", "phase": "phase [deg]", "coh": "coherence γ²"}[kind]
+    fig.update_xaxes(type="log"); fig.update_xaxes(title_text="Frequency [Hz]", row=2)
+    if kind == "mag":
+        fig.update_yaxes(type="log")
+    if kind == "coh":
+        fig.update_yaxes(range=[0, 1.02])
+    fig.update_yaxes(title_text=ylab, col=1)
+    return sp.style(fig, height=height)
 
-def _f0_q(model):
-    p = np.roots(np.asarray(model.den, float))
-    p = p[p.imag > 1e-9][0]
-    w0 = abs(p)
-    return w0 / (2 * np.pi), w0 / (2 * abs(p.real))
-
-print(f"{'element':>12}   {'true (f0,Q)':>16}   {'fit (f0,Q)':>16}")
-for key in [("POS","POS"), ("PIT","POS"), ("POS","PIT"), ("PIT","PIT")]:
-    f0t, qt = _f0_q(TRUE[key]); f0f, qf = _f0_q(fit[key])
-    print(f"  H[{key[0]}<-{key[1]}]   ({f0t:.2f} Hz, {qt:4.1f})   ({f0f:.2f} Hz, {qf:4.1f})")
+matrix("mag").show()
 ```
-
-## The recovered 2×2 matrix
 
 ```{python}
-#| label: fig-mimo-matrix
-#| fig-cap: "The full 2×2 magnitude matrix: measured points (grey), ML fit (gold dashed), truth (blue). Rows are outputs (POS, PIT); columns are inputs. The off-diagonal panels are the cross-coupling — small but cleanly recovered."
-
-fig = make_subplots(
-    rows=2, cols=2, shared_xaxes=True,
-    subplot_titles=[f'H[{i}&larr;{j}]' for i in INPUTS for j in INPUTS],
-    vertical_spacing=0.10, horizontal_spacing=0.08,
-)
-for r, i in enumerate(INPUTS):
-    for c, j in enumerate(INPUTS):
-        H, He = meas[(i, j)]
-        ex = np.isfinite(He)
-        showleg = (r == 0 and c == 0)
-        fig.add_trace(go.Scatter(x=freq, y=np.abs(TRUE[(i, j)].eval(freq)), mode='lines',
-                      line=dict(color=SKY, width=2.3), name='true', showlegend=showleg,
-                      legendgroup='t'), row=r+1, col=c+1)
-        fig.add_trace(go.Scatter(x=freq[ex], y=np.abs(H[ex]), mode='markers',
-                      marker=dict(color='rgba(148,163,184,0.6)', size=3), name='measured',
-                      showlegend=showleg, legendgroup='m'), row=r+1, col=c+1)
-        fig.add_trace(go.Scatter(x=freq, y=np.abs(fit[(i, j)].eval(freq)), mode='lines',
-                      line=dict(color=GOLD, width=1.9, dash='dash'), name='ML fit',
-                      showlegend=showleg, legendgroup='f'), row=r+1, col=c+1)
-fig.update_xaxes(type='log', gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(type='log', gridcolor='rgba(30,60,100,0.07)')
-fig.update_xaxes(title_text='Frequency [Hz]', row=2)
-fig.update_layout(template='plotly_white', height=560,
-                  margin=dict(l=55, r=20, t=50, b=50),
-                  font=dict(family='Outfit, Inter, sans-serif', size=11),
-                  legend=dict(orientation='h', yanchor='bottom', y=1.04, xanchor='right', x=1))
-fig.show()
+#| code-summary: "Phase matrix"
+matrix("phase").show()
 ```
+
+```{python}
+#| code-summary: "Coherence matrix"
+matrix("coh", height=460).show()
+```
+
+## Convergence — all four elements
+
+```{python}
+#| code-summary: "σ/θ vs pass, per element"
+sp.convergence([dict(name=f"H[{k[0]}←{k[1]}]", x=[h["pass"] for h in hist[k]],
+                     y=[h["frac"] for h in hist[k]], color=ECOLOR[k]) for k in ELEMS],
+               target=0.05).show()
+```
+
+## Drive-safety margins (per input column)
+
+```{python}
+#| code-summary: "Drive peak & RMS vs the actuator limit, per column"
+for j in INPUTS:
+    sp.saturation([{"pass": c["pass"], "peak": c["peak"], "rms": c["rms"]} for c in col[j]],
+                  limit=ACT_LIMIT).show()
+```
+
+## Per-element detail
+
+```{python}
+#| code-summary: "Helper: bode / residuals / recovery / overlay for one element"
+def show_elem(key):
+    h = hist[key]; mask = h[-1]["mask"]; final = fit[key]
+    sp.bode(freq, [
+        dict(name="true", H=TRUE[key].eval(freq), color=sp.SKY, width=2.6),
+        dict(name="measured (±σ)", H=h[-1]["H_acc"], color=sp.GRAY, mode="markers",
+             err=h[-1]["err_acc"], mask=mask),
+        dict(name="prior", H=PRIOR[key].eval(freq), color=sp.RED, dash="dot"),
+        dict(name="ML fit", H=final.eval(freq), color=sp.GOLD, dash="dash"),
+    ], coh=h[-1]["coh"], coh_mask=mask).show()
+    resid = ((h[-1]["H_acc"] - final.eval(freq)) / h[-1]["err_acc"]).real
+    sp.residuals(freq, resid, mask).show()
+    (f0p, qp) = sp.f0_q(PRIOR[key]); (f0t, qt) = sp.f0_q(TRUE[key]); (f0f, qf) = sp.f0_q(final)
+    sig = param_sigmas(final, h[-1]["cov"])
+    sp.parameter_recovery([
+        dict(label="f₀ [Hz]", prior=f0p, fit=f0f, true=f0t, sigma=sig["f0"]),
+        dict(label="Q", prior=qp, fit=qf, true=qt, sigma=sig["Q"]),
+        dict(label="DC gain", prior=sp.dc_gain(PRIOR[key]), fit=sp.dc_gain(final),
+             true=sp.dc_gain(TRUE[key]), sigma=sig["gain"], log=True),
+    ]).show()
+    sp.pass_overlay(freq, [dict(meas_mag=np.abs(x["H"]),
+        fit_mag=np.abs(x["model"].eval(freq)), mask=x["mask"]) for x in h],
+        np.abs(TRUE[key].eval(freq))).show()
+```
+
+::: {.panel-tabset}
+
+## H[POS←POS]
+
+```{python}
+#| code-summary: "Length → length (direct)"
+show_elem(("POS", "POS"))
+```
+
+## H[PIT←POS]
+
+```{python}
+#| code-summary: "Length → pitch (cross-coupling)"
+show_elem(("PIT", "POS"))
+```
+
+## H[POS←PIT]
+
+```{python}
+#| code-summary: "Pitch → length (cross-coupling)"
+show_elem(("POS", "PIT"))
+```
+
+## H[PIT←PIT]
+
+```{python}
+#| code-summary: "Pitch → pitch (direct)"
+show_elem(("PIT", "PIT"))
+```
+
+:::
 
 ::: {.callout-note}
 ## One input at a time recovers the whole matrix
-
-Each single-input injection gives one *column* of the matrix: drive POS, read both DoFs →
-$H_{11}, H_{21}$; drive PIT → $H_{12}, H_{22}$. Because the multisine is periodic and the
-FRF is the reference-based ratio-of-averages, every element is leakage-free, so even the
-small cross terms (peaks 4–6× below the diagonal) are recovered to a percent. The digital
-twin applies the coupling for real — driving POS genuinely moves pitch — so this is the
-same code path a real MIMO measurement would use.
+Each single-input injection gives one *column*: drive POS, read both DoFs → $H_{11}, H_{21}$;
+drive PIT → $H_{12}, H_{22}$. Because the multisine is periodic and the FRF is the
+reference-based ratio-of-averages, every element is leakage-free, so even the small cross
+terms (4–6× below the diagonal) are recovered to a percent. The digital twin applies the
+coupling for real — driving POS genuinely moves pitch — so this is the same code path a
+real MIMO measurement would use.
 :::
+
+**You've reached the end of the examples.** Return to the
+[Tutorial](../tutorial/overview.qmd) or browse the [API Reference](../reference/index.qmd).

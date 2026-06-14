@@ -3,6 +3,7 @@
 project:
   type: website
   output-dir: _site
+  execute-dir: project   # run every page from docs/ so `import sysid_plots` resolves
   render:
     - index.qmd
     - tutorial/*.qmd
@@ -69,6 +70,9 @@ format:
     toc: true
     toc-depth: 3
     code-copy: true
+    code-fold: true              # collapse code blocks by default — focus on the plots
+    code-summary: "Show the code"
+    code-tools: true             # page-level expand/collapse-all toggle
     code-overflow: wrap
     code-line-numbers: false
     smooth-scroll: true

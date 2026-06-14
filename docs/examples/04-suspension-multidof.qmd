@@ -2,30 +2,30 @@
 title: "04 — Multi-DoF suspension (full campaign)"
 ---
 
-A 3-DoF suspension (POS / PIT / YAW) run through the real `TwinBackend` and
-`SysIDLoop` — the same code path the CLI executes.  This is the reference
-example for a full **Pintelon-Schoukens** campaign: every DoF is driven by a
-*periodic* multisine, the response is turned into a **leakage-free** reference-based
-FRF, and each accumulated FRF is fit by the Gaussian **maximum-likelihood**
-estimator (`gml`).
-
-The campaign exercises every component end to end:
-
-- the Pintelon-Schoukens optimal-excitation designer for each DoF sequentially
-- the periodic-multisine, leakage-free FRF measurement (no windowing, no leakage)
-- maximum-likelihood (`gml`) parametric fits with inverse-variance accumulation across passes
-- the fractional-uncertainty stop criterion
-- Plotly-rendered convergence and Bode plots
+A 3-DoF suspension (POS / PIT / YAW) identified the **Pintelon–Schoukens** way — the same
+sequential, one-DoF-at-a-time campaign the CLI runs. Each degree of freedom gets the
+**full diagnostic set**: excitation design, the measurement time series, a
+magnitude/phase/coherence Bode stack, residuals, parameter recovery against the
+Cramér–Rao bound, drive-safety margins, convergence, and the pass-by-pass view. The
+combined convergence and recovered-vs-true panels are up top; the per-DoF detail is in the
+tabs below.
 
 ```{python}
+#| code-summary: "Setup — config, twin backend, priors, per-DoF campaigns"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import sysid_plots as sp
+from sysid_campaign import run_siso_passes, param_sigmas
 
 from system_ident.config import RunConfig
 from system_ident.loop import SysIDLoop
-from system_ident.excitation import multisine_from_psd
-from system_ident.design.pintelon import optimal_excitation
 
 cfg = {
     "run": {"name": "susp3dof", "excitation_mode": "sequential"},
@@ -33,216 +33,173 @@ cfg = {
         "excitation": {"POS": "C1:EXC_POS", "PIT": "C1:EXC_PIT", "YAW": "C1:EXC_YAW"},
         "readback":   {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT", "YAW": "C1:RSP_YAW"},
     },
-    "measurement": {
-        "fs": 32, "freq_min": 0.1, "freq_max": 5.0,
-        "segment_duration": 64.0, "n_segments": 4, "px_total": 1.0,
-    },
-    "strategy": {
-        "estimator": "gml",
-        "input_designer": "pintelon_schoukens",
-        "n_design_iter": 3,
-    },
-    "twin": {
-        "sensor_asd": 1e-9,
-        "plant": {
-            "POS": {"resonances": [[0.6, 20], [1.5, 30]], "gain": 300},
-            "PIT": {"resonances": [[0.8, 15], [2.2, 25]], "gain": 120},
-            "YAW": {"resonances": [[1.2, 18]],            "gain": 80},
-        },
-    },
+    "measurement": {"fs": 32, "freq_min": 0.1, "freq_max": 5.0,
+                    "segment_duration": 64.0, "n_segments": 4, "px_total": 1.0},
+    "strategy": {"estimator": "gml", "input_designer": "pintelon_schoukens", "n_design_iter": 3},
+    "twin": {"sensor_asd": 1e-3, "plant": {
+        "POS": {"resonances": [[0.6, 20], [1.5, 30]], "gain": 300},
+        "PIT": {"resonances": [[0.8, 15], [2.2, 25]], "gain": 120},
+        "YAW": {"resonances": [[1.2, 18]],            "gain": 80}}},
     "priors": {
         "POS": {"resonances": [[0.55, 18], [1.6, 28]], "gain": 250},
         "PIT": {"resonances": [[0.75, 13], [2.3, 22]], "gain": 150},
-        "YAW": {"resonances": [[1.1, 16]],             "gain": 100},
-    },
-    "safety": {
-        "actuator_sat": 1000.0,
-        "rms_ceiling": {"POS": 1000.0, "PIT": 1000.0, "YAW": 1000.0},
-        "ramp_down_secs": 2.0,
-    },
+        "YAW": {"resonances": [[1.1, 16]],             "gain": 100}},
+    "safety": {"actuator_sat": 1000.0,
+               "rms_ceiling": {"POS": 1000.0, "PIT": 1000.0, "YAW": 1000.0},
+               "ramp_down_secs": 2.0},
     "stop_criteria": {"uncertainty_target": 0.05, "max_iter": 2},
 }
+DOFS = ["POS", "PIT", "YAW"]
+COLORS = {"POS": sp.SKY, "PIT": sp.GOLD, "YAW": sp.GREEN}
+ACT_LIMIT = cfg["safety"]["actuator_sat"]
 
-rc       = RunConfig(raw=cfg)
-backend  = rc.build_twin_backend(seed=0)
-priors   = rc.build_priors()
-watchdog = rc.build_watchdog(backend)
-loop     = SysIDLoop(backend, rc.build_estimator(), rc.build_designer(), watchdog)
+rc = RunConfig(raw=cfg)
+backend = rc.build_twin_backend(seed=0)
+priors = rc.build_priors()
+
+m = cfg["measurement"]
+FS = float(m["fs"]); NPERSEG = int(m["segment_duration"] * FS); NPER = int(m["n_segments"])
+f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
+band = (f_all >= m["freq_min"]) & (f_all <= m["freq_max"]); freq = f_all[band]
+DUR = NPERSEG * NPER / FS
+
+# One sequential P&S campaign per DoF (drive that DoF, read it back).
+H = {}
+for d in DOFS:
+    rb = cfg["channels"]["readback"][d]
+    Pyy = SysIDLoop._noise_psd(backend.read([rb], DUR)[rb], FS, NPERSEG, band)
+    H[d] = run_siso_passes(backend, cfg["channels"]["excitation"][d], rb, priors[d],
+                           fs=FS, nperseg=NPERSEG, n_periods=NPER, band=band, freq=freq,
+                           Pyy=Pyy, px_total=float(m["px_total"]), n_passes=3,
+                           prior_uncertainty=0.5, seed=0)
+trues = {d: backend.plant[d] for d in DOFS}
+fits = {d: H[d][-1]["model"] for d in DOFS}
 ```
 
-## Is the excitation safe? — the measurement time series
-
-Before trusting any campaign result, look at the **raw time series** of one
-injection.  Here we reproduce exactly what the loop does for a single DoF (POS):
-design the Pintelon-Schoukens optimal *periodic* multisine, inject it, and read
-back the drive monitor and the mirror response.  The drive is a smooth, bounded,
-low-crest Schroeder waveform — the suspension is being *coaxed*, not slammed —
-and its peak sits far inside the `actuator_sat = 1000` limit.
+## Parameters recovered — all three DoFs
 
 ```{python}
-#| label: fig-suspension-timeseries
-#| fig-cap: "One POS injection, first ~60 s. The drive (top) is a smooth, low-crest periodic multisine; the mirror response (bottom) is a bounded steady oscillation. The peak drive stays well inside the actuator-saturation limit, so the optimal excitation is safe to run on the real suspension."
-
-SKY, GOLD, GREEN = '#1F8AC0', '#C8973A', '#2D9D6B'
-
-m         = cfg["measurement"]
-fs        = float(m["fs"])
-nperseg   = int(m["segment_duration"] * fs)
-n_periods = int(m["n_segments"])
-px_total  = float(m["px_total"])
-dur       = nperseg * n_periods / fs
-
-f_all   = np.fft.rfftfreq(nperseg, 1 / fs)
-band    = (f_all >= m["freq_min"]) & (f_all <= m["freq_max"])
-freq_ms = f_all[band]
-
-exc_ch = cfg["channels"]["excitation"]["POS"]
-rb_ch  = cfg["channels"]["readback"]["POS"]
-
-# Quiet readback PSD -> design weighting (the same Pyy the loop uses), then the
-# Pintelon-Schoukens optimal drive PSD and its periodic-multisine realisation.
-Pyy   = SysIDLoop._noise_psd(backend.read([rb_ch], dur)[rb_ch], fs, nperseg, band)
-Pxx   = optimal_excitation(freq_ms, priors["POS"], Pyy, px_total, n_iter=3)
-drive = multisine_from_psd(Pxx, fs, nperseg, n_periods, freq_ms, seed=0)
-
-backend.inject(exc_ch, drive, fs)
-seg = backend.read([exc_ch, rb_ch], dur)
-backend.inject(exc_ch, np.zeros_like(drive), fs)   # clear the demo drive for a clean campaign
-
-t = np.arange(int(60 * fs)) / fs
-fig0 = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
-    subplot_titles=['<b>Drive</b> — POS actuator (Pintelon-Schoukens multisine)',
-                    '<b>Mirror motion</b> — POS response'],
-)
-fig0.add_trace(go.Scatter(x=t, y=seg[exc_ch][:t.size], mode='lines',
-               line=dict(color=SKY, width=1.3), name='drive (POS)'), row=1, col=1)
-fig0.add_trace(go.Scatter(x=t, y=seg[rb_ch][:t.size], mode='lines',
-               line=dict(color=GOLD, width=1.5), name='POS motion'), row=2, col=1)
-fig0.update_layout(
-    template='plotly_white', height=460,
-    margin=dict(l=60, r=20, t=50, b=50),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='right', x=1),
-)
-fig0.update_yaxes(title_text='drive [cts]', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig0.update_yaxes(title_text='motion [a.u.]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig0.update_xaxes(title_text='time [s]', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig0.show()
+#| code-summary: "Prior → fit → true for every mode"
+rows = []
+for d in DOFS:
+    for i, ((f0p, qp), (f0t, qt), (f0f, qf)) in enumerate(
+            zip(sp.modes(priors[d]), sp.modes(trues[d]), sp.modes(fits[d])), 1):
+        rows.append([f"{d} · mode {i}", f"{f0p:.3f}/{qp:.0f}", f"{f0f:.3f}/{qf:.1f}",
+                     f"{f0t:.3f}/{qt:.0f}"])
+sp.param_table(["DoF · mode", "prior  f₀/Q", "fit  f₀/Q", "true  f₀/Q"], rows,
+               caption="Recovered modes (Hz / Q)")
 ```
 
-## Run the campaign
+## Convergence — every DoF
 
 ```{python}
-result = loop.run(rc.raw, priors, seed=0)
-
-print(f"Campaign done: {result.done}")
-for dof, model in result.models.items():
-    print(f"  {dof}  den: {np.round(model.den, 3)}")
+#| code-summary: "σ/θ vs pass, all DoFs"
+sp.convergence([dict(name=d, x=[h["pass"] for h in H[d]], y=[h["frac"] for h in H[d]],
+                     color=COLORS[d]) for d in DOFS], target=0.05).show()
 ```
 
-## Convergence — fractional uncertainty per DoF
+## Recovered vs true — all DoFs
 
 ```{python}
-#| label: fig-convergence
-#| fig-cap: "Fractional parameter uncertainty (worst parameter per DoF) vs campaign iteration. Each DoF is excited sequentially; the uncertainty drops as optimal passes accumulate. Use the legend to toggle individual DoFs."
-
-colors = {'POS': SKY, 'PIT': GOLD, 'YAW': GREEN}
-symbols = {'POS': 'circle', 'PIT': 'square', 'YAW': 'diamond'}
-
+#| code-summary: "Magnitude overlay, recovered (dashed) vs true (solid)"
 fig = go.Figure()
-
-for dof in result.models:
-    pts = [(r.iteration, r.max_frac_uncertainty)
-           for r in result.history if r.dof == dof]
-    if not pts:
-        continue
-    it, frac = zip(*pts)
-    fig.add_trace(go.Scatter(
-        x=list(it), y=list(frac),
-        mode='lines+markers',
-        line=dict(color=colors[dof], width=2.2),
-        marker=dict(symbol=symbols[dof], size=9,
-                    color=colors[dof], line=dict(color='white', width=1.5)),
-        name=dof,
-        hovertemplate=f'<b>{dof}</b><br>Iteration %{{x}}<br>σ/θ = %{{y:.3e}}<extra></extra>',
-    ))
-
-# Target line
-target = cfg["stop_criteria"]["uncertainty_target"]
-fig.add_hline(
-    y=target, line_dash='dot', line_color='rgba(100,120,160,0.5)',
-    annotation_text=f'  target = {target}', annotation_position='right',
-    annotation_font=dict(size=11, color='rgba(100,120,160,0.85)', family='Outfit, sans-serif'),
-)
-
-fig.update_layout(
-    template='plotly_white', height=380,
-    margin=dict(l=65, r=20, t=20, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
-                bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
-    xaxis=dict(title='Iteration', dtick=1, gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='Max fractional uncertainty', type='log', gridcolor='rgba(30,60,100,0.07)'),
-)
-fig.show()
+for d in DOFS:
+    fig.add_trace(go.Scatter(x=freq, y=np.abs(trues[d].eval(freq)), mode="lines",
+                  line=dict(color=COLORS[d], width=2.6), name=f"{d} — true"))
+    fig.add_trace(go.Scatter(x=freq, y=np.abs(fits[d].eval(freq)), mode="lines",
+                  line=dict(color=sp._fade(COLORS[d], 0.6), width=2.0, dash="dash"),
+                  name=f"{d} — recovered"))
+fig.update_xaxes(title_text="Frequency  [Hz]", type="log")
+fig.update_yaxes(title_text="|G(f)|", type="log")
+sp.style(fig, height=440, legend="v").show()
 ```
 
-## Recovered vs true transfer functions
+## Per-DoF detail
 
 ```{python}
-#| label: fig-bode-all
-#| fig-cap: "Recovered (dashed) vs true (solid) plant for all three DoFs. Click a trace in the legend to isolate a single DoF."
+#| code-summary: "Helper: the full standard set for one DoF"
+def show_dof(d):
+    hist = H[d]; true = trues[d]; prior = priors[d]; final = fits[d]
+    mask = hist[-1]["mask"]
+    ann = [(f0, f"f={f0:.2f} Hz, Q={q:.0f}") for f0, q in sp.modes(true)]
 
-freq = np.linspace(0.1, 5.0, 600)
-
-fig2 = go.Figure()
-
-colors_true = {'POS': SKY,  'PIT': GOLD,  'YAW': GREEN}
-colors_fit  = {'POS': '#63BBE0', 'PIT': '#E5C67A', 'YAW': '#6DC99B'}
-
-for dof in result.models:
-    true_model      = backend.plant[dof]
-    recovered_model = result.models[dof]
-
-    fig2.add_trace(go.Scatter(
-        x=freq, y=np.abs(true_model.eval(freq)),
-        mode='lines', line=dict(color=colors_true[dof], width=2.5),
-        name=f'{dof} — true',
-        hovertemplate=f'<b>{dof} true</b><br>%{{x:.3f}} Hz   |G| = %{{y:.4f}}<extra></extra>',
-    ))
-    fig2.add_trace(go.Scatter(
-        x=freq, y=np.abs(recovered_model.eval(freq)),
-        mode='lines', line=dict(color=colors_fit[dof], width=2.0, dash='dash'),
-        name=f'{dof} — recovered',
-        hovertemplate=f'<b>{dof} recovered</b><br>%{{x:.3f}} Hz   |G| = %{{y:.4f}}<extra></extra>',
-    ))
-
-fig2.update_layout(
-    template='plotly_white', height=400,
-    margin=dict(l=65, r=20, t=20, b=55),
-    font=dict(family='Outfit, Inter, sans-serif', size=12),
-    legend=dict(
-        orientation='v', yanchor='top', y=1, xanchor='left', x=1.02,
-        bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1,
-        font=dict(size=10),
-    ),
-    xaxis=dict(title='Frequency  [Hz]', gridcolor='rgba(30,60,100,0.07)'),
-    yaxis=dict(title='|G(f)|', type='log', gridcolor='rgba(30,60,100,0.07)'),
-)
-fig2.show()
+    # 1 — excitation design
+    sp.excitation_design(freq, np.abs(true.eval(freq)), np.sqrt(hist[0]["Pxx"]),
+        np.full_like(freq, 1.0 / (freq[-1] - freq[0])),
+        prior_mag=np.abs(prior.eval(freq)), annotations=ann).show()
+    # 2 — time series
+    t = np.arange(int(60 * FS)) / FS
+    sp.timeseries(t, [(f"drive ({d})", hist[0]["drive"], sp.SKY)],
+        [(f"{d} motion", hist[0]["response"], sp.GOLD)],
+        titles=[f"<b>Drive</b> — {d} actuator (Schroeder multisine)",
+                f"<b>{d} motion</b> — response"]).show()
+    # 3+4 — Bode (mag / phase / coherence)
+    sp.bode(freq, [
+        dict(name="true", H=true.eval(freq), color=sp.SKY, width=2.6),
+        dict(name="measured (±σ)", H=hist[-1]["H_acc"], color=sp.GRAY, mode="markers",
+             err=hist[-1]["err_acc"], mask=mask),
+        dict(name="prior", H=prior.eval(freq), color=sp.RED, dash="dot"),
+        dict(name="ML fit", H=final.eval(freq), color=sp.GOLD, dash="dash"),
+    ], coh=hist[-1]["coh"], coh_mask=mask).show()
+    # 5 — residuals
+    resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
+    sp.residuals(freq, resid, mask).show()
+    # 6 — parameter recovery (every mode + gain)
+    groups, tgt = [], []
+    for i, ((f0p, qp), (f0t, qt), (f0f, qf)) in enumerate(
+            zip(sp.modes(prior), sp.modes(true), sp.modes(final))):
+        tgt += [f"f0_{i}", f"Q_{i}"]
+    sig = param_sigmas(final, hist[-1]["cov"], targets=tuple(tgt) + ("gain",))
+    for i, ((f0p, qp), (f0t, qt), (f0f, qf)) in enumerate(
+            zip(sp.modes(prior), sp.modes(true), sp.modes(final)), 0):
+        groups.append(dict(label=f"f{i+1} [Hz]", prior=f0p, fit=f0f, true=f0t, sigma=sig[f"f0_{i}"]))
+        groups.append(dict(label=f"Q{i+1}", prior=qp, fit=qf, true=qt, sigma=sig[f"Q_{i}"]))
+    groups.append(dict(label="DC gain", prior=sp.dc_gain(prior), fit=sp.dc_gain(final),
+                       true=sp.dc_gain(true), sigma=sig["gain"], log=True))
+    sp.parameter_recovery(groups).show()
+    # 7 — saturation
+    sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
+                  limit=ACT_LIMIT, rms_ceiling=cfg["safety"]["rms_ceiling"][d]).show()
+    # 8 — convergence (this DoF)
+    sp.convergence([dict(name=d, x=[h["pass"] for h in hist], y=[h["frac"] for h in hist],
+                         color=COLORS[d])], target=0.05).show()
+    # 9 — pass overlay
+    sp.pass_overlay(freq, [dict(meas_mag=np.abs(h["H"]),
+        fit_mag=np.abs(h["model"].eval(freq)), mask=h["mask"]) for h in hist],
+        np.abs(true.eval(freq))).show()
 ```
 
-::: {.callout-note}
-## Sequential vs simultaneous excitation
+::: {.panel-tabset}
 
-The config sets `excitation_mode: sequential` — one DoF is driven at a time,
-which keeps the response measurement unambiguous (no cross-coupling between
-excitation channels in the periodic FRF estimate).  A future `simultaneous` mode
-would require careful coherence-based channel separation.
+## POS
+
+```{python}
+#| code-summary: "POS — full diagnostic set"
+show_dof("POS")
+```
+
+## PIT
+
+```{python}
+#| code-summary: "PIT — full diagnostic set"
+show_dof("PIT")
+```
+
+## YAW
+
+```{python}
+#| code-summary: "YAW — full diagnostic set"
+show_dof("YAW")
+```
+
 :::
 
-**Next:** [Closed-loop arm](05-closed-loop-arm.qmd) — the realistic case where
-the suspension is measured inside a Fabry–Pérot cavity with feedback closed.
-</content>
-</invoke>
+::: {.callout-note}
+## Sequential excitation
+`excitation_mode: sequential` drives one DoF at a time, keeping each response measurement
+unambiguous — exactly the per-DoF campaigns shown in the tabs. A `simultaneous` mode would
+require coherence-based channel separation.
+:::
+
+**Next:** [Closed-loop arm](05-closed-loop-arm.qmd) — a suspension identified with its
+damping loop closed, where the reference-based FRF cancels the controller.
