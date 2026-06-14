@@ -70,6 +70,9 @@ format:
     code-annotations: hover      # numbered callouts on code lines
     code-overflow: wrap
     code-line-numbers: false
+    highlight-style:             # syntax tokens follow the light/dark toggle
+      light: github
+      dark: github-dark
     smooth-scroll: true
     reading-time: true           # "N min read" on each page
     lightbox: auto               # click any figure to zoom (quarto-ext/lightbox)

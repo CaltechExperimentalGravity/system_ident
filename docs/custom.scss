@@ -79,6 +79,8 @@ $border-radius-lg: 12px !default;
   --sysid-divider:           rgba(30, 60, 100, 0.12);
   --sysid-code-bg:           #F0F4F8;
   --sysid-inline-code-color: #C0392B;
+  --sysid-codeblock-bg:      #F4F7FB;            // light-mode code-block surface
+  --sysid-codeblock-border:  rgba(31, 138, 192, 0.18);
   --sysid-sky:               #1F8AC0;
   --sysid-gold:              #C8973A;
   --sysid-navy:              #0B2447;
@@ -94,6 +96,8 @@ $border-radius-lg: 12px !default;
   --sysid-divider:           rgba(100, 140, 200, 0.15);
   --sysid-code-bg:           #0D1F3C;
   --sysid-inline-code-color: #7EC8E3;
+  --sysid-codeblock-bg:      #070E1C;            // dark-mode code-block surface (brand navy)
+  --sysid-codeblock-border:  rgba(31, 138, 192, 0.15);
 }
 
 // ─── Global typography refinements ────────────────────────────────────────
@@ -395,14 +399,16 @@ p code, li code, td code {
 }
 
 // ─── Code blocks ───────────────────────────────────────────────────────────
+// Surface follows the light/dark toggle (the var is theme-scoped above); the
+// syntax-token colours come from `highlight-style` (github / github-dark), which
+// Quarto switches with the theme — so code reads correctly in both modes.
 pre.sourceCode, div.sourceCode {
   border-radius: 8px;
-  border: 1px solid rgba(31, 138, 192, 0.15);
-  background: #070E1C !important;
+  border: 1px solid var(--sysid-codeblock-border);
+  background: var(--sysid-codeblock-bg) !important;
 
   code {
     background: transparent !important;
-    color: #C9D8EA;
   }
 }
 
