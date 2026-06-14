@@ -117,7 +117,7 @@ fig.update_layout(
                 bgcolor='rgba(255,255,255,0.9)', bordercolor='#DCE5F0', borderwidth=1),
 )
 fig.update_yaxes(title_text='|G(f)|',         type='log', row=1, col=1, gridcolor='rgba(30,60,100,0.07)')
-fig.update_yaxes(title_text='Drive ASD',                  row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
+fig.update_yaxes(title_text='Drive ASD',      type='log', row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
 fig.update_xaxes(title_text='Frequency  [Hz]',            row=2, col=1, gridcolor='rgba(30,60,100,0.07)')
 fig.update_xaxes(gridcolor='rgba(30,60,100,0.07)',        row=1, col=1)
 fig.show()
