@@ -14,6 +14,7 @@ Validated against the legacy engine on the ``double_pend_demo`` setup in
 from __future__ import annotations
 
 import numpy as np
+import scipy.signal as sig
 from scipy.integrate import trapezoid
 
 from ..fisher import dispersion
@@ -68,8 +69,49 @@ def optimal_excitation(
     return Pxx
 
 
+def prior_robust_excitation(
+    freq: np.ndarray,
+    model: TFModel,
+    Pyy: np.ndarray,
+    Px_tot: float,
+    prior_uncertainty: float,
+    n_iter: int = 3,
+    n_samples: int = 7,
+) -> np.ndarray:
+    """Optimal excitation averaged over the prior's plausible resonance band.
+
+    With only a ``±prior_uncertainty`` (fractional) handle on where the
+    resonances sit, spending the whole budget at the point estimate risks
+    missing them. This frequency-scales the model by ``sc`` over ``[1-u, 1+u]``
+    (shifting every resonance by ``sc`` while preserving Q), averages the
+    point-optimal design across those scaled models, and renormalises to the
+    budget — so the drive covers everywhere a resonance could plausibly be:
+    efficient (not flat broadband) yet robust to a far prior.
+    ``prior_uncertainty=0`` reduces to the point-optimal drive.
+    """
+    u = float(prior_uncertainty)
+    if u <= 0.0:
+        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)
+    freq = np.asarray(freq, dtype=float)
+    z, p, k = sig.tf2zpk(model.num, model.den)
+    scales = np.linspace(max(1.0 - u, 0.05), 1.0 + u, n_samples)
+    acc = np.zeros(len(freq))
+    for sc in scales:
+        scaled = TFModel.from_zpk(z * sc, p * sc, k)
+        acc += optimal_excitation(freq, scaled, Pyy, Px_tot, n_iter=n_iter)
+    integral = trapezoid(acc, freq)
+    if integral > 0:
+        acc *= Px_tot / integral
+    return acc
+
+
 class PintelonSchoukensDesigner(InputDesigner):
-    """Iterative optimal excitation via the dispersion-function fixed point."""
+    """Iterative optimal excitation via the dispersion-function fixed point.
+
+    With ``prior_uncertainty > 0`` the design is averaged over the prior's
+    plausible resonance band (:func:`prior_robust_excitation`) — used for the
+    loop's first pass, where the model still carries large error bars.
+    """
 
     def design(
         self,
@@ -78,5 +120,10 @@ class PintelonSchoukensDesigner(InputDesigner):
         Pyy: np.ndarray,
         Px_tot: float,
         n_iter: int = 3,
+        prior_uncertainty: float = 0.0,
     ) -> np.ndarray:
+        if prior_uncertainty > 0.0:
+            return prior_robust_excitation(
+                freq, model, Pyy, Px_tot, prior_uncertainty, n_iter=n_iter
+            )
         return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)

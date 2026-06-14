@@ -44,12 +44,14 @@ flowchart TD
     DASH -.->|snapshots, STOP| M
 ```
 
-The first pass uses a flat, broadband excitation so the global ML refit is well
-conditioned; later passes use the optimal designer. Because every pass is an
-independent measurement of the same LTI system on a fixed frequency grid, passes
-are combined by inverse-variance weighting per bin (`SysIDLoop._accumulate`) and
-the model is refit on the accumulated estimate — keeping broadband coverage
-while folding in each optimal pass's resonance-sharpening information.
+The first pass designs a *prior-robust* excitation from the prior model and its
+(large) error bars — power spread over the plausible resonance band `f0*(1±u)`
+so a far prior still covers the true resonance; later passes use the now-trusted
+model for point-optimal excitation. Because every pass is an independent
+measurement of the same LTI system on a fixed frequency grid, passes are combined
+by inverse-variance weighting per bin (`SysIDLoop._accumulate`) and the model is
+refit on the accumulated estimate — keeping the first pass's band coverage while
+folding in each optimal pass's resonance-sharpening information.
 
 ## Codemap
 

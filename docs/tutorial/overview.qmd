@@ -58,10 +58,10 @@ Each iteration does five things:
    Leading periods that still carry the start transient are dropped.
 
 4. **Accumulate** — inverse-variance-weight the new FRF estimate with all previous
-   ones, frequency bin by frequency bin. The first pass uses a flat, broadband
-   excitation for global conditioning; the accumulated estimate carries that
-   broadband coverage forward permanently while later concentrated passes sharpen
-   the resonances.
+   ones, frequency bin by frequency bin. The first pass uses a *prior-robust*
+   excitation spread over the plausible resonance band; the accumulated estimate
+   carries that band coverage forward permanently while later concentrated passes
+   sharpen the resonances.
 
 5. **Fit (maximum likelihood)** — re-fit the model on the accumulated FRF with the
    `GMLEstimator`, minimising the Gaussian negative-log-likelihood by
@@ -155,10 +155,12 @@ has already learned*.
 ::: {.callout-tip}
 ## The first pass is special
 
-`SysIDLoop` always runs pass 1 with a flat, broadband excitation. This ensures the
-global transfer function is well-sampled before the optimal designer concentrates
-power on specific features — keeping the maximum-likelihood refit well conditioned
-and preventing convergence to a local minimum caused by poor initial coverage.
+`SysIDLoop` runs pass 1 with a **prior-robust** excitation: the optimal drive
+averaged over the prior's plausible resonance band $f_0(1\pm u)$, so even a far
+(±50 %) prior still puts power where the true resonance is. This samples the
+transfer function broadly before later passes concentrate on the located
+features — keeping the maximum-likelihood refit well conditioned and avoiding a
+local minimum from poor initial coverage.
 :::
 
 ## References

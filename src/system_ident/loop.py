@@ -14,15 +14,16 @@ fractional-uncertainty target, when the iteration budget is exhausted, or when
 the watchdog aborts; in every case it finishes through the shared safe-state
 handoff.
 
-The first measurement pass uses a flat, broadband excitation so the global
-maximum-likelihood refit is well conditioned; subsequent passes use the optimal
-designer to refine the (now-trusted) parameters.
+The first measurement pass designs a prior-robust excitation from the prior
+model and its (large) error bars — power spread over the plausible resonance
+band ``f0*(1±u)`` so a far prior still covers the true resonance; subsequent
+passes use the now-trusted model for point-optimal excitation.
 
 Each pass is an independent measurement of the same LTI system on the fixed
 frequency grid, so passes are combined by inverse-variance weighting per
 frequency bin and the model is refit on the accumulated estimate (see
 ``_accumulate``).
-This keeps the broadband coverage of the first pass while folding in the
+This keeps the first pass's band coverage while folding in the
 resonance-sharpening information of the concentrated optimal passes — so the
 global refit does not degrade as refinement proceeds.
 """
@@ -105,6 +106,11 @@ class SysIDLoop:
         target = float(config["stop_criteria"]["uncertainty_target"])
         max_iter = int(config["stop_criteria"].get("max_iter", 5))
         sequential = config["run"].get("excitation_mode", "sequential") == "sequential"
+        # First pass designs from the prior + its (large) error bars: a prior-
+        # robust drive spread over the plausible resonance band f0*(1±u) so a far
+        # prior still covers the true resonance. Later passes use the now-trusted
+        # model for point-optimal excitation (prior_uncertainty=0).
+        prior_uncertainty = float(config["strategy"].get("prior_uncertainty", 0.5))
 
         dofs = list(priors)
         models = {d: priors[d] for d in dofs}
@@ -136,29 +142,29 @@ class SysIDLoop:
         try:
             for it in range(max_iter):
                 uncertainties = {}
-                # The first pass uses a flat, broadband excitation so the global
-                # refit is well conditioned; later passes use the optimal
-                # designer to refine the now-trusted parameters.
-                design_iter = 0 if it == 0 else n_iter
+                # First pass: prior-robust excitation from the prior + its error
+                # bars (covers the plausible resonance band). Later passes use the
+                # now-trusted model for point-optimal excitation.
+                prior_u = prior_uncertainty if it == 0 else 0.0
                 if sequential:
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
-                            nperseg, band, total_dur, px_total, design_iter, rng,
-                            result, accum[d], info[d], t_ramp=t_ramp,
+                            nperseg, band, total_dur, px_total, n_iter, rng,
+                            result, accum[d], info[d], t_ramp=t_ramp, prior_u=prior_u,
                         )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                 else:
                     self._inject_all(dofs, exc, models, Pyy, freq, fs, nperseg,
-                                     total_dur, px_total, design_iter, rng,
-                                     t_ramp=t_ramp)
+                                     total_dur, px_total, n_iter, rng,
+                                     t_ramp=t_ramp, prior_u=prior_u)
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
                             it, d, exc[d], rb[d], models, Pyy, freq, fs,
-                            nperseg, band, total_dur, px_total, design_iter, rng,
+                            nperseg, band, total_dur, px_total, n_iter, rng,
                             result, accum[d], info[d], reuse_injection=True,
-                            t_ramp=t_ramp,
+                            t_ramp=t_ramp, prior_u=prior_u,
                         )
 
                 if uncertainties and all(u <= target for u in uncertainties.values()):
@@ -177,14 +183,17 @@ class SysIDLoop:
     def _measure_dof(
         self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
         total_dur, px_total, n_iter, rng, result, accum, info,
-        reuse_injection=False, t_ramp=0.0,
+        reuse_injection=False, t_ramp=0.0, prior_u=0.0,
     ) -> float:
         # honour an operator STOP issued between segments (e.g. from the
         # dashboard, which calls watchdog.abort() out of band)
         if self.watchdog.aborted:
             raise SafetyAbort(self.watchdog.abort_reason or "operator STOP")
 
-        Pxx = self.designer.design(freq, models[dof], Pyy[dof], px_total, n_iter=n_iter)
+        Pxx = self.designer.design(
+            freq, models[dof], Pyy[dof], px_total, n_iter=n_iter,
+            prior_uncertainty=prior_u,
+        )
 
         if not reuse_injection:
             drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
@@ -251,9 +260,12 @@ class SysIDLoop:
         self.listener(snap)
 
     def _inject_all(self, dofs, exc, models, Pyy, freq, fs, nperseg, total_dur,
-                    px_total, n_iter, rng, t_ramp=0.0):
+                    px_total, n_iter, rng, t_ramp=0.0, prior_u=0.0):
         for d in dofs:
-            Pxx = self.designer.design(freq, models[d], Pyy[d], px_total, n_iter=n_iter)
+            Pxx = self.designer.design(
+                freq, models[d], Pyy[d], px_total, n_iter=n_iter,
+                prior_uncertainty=prior_u,
+            )
             drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
             self.backend.inject(exc[d], drive, fs)
 

@@ -65,15 +65,16 @@ $$
 
 This **inverse-variance weighting** is optimal (minimum-variance) when measurement
 errors are Gaussian and independent across passes.  The crucial consequence:
-pass 1 (flat, broadband) contributes everywhere; later optimal passes contribute
-most near the resonances they targeted.  Neither is discarded.
+pass 1 (prior-robust, spread across the plausible band) contributes broadly; later
+optimal passes contribute most near the resonances they targeted.  Neither is
+discarded.
 
 ## Pass strategy
 
 ```
-Pass 1:  flat broadband excitation  →  global conditioning, rough model
-Pass 2:  optimal excitation (from pass-1 model)  →  concentrate on resonances
-Pass 3+: optimal excitation (updated model)       →  converge parameters
+Pass 1:  prior-robust excitation (prior ± error bars)  →  cover the band, locate
+Pass 2:  optimal excitation (from pass-1 model)         →  concentrate on resonances
+Pass 3+: optimal excitation (updated model)             →  converge parameters
 ```
 
 The loop terminates when the fractional uncertainty target is reached for every DoF,
