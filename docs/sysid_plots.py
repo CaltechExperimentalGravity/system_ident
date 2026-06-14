@@ -65,26 +65,24 @@ MK_OVERLAY = 9      # pass-by-pass overlay points
 PARAM_COLORS = [SKY, GOLD, GREEN, ROSE, "#7C5CBF", RED, "#0E7C7B"]
 
 
-# ── axis helpers: standard log-frequency ticks + sane log-y auto-ranges ───────
-def _fmt_freq(v):
-    return f"{v:g}"  # 0.1, 0.2, 0.5, 1, 2, 5, 10 — plain decimals
-
-
-def _logx_ticks(fmin, fmax):
-    """1–2–5-per-decade tick values + plain-decimal labels spanning [fmin, fmax]."""
-    import math
-    d0, d1 = math.floor(math.log10(fmin)), math.ceil(math.log10(fmax))
-    vals = [m * 10 ** d for d in range(d0, d1 + 1) for m in (1, 2, 5)]
-    vals = [v for v in vals if fmin * 0.9999 <= v <= fmax * 1.0001]
-    return vals, [_fmt_freq(v) for v in vals]
+# ── axis helpers: MATLAB/matplotlib-standard log ticks + sane log-y ranges ────
+# Decade-major ticks labelled as powers of ten (10ⁿ), with unlabelled minor ticks
+# at the 2–9 subdivisions — the standard `loglog`/`set_xscale('log')` look. Applied
+# uniformly to every log axis in `style()`.
+LOG_TICKS = dict(
+    dtick=1, exponentformat="power", showexponent="all",
+    ticks="outside", ticklen=6,
+    minor=dict(dtick="D1", ticks="outside", ticklen=3, showgrid=True, gridcolor=GRID),
+)
 
 
 def _apply_logx(fig, fmin, fmax, *, row=None, col=None):
-    """Log frequency axis with standard 1–2–5 ticks and a tight [fmin, fmax] range."""
-    vals, txt = _logx_ticks(fmin, fmax)
-    kw = dict(type="log", range=[np.log10(fmin), np.log10(fmax)],
-              tickmode="array", tickvals=vals, ticktext=txt, ticks="outside",
-              ticklen=5, minor=dict(showgrid=True, gridcolor=GRID, ticklen=3))
+    """Set a log frequency x-axis with a tight [fmin, fmax] range.
+
+    The tick *style* (decade majors + 2–9 minors, 10ⁿ labels) is applied to every
+    log axis centrally in `style()`, so this only fixes the range.
+    """
+    kw = dict(type="log", range=[np.log10(fmin), np.log10(fmax)])
     fig.update_xaxes(**kw) if row is None else fig.update_xaxes(**kw, row=row, col=col)
 
 
@@ -119,6 +117,14 @@ def style(fig, height=None, legend="h", legend_y=1.02):
     fig.update_yaxes(
         title_font=dict(size=SZ_AXIS), tickfont=dict(size=SZ_TICK), gridcolor=GRID
     )
+    # MATLAB/matplotlib-standard log ticks (decade majors as 10ⁿ, 2–9 minors) on
+    # every log axis — applied here so all panels share the same convention.
+    for ax in fig.select_xaxes():
+        if ax.type == "log":
+            ax.update(**LOG_TICKS)
+    for ax in fig.select_yaxes():
+        if ax.type == "log":
+            ax.update(**LOG_TICKS)
     if legend == "h":
         fig.update_layout(legend=dict(
             orientation="h", yanchor="bottom", y=legend_y, xanchor="right", x=1,
