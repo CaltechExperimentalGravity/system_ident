@@ -16,7 +16,7 @@ from plotly.subplots import make_subplots
 
 import sysid_plots as sp
 from system_ident.model import TFModel
-from system_ident.plant import double_pendulum
+from system_ident.plant import double_pendulum, coupled_suspension
 from system_ident.design.pintelon import optimal_excitation
 
 HERE = pathlib.Path(__file__).parent
@@ -95,16 +95,17 @@ def thumb_05():
 
 
 def thumb_06():
-    f = np.linspace(0.1, 5, 600)
-    elems = [(TFModel.from_resonances([(0.8, 20)], 100), sp.SKY),
-             (TFModel.from_resonances([(1.4, 25)], 80), sp.GOLD),
-             (TFModel.from_resonances([(0.8, 20)], 25), sp.ROSE),
-             (TFModel.from_resonances([(1.4, 25)], 15), sp.GREEN)]
+    f = np.logspace(np.log10(0.2), np.log10(3), 600)
+    H = coupled_suspension([(0.43, 20), (1.00, 30)], [(0.56, 18), (1.31, 28)],
+                           coupling=0.20, gain=100.0)
+    cols = {("POS", "POS"): sp.SKY, ("PIT", "PIT"): sp.GOLD,
+            ("PIT", "POS"): sp.ROSE, ("POS", "PIT"): sp.GREEN}
     fig = go.Figure()
-    for m, c in elems:
-        fig.add_trace(go.Scatter(x=f, y=np.abs(m.eval(f)), mode="lines",
-                      line=dict(color=c, width=3.5)))
-    return _thumb_axes(fig, logx=False)
+    for key, c in cols.items():
+        w = 4 if key[0] == key[1] else 3
+        fig.add_trace(go.Scatter(x=f, y=np.abs(H[key].eval(f)), mode="lines",
+                      line=dict(color=c, width=w)))
+    return _thumb_axes(fig)
 
 
 def og_card():

@@ -20,5 +20,17 @@ diagnostic set — excitation design, measurement time series, magnitude/phase/c
 Bode, residuals, Cramér–Rao parameter recovery, drive-safety margins, convergence, and
 the pass-by-pass overlay — so you can read any one and know your way around all of them.
 
+::: {.callout-note appearance="simple"}
+## A note on the plant models
+These are **simplified, physically-motivated** teaching plants — lumped resonances and, in
+the [MIMO example](06-two-by-two-coupled.qmd), a coupled longitudinal/pitch normal-mode
+expansion — **not** validated full Advanced-LIGO suspension state-space models. Where used,
+mode frequencies are *representative* aLIGO quad rigid-body values (longitudinal ≈ 0.43,
+1.00, 2.01, 3.42 Hz; pitch ≈ 0.56, 1.31, 2.81 Hz; Aston *et al.* 2012,
+[DCC P1200056](https://dcc.ligo.org/LIGO-P1200056); Sauter *et al.* 2024,
+[arXiv:2306.13755](https://arxiv.org/abs/2306.13755)). The method, not the plant, is the
+point — it applies unchanged to a measured or higher-fidelity model.
+:::
+
 ::: {#examples-gallery}
 :::

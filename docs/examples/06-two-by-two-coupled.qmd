@@ -1,28 +1,44 @@
 ---
 title: "06 — Two-by-two coupled suspension (MIMO)"
-description: "A genuine 2×2 plant: length and pitch cross-couple, identified one input column at a time."
+description: "A genuine coupled longitudinal/pitch 2×2 plant from a modal expansion — shared normal modes, diagonal notches, real cross-coupling."
 image: thumbnails/06.png
 categories: [MIMO, coupling]
 ---
 
-Real suspensions do not move one degree of freedom at a time: a length (POS) drive leaks
-into pitch (PIT) and vice-versa. The honest model is a **2×2 transfer-function matrix**
+Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
+**not** a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
+the *same normal modes*, so the honest model is a coupled 2×2 matrix
 
 $$
+H(s) = \bigl(M s^2 + C s + K\bigr)^{-1},
+\qquad
 \begin{bmatrix} y_{\text{POS}} \\ y_{\text{PIT}} \end{bmatrix}
 =
 \begin{bmatrix} H_{11} & H_{12} \\ H_{21} & H_{22} \end{bmatrix}
-\begin{bmatrix} u_{\text{POS}} \\ u_{\text{PIT}} \end{bmatrix},
+\begin{bmatrix} u_{\text{POS}} \\ u_{\text{PIT}} \end{bmatrix}.
 $$
 
-with the off-diagonal terms the cross-coupling. We identify the whole matrix the standard
-MIMO way — **one input at a time**: drive input $j$ with a periodic multisine, measure
-*both* outputs, and the leakage-free reference-based FRF gives column $j$. Each of the four
-elements gets the **full diagnostic set**; the magnitude/phase/coherence matrices are up
-top, the per-element detail is in the tabs.
+Every element shares the normal-mode **poles**; what differs is the **numerator**:
+the diagonals carry an *anti-resonance notch* at the partner DoF's mode, while the
+off-diagonals are notch-free and set by the coupling. We build that from a modal
+expansion (`plant.coupled_suspension`) using representative Advanced-LIGO quad
+rigid-body frequencies, then identify the whole matrix one input column at a time.
+
+::: {.callout-note appearance="simple"}
+## Modeling note
+This is a **simplified, physically-motivated** model — a coupled 2-DoF normal-mode
+expansion with a single longitudinal↔pitch coupling — **not** a validated full Advanced-LIGO
+suspension state-space model. The mode frequencies are *representative* values from the
+aLIGO quad rigid-body modes (longitudinal ≈ 0.43, 1.00, 2.01, 3.42 Hz; pitch ≈ 0.56, 1.31,
+2.81 Hz), of which we use the two lowest of each here. Sources:
+Aston *et al.*, *Quadruple suspension design for Advanced LIGO*, Class. Quantum Grav. **29**
+(2012) 235004 ([DCC P1200056](https://dcc.ligo.org/LIGO-P1200056)); Sauter *et al.*,
+*Identification of Resonant Frequencies in LIGO-like Suspension with FEM*, Phys. Rev. D
+**109** (2024) 064033 ([arXiv:2306.13755](https://arxiv.org/abs/2306.13755)).
+:::
 
 ```{python}
-#| code-summary: "Setup — true 2×2 plant, twin with coupling, priors"
+#| code-summary: "Setup — coupled L/P plant from aLIGO modal frequencies"
 import sys, pathlib
 _p = pathlib.Path.cwd()
 for _c in [_p, *_p.parents]:
@@ -37,15 +53,14 @@ import sysid_plots as sp
 from sysid_campaign import param_sigmas, param_convergence_series
 
 from system_ident.backends.twin import TwinBackend
-from system_ident.plant import SuspensionPlant
-from system_ident.model import TFModel
+from system_ident.plant import SuspensionPlant, coupled_suspension
 from system_ident.excitation import multisine_from_psd
 from system_ident.loop import SysIDLoop
 from system_ident.estimators.gml import GMLEstimator
 from system_ident.fisher import fisher_matrix
 from system_ident.design.pintelon import optimal_excitation, prior_robust_excitation
 
-FS, NPERSEG, N_PERIODS = 32.0, 4096, 6           # T_fft = 128 s (> 3/f_min), df ≈ 0.008 Hz
+FS, NPERSEG, N_PERIODS = 32.0, 8192, 4           # T_fft = 256 s, df ≈ 0.004 Hz
 TOTAL = NPERSEG * N_PERIODS / FS
 ACT_LIMIT = 1000.0
 INPUTS = ["POS", "PIT"]
@@ -53,14 +68,13 @@ ELEMS = [("POS", "POS"), ("PIT", "POS"), ("POS", "PIT"), ("PIT", "PIT")]
 ECOLOR = {("POS", "POS"): sp.SKY, ("PIT", "PIT"): sp.GOLD,
           ("PIT", "POS"): sp.ROSE, ("POS", "PIT"): sp.GREEN}
 
-TRUE = {("POS", "POS"): TFModel.from_resonances([(0.8, 20.0)], 100.0),
-        ("PIT", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  80.0),
-        ("PIT", "POS"): TFModel.from_resonances([(0.8, 20.0)],  25.0),
-        ("POS", "PIT"): TFModel.from_resonances([(1.4, 25.0)],  15.0)}
-PRIOR = {("POS", "POS"): TFModel.from_resonances([(1.0, 15.0)], 130.0),
-         ("PIT", "PIT"): TFModel.from_resonances([(1.7, 18.0)], 110.0),
-         ("PIT", "POS"): TFModel.from_resonances([(1.0, 15.0)],  35.0),
-         ("POS", "PIT"): TFModel.from_resonances([(1.7, 18.0)],  22.0)}
+# Two lowest aLIGO longitudinal + pitch modes, with damped Qs; genuine L↔P coupling.
+LONG = [(0.43, 20.0), (1.00, 30.0)]
+PITCH = [(0.56, 18.0), (1.31, 28.0)]
+TRUE = coupled_suspension(LONG, PITCH, coupling=0.20, gain=100.0)
+PRIOR = coupled_suspension([(f * 1.12, q * 0.8) for f, q in LONG],
+                           [(f * 0.88, q * 1.2) for f, q in PITCH],
+                           coupling=0.20, gain=120.0)
 
 plant = SuspensionPlant({"POS": TRUE[("POS", "POS")], "PIT": TRUE[("PIT", "PIT")]}, FS)
 coupling = {("PIT", "POS"): TRUE[("PIT", "POS")], ("POS", "PIT"): TRUE[("POS", "PIT")]}
@@ -81,7 +95,7 @@ model = {k: PRIOR[k] for k in ELEMS}
 hist = {k: [] for k in ELEMS}
 accum = {k: {"w": np.zeros(len(freq)), "wH": np.zeros(len(freq), complex)} for k in ELEMS}
 info = {k: np.zeros((PRIOR[k].num.size + PRIOR[k].den.size - 1,) * 2) for k in ELEMS}
-col = {j: [] for j in INPUTS}            # per-column safety + pass-0 time series
+col = {j: [] for j in INPUTS}
 rng = np.random.default_rng(0)
 zero = np.zeros(int(round(TOTAL * FS)))
 
@@ -100,7 +114,7 @@ for p in range(3):
                            resp={i: seg[rsp[i]] for i in INPUTS},
                            peak=float(np.max(np.abs(seg[exc[j]]))),
                            rms=float(np.std(seg[rsp[j]]))))
-        for i in INPUTS:                 # both outputs -> elements (i, j)
+        for i in INPUTS:
             key = (i, j)
             Hh, He, coh = SysIDLoop._estimate_tf_periodic(seg[exc[j]], seg[rsp[i]],
                                                           FS, NPERSEG, band)
@@ -114,17 +128,34 @@ for p in range(3):
 fit = {k: model[k] for k in ELEMS}
 ```
 
-## Parameters recovered — all four elements
+## The normal modes — recovered
+
+All four matrix elements share the same poles, so we read the four normal-mode
+frequencies off the best-conditioned fits (the diagonals) and compare to truth.
 
 ```{python}
-#| code-summary: "Prior → fit → true for every element"
+#| code-summary: "Normal-mode frequencies: prior → fit → true"
+# Every element shares the 4 normal modes; the diagonals resolve them best.
+mt = sp.modes(TRUE[("POS", "POS")])       # 4 modes, sorted by frequency
+mp = sp.modes(PRIOR[("POS", "POS")])
+mf = sp.modes(fit[("POS", "POS")])
+kind = ["L", "P", "L", "P"]               # which DoF each sorted mode belongs to
 rows = []
-for k in ELEMS:
-    (f0p, qp) = sp.f0_q(PRIOR[k]); (f0t, qt) = sp.f0_q(TRUE[k]); (f0f, qf) = sp.f0_q(fit[k])
-    rows.append([f"H[{k[0]}←{k[1]}]", f"{f0p:.2f}/{qp:.0f}", f"{f0f:.2f}/{qf:.1f}",
-                 f"{f0t:.2f}/{qt:.0f}"])
-sp.param_table(["element", "prior f₀/Q", "fit f₀/Q", "true f₀/Q"], rows,
-               caption="Recovered modes (Hz / Q) — diagonal and cross terms")
+for n in range(4):
+    rows.append([f"mode {n+1} ({kind[n]})", f"{mp[n][0]:.3f}/{mp[n][1]:.0f}",
+                 f"{mf[n][0]:.3f}/{mf[n][1]:.1f}", f"{mt[n][0]:.3f}/{mt[n][1]:.0f}"])
+sp.param_table(["normal mode", "prior f₀/Q", "fit f₀/Q", "true f₀/Q"], rows,
+               caption="Shared normal modes (Hz / Q) — L = longitudinal, P = pitch")
+```
+
+```{python}
+#| code-summary: "Normal-mode frequency recovery with CRB error bars"
+hpp = hist[("POS", "POS")][-1]
+tgt = [f"f0_{n}" for n in range(4)]
+sig = param_sigmas(hpp["model"], hpp["cov"], targets=tuple(tgt))
+sp.parameter_recovery([
+    dict(label=f"f{n+1} [Hz] ({kind[n]})", prior=mp[n][0], fit=mf[n][0],
+         true=mt[n][0], sigma=sig[f"f0_{n}"]) for n in range(4)]).show()
 ```
 
 ## Is the drive gentle? — time series (POS driven)
@@ -137,42 +168,52 @@ sp.timeseries(t, [("drive (POS)", c0["drive"], sp.SKY)],
     [("POS motion (direct)", c0["resp"]["POS"], sp.GOLD),
      ("PIT motion (cross-coupling)", c0["resp"]["PIT"], sp.ROSE)],
     titles=["<b>Drive</b> — POS actuator (Schroeder multisine)",
-            "<b>Mirror motion</b> — both DoFs respond"]).show()
+            "<b>Mirror motion</b> — both DoFs respond (genuine coupling)"]).show()
 ```
 
 ## The 2×2 matrix — magnitude, phase, coherence
 
+Note the **notch** between the peaks on the diagonals (`H[POS←POS]`, `H[PIT←PIT]`) and its
+*absence* on the off-diagonals — the signature of a genuinely coupled system, not a scaled
+diagonal.
+
 ```{python}
 #| code-summary: "Helper: a 2×2 matrix of any per-element quantity"
-def matrix(kind, height=560):
+def matrix(kind_, height=580):
     fig = make_subplots(rows=2, cols=2, shared_xaxes=True,
         subplot_titles=[f"H[{i}←{j}]" for i in INPUTS for j in INPUTS],
-        vertical_spacing=0.11, horizontal_spacing=0.09)
+        vertical_spacing=0.12, horizontal_spacing=0.09)
     for r, i in enumerate(INPUTS):
         for c, j in enumerate(INPUTS):
             key = (i, j); h = hist[key][-1]; mask = h["mask"]; lead = (r == 0 and c == 0)
-            if kind == "coh":
+            if kind_ == "coh":
                 fig.add_trace(go.Scatter(x=freq[mask], y=np.asarray(h["coh"])[mask],
                     mode="markers", marker=dict(color=sp.SKY, size=sp.MK_DATA),
                     showlegend=False), row=r + 1, col=c + 1)
                 continue
-            fn = (lambda H: np.abs(H)) if kind == "mag" else \
-                 (lambda H: np.unwrap(np.angle(H)) * 180 / np.pi)
-            fig.add_trace(go.Scatter(x=freq, y=fn(TRUE[key].eval(freq)), mode="lines",
+            if kind_ == "mag":
+                line_x, fn = freq, (lambda H: np.abs(H))
+                meas_y = np.abs(h["H_acc"])[mask]
+            else:
+                line_x, fn = freq[mask], (lambda H: np.unwrap(np.angle(H[mask])) * 180 / np.pi)
+                meas_y = np.unwrap(np.angle(h["H_acc"][mask])) * 180 / np.pi
+            fig.add_trace(go.Scatter(x=line_x, y=fn(TRUE[key].eval(freq)), mode="lines",
                 line=dict(color=sp.SKY, width=2.3), name="true", legendgroup="t",
                 showlegend=lead), row=r + 1, col=c + 1)
-            fig.add_trace(go.Scatter(x=freq[mask], y=fn(h["H_acc"])[mask], mode="markers",
+            fig.add_trace(go.Scatter(x=freq[mask], y=meas_y, mode="markers",
                 marker=dict(color=sp.GRAY, size=sp.MK_SMALL), name="measured",
                 legendgroup="m", showlegend=lead), row=r + 1, col=c + 1)
-            fig.add_trace(go.Scatter(x=freq, y=fn(fit[key].eval(freq)), mode="lines",
+            fig.add_trace(go.Scatter(x=line_x, y=fn(fit[key].eval(freq)), mode="lines",
                 line=dict(color=sp.GOLD, width=1.9, dash="dash"), name="ML fit",
                 legendgroup="f", showlegend=lead), row=r + 1, col=c + 1)
-    ylab = {"mag": "|G(f)|", "phase": "phase [deg]", "coh": "coherence γ²"}[kind]
-    fig.update_xaxes(type="log"); fig.update_xaxes(title_text="Frequency [Hz]", row=2)
-    if kind == "mag":
+    ylab = {"mag": "|G(f)|", "phase": "phase [deg]", "coh": "coherence γ²"}[kind_]
+    if kind_ == "mag":
         fig.update_yaxes(type="log")
-    if kind == "coh":
+    if kind_ == "coh":
         fig.update_yaxes(range=[0, 1.02])
+    else:
+        fig.update_yaxes(title_text=ylab, col=1)
+    fig.update_xaxes(type="log"); fig.update_xaxes(title_text="Frequency [Hz]", row=2)
     fig.update_yaxes(title_text=ylab, col=1)
     return sp.style(fig, height=height)
 
@@ -186,13 +227,17 @@ matrix("phase").show()
 
 ```{python}
 #| code-summary: "Coherence matrix"
-matrix("coh", height=460).show()
+matrix("coh", height=480).show()
 ```
 
-## Convergence — worst parameter per element (overview)
+## Convergence — every normal mode (from the diagonal) + per-element overview
 
-The worst $\sigma/\theta$ for each matrix element; per-parameter convergence is in the
-per-element tabs below.
+```{python}
+#| code-summary: "σᵢ/θᵢ vs pass for the 4 normal modes"
+sp.convergence(param_convergence_series(hist[("POS", "POS")],
+    [f"f0_{n}" for n in range(4)], [f"f{n+1}" for n in range(4)]),
+    target=0.05).show()
+```
 
 ```{python}
 #| code-summary: "worst σ/θ vs pass, per element"
@@ -213,7 +258,7 @@ for j in INPUTS:
 ## Per-element detail
 
 ```{python}
-#| code-summary: "Helper: bode / residuals / recovery / overlay for one element"
+#| code-summary: "Helper: bode / residuals / overlay for one element"
 def show_elem(key):
     h = hist[key]; mask = h[-1]["mask"]; final = fit[key]
     sp.bode(freq, [
@@ -225,19 +270,9 @@ def show_elem(key):
     ], coh=h[-1]["coh"], coh_mask=mask).show()
     resid = ((h[-1]["H_acc"] - final.eval(freq)) / h[-1]["err_acc"]).real
     sp.residuals(freq, resid, mask).show()
-    (f0p, qp) = sp.f0_q(PRIOR[key]); (f0t, qt) = sp.f0_q(TRUE[key]); (f0f, qf) = sp.f0_q(final)
-    sig = param_sigmas(final, h[-1]["cov"])
-    sp.parameter_recovery([
-        dict(label="f₀ [Hz]", prior=f0p, fit=f0f, true=f0t, sigma=sig["f0"]),
-        dict(label="Q", prior=qp, fit=qf, true=qt, sigma=sig["Q"]),
-        dict(label="DC gain", prior=sp.dc_gain(PRIOR[key]), fit=sp.dc_gain(final),
-             true=sp.dc_gain(TRUE[key]), sigma=sig["gain"], log=True),
-    ]).show()
     sp.pass_overlay(freq, [dict(meas_mag=np.abs(x["H"]),
         fit_mag=np.abs(x["model"].eval(freq)), mask=x["mask"]) for x in h],
         np.abs(TRUE[key].eval(freq))).show()
-    sp.convergence(param_convergence_series(h, ["f0", "Q", "gain"], ["f₀", "Q", "gain"]),
-                   target=0.05).show()
 ```
 
 ::: {.panel-tabset}
@@ -245,7 +280,7 @@ def show_elem(key):
 ## H[POS←POS]
 
 ```{python}
-#| code-summary: "Length → length (direct)"
+#| code-summary: "Length → length (direct, with pitch-mode notch)"
 show_elem(("POS", "POS"))
 ```
 
@@ -266,21 +301,18 @@ show_elem(("POS", "PIT"))
 ## H[PIT←PIT]
 
 ```{python}
-#| code-summary: "Pitch → pitch (direct)"
+#| code-summary: "Pitch → pitch (direct, with length-mode notch)"
 show_elem(("PIT", "PIT"))
 ```
 
 :::
 
 ::: {.callout-note}
-## One input at a time recovers the whole matrix
-Each single-input injection gives one *column*: drive POS, read both DoFs → $H_{11}, H_{21}$;
-drive PIT → $H_{12}, H_{22}$. Because the multisine is periodic and the FRF is the
-reference-based ratio-of-averages, every element is leakage-free, so even the small cross
-terms (4–6× below the diagonal) are recovered to a percent. The digital twin applies the
-coupling for real — driving POS genuinely moves pitch — so this is the same code path a
-real MIMO measurement would use.
+## Shared poles, different zeros
+Driving one input column and reading both outputs gives that column of the matrix. Because
+all four elements come from the same $(Ms^2+Cs+K)^{-1}$, they share the normal-mode poles —
+the diagonals add an anti-resonance **zero** at the partner mode (the notch), the
+off-diagonals do not. The reference-based, leakage-free FRF resolves every element, so even
+the coupling terms are recovered; the off-diagonals are intrinsically lower-SNR (coupling
+sets their level), so they carry the larger residuals.
 :::
-
-**You've reached the end of the examples.** Return to the
-[Tutorial](../tutorial/overview.qmd) or browse the [API Reference](../reference/index.qmd).

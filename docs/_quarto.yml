@@ -120,6 +120,7 @@ quartodoc:
       contents:
         - plant.SuspensionPlant
         - plant.double_pendulum
+        - plant.coupled_suspension
         - backends.base.ChannelBackend
         - backends.twin.TwinBackend
     - title: Safety & configuration
