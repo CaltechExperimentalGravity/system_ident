@@ -37,3 +37,4 @@ docs/objects.json
 
 # Local agent scratch / working notes (kept in-repo, not part of the package)
 .claude/
+.llm/

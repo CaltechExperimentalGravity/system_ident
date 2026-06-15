@@ -159,6 +159,18 @@ class RunConfig:
             **extra,
         )
 
+    def build_rtsfreerun_backend(self, seed: int | None = None):
+        """Build the RTSfreerun (digital-twin) backend from a ``rtsfreerun`` section.
+
+        Drives a compiled rtsfreerun CDS model (``GIT/digital_twin/``) under its own
+        realistic noise. The model module is lazy-imported, so this only succeeds
+        in an environment where the named model is installed.
+        """
+        from .backends.rtsfreerun import RTSfreerunBackend
+        if "rtsfreerun" not in self.raw or "model" not in self.raw["rtsfreerun"]:
+            raise ConfigError("rtsfreerun runs need a 'rtsfreerun.model' name")
+        return RTSfreerunBackend.from_config(self.raw, fs=self.fs, seed=seed)
+
     def build_priors(self) -> dict:
         """Return per-DoF prior :class:`TFModel` models (one per DoF)."""
         if "priors" not in self.raw:

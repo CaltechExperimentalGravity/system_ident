@@ -29,7 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run a system-ID campaign from a config file.")
     run.add_argument("config", help="Path to the run YAML config.")
     run.add_argument("--twin", action="store_true",
-                     help="Use the digital-twin backend instead of CDS hardware.")
+                     help="Use the (in-process) digital-twin backend.")
+    run.add_argument("--rtsfreerun", action="store_true",
+                     help="Use the RTSfreerun backend (drive a compiled LIGO digital-twin model).")
     run.add_argument("--estimator", help="Override the estimator strategy.")
     run.add_argument("--duration", type=float, help="Override per-segment duration [s].")
     run.add_argument("--px-total", type=float, dest="px_total",
@@ -57,24 +59,33 @@ def _run(args) -> int:
         print(f"config error: {err}", file=sys.stderr)
         return 2
 
-    if not args.twin:
+    if not (args.twin or args.rtsfreerun):
         print(
-            "the CDS-hardware backend is not available yet; run with --twin to use "
-            "the digital twin.",
+            "the CDS-hardware backend is not available yet; run with --twin (in-process "
+            "twin) or --rtsfreerun (compiled digital-twin model).",
             file=sys.stderr,
         )
         return 2
 
     try:
-        backend = config.build_twin_backend(seed=args.seed)
+        if args.rtsfreerun:
+            backend = config.build_rtsfreerun_backend(seed=args.seed)
+        else:
+            backend = config.build_twin_backend(seed=args.seed)
         priors = config.build_priors()
         watchdog = config.build_watchdog(backend)
     except ConfigError as err:
         print(f"config error: {err}", file=sys.stderr)
         return 2
+    except (ImportError, ModuleNotFoundError) as err:
+        print(f"rtsfreerun model not importable: {err}\n"
+              "Run in an env with both system_ident and the built twin model.",
+              file=sys.stderr)
+        return 2
 
+    kind = "rtsfreerun" if args.rtsfreerun else "twin"
     dofs = list(priors)
-    print(f"running twin campaign: {len(dofs)} DoF(s) {dofs}")
+    print(f"running {kind} campaign: {len(dofs)} DoF(s) {dofs}")
     if not args.yes and not _confirm(twin=True):
         print("aborted before injection.")
         return 1
