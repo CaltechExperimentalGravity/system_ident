@@ -166,7 +166,7 @@ class RunConfig:
         realistic noise. The model module is lazy-imported, so this only succeeds
         in an environment where the named model is installed.
         """
-        from .backends.rtsfreerun import RTSfreerunBackend
+        from .backends.rtsfreerun_adapter import RTSfreerunBackend
         if "rtsfreerun" not in self.raw or "model" not in self.raw["rtsfreerun"]:
             raise ConfigError("rtsfreerun runs need a 'rtsfreerun.model' name")
         return RTSfreerunBackend.from_config(self.raw, fs=self.fs, seed=seed)

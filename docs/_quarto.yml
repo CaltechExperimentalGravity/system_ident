@@ -100,7 +100,7 @@ quartodoc:
         - fisher.fisher_matrix
         - fisher.parameter_covariance
         - fisher.dispersion
-        - excitation.timeseries_from_asd
+        - excitation.multisine_from_psd
         - loop.SysIDLoop
         - loop.LoopResult
     - title: Estimators

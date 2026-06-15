@@ -27,7 +27,15 @@ def timeseries_from_asd(
     seed: int | np.random.Generator | None = None,
     t_ramp: float = 0.0,
 ) -> np.ndarray:
-    """Generate a coloured-noise drive matching the tabulated ASD.
+    """Generate a coloured Gaussian-noise time series matching the tabulated ASD.
+
+    .. warning::
+       This is **not** an FRF excitation. System identification always drives with
+       the deterministic Pintelon–Schoukens **multisine** (:func:`multisine_from_psd`)
+       — a random-noise drive leaks and gives a biased, high-variance FRF. This
+       generator is kept only for coloured *disturbance/background* time series and
+       as a bit-for-bit port of the legacy ``sysIDlib.time_series_from_asd_vect``
+       (validated in ``tests/test_step2_validation.py``).
 
     Parameters
     ----------

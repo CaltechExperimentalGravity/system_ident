@@ -1,10 +1,17 @@
 """RTSfreerun backend: drive a LIGO digital-twin model as a sysID backend.
 
-Adapts a compiled ``rtsfreerun`` model (an advligorts CDS ``.mdl`` built into an
+This is an **adapter**, not a copy of the ``rtsfreerun`` package: it adapts a
+*compiled* ``rtsfreerun`` model (an advligorts CDS ``.mdl`` built into an
 importable Python module — see ``GIT/digital_twin/``) to the
-:class:`~system_ident.backends.base.ChannelBackend` API, so the existing
+:class:`~system_ident.backends.base.ChannelBackend` API. (Distinct from
+``backends/twin.py``'s in-process analytic ``TwinBackend``.) So the existing
 :class:`~system_ident.loop.SysIDLoop` identifies the twin's drive→sensor plant
 *under the twin's own realistic seismic + readout noise*.
+
+The FRF excitation is always the deterministic Pintelon–Schoukens **multisine**
+injected via :meth:`inject`; the Gaussian generators below are only the realistic
+*background* (seismic / readout) injected on separate disturbance channels — never
+the measurement drive.
 
 The model object exposes ``mdl.sample_rate``,
 ``mdl.run(cycles, excitations=[ch], excitation_data=(n,k))`` and

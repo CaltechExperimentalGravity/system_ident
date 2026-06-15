@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import scipy.signal as sig
 
-from system_ident.backends.rtsfreerun import RTSfreerunBackend
+from system_ident.backends.rtsfreerun_adapter import RTSfreerunBackend
 from system_ident.config import ConfigError, RunConfig
 from system_ident.design.pintelon import PintelonSchoukensDesigner
 from system_ident.estimators.gml import GMLEstimator
