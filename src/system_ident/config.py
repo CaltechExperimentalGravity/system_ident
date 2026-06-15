@@ -48,6 +48,22 @@ class ConfigError(ValueError):
     """Raised when a run config is missing or malformed."""
 
 
+def _parse_controllers(spec: dict) -> dict:
+    """Normalise a ``twin.controllers`` section to ``{dof: (num, den)}``.
+
+    Each controller is a continuous-time ``C(s) = num/den`` given either as
+    ``{num: [...], den: [...]}`` or as a ``[num, den]`` pair.
+    """
+    out: dict[str, tuple] = {}
+    for dof, c in spec.items():
+        if isinstance(c, dict):
+            out[dof] = ([float(x) for x in c["num"]], [float(x) for x in c["den"]])
+        else:
+            num, den = c
+            out[dof] = ([float(x) for x in num], [float(x) for x in den])
+    return out
+
+
 def _resonance_spec(section: dict) -> dict:
     """Normalise a ``{dof: {resonances: [[f0, Q], ...], gain: k}}`` mapping."""
     return {
@@ -129,9 +145,18 @@ class RunConfig:
         twin = self.raw.get("twin", {})
         sensor_asd = float(twin.get("sensor_asd", 0.0))
         disturbance_asd = float(twin.get("disturbance_asd", 0.0))
+        # Optional closed-loop: per-DoF controllers C(s) and where the excitation
+        # is injected relative to the controller. The reference-based FRF cancels
+        # the controller, so the loop still recovers the open-loop plant.
+        extra: dict = {}
+        if "controllers" in twin:
+            extra["controllers"] = _parse_controllers(twin["controllers"])
+        if "injection_point" in twin:
+            extra["injection_point"] = twin["injection_point"]
         return TwinBackend.from_config(
             self.raw, self.build_plant(), fs=self.fs,
-            sensor_asd=sensor_asd, disturbance_asd=disturbance_asd, seed=seed
+            sensor_asd=sensor_asd, disturbance_asd=disturbance_asd, seed=seed,
+            **extra,
         )
 
     def build_priors(self) -> dict:

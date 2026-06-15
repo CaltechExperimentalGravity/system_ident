@@ -1,0 +1,68 @@
+# Closed-loop (controller-aware) twin campaign.
+#
+# The suspension is identified WITH its damping loop closed. The Pintelon-Schoukens
+# reference-based FRF (mean(Y)/mean(X), X = the after-controller drive) cancels the
+# controller and recovers the OPEN-loop plant directly -- no controller-division.
+#
+# Run:  system_ident run src/system_ident/configs/closed_loop_demo.yml --twin --yes
+
+run:
+  name: closed_loop_demo
+  excitation_mode: sequential
+
+channels:
+  excitation:
+    POS: C1:SUS-DEMO_TM_POS_EXC      # where the multisine is injected
+  readback:
+    POS: C1:SUS-DEMO_TM_POS_RESP     # sensor response y -> FRF output Y
+  # drive: the after-controller drive monitor u -> FRF input X. Optional here:
+  # with after-controller injection the twin's excitation read-back already returns
+  # u. For before-controller injection on real hardware this MUST name the drive
+  # monitor (else X would be the bare reference and the fit biased toward T):
+  drive:
+    POS: C1:SUS-DEMO_TM_POS_DRIVE
+
+measurement:
+  fs: 32
+  freq_min: 0.1
+  freq_max: 5.0
+  segment_duration: 64.0
+  n_segments: 8
+  px_total: 1.0
+  t_ramp: 4.0
+
+strategy:
+  estimator: gml
+  input_designer: pintelon_schoukens
+  n_design_iter: 3
+  prior_uncertainty: 0.5
+
+twin:
+  sensor_asd: 1.0e-4
+  disturbance_asd: 1.0e-4
+  plant:
+    POS:
+      resonances: [[1.0, 20]]
+      gain: 100
+  # Per-DoF digital controller C(s) = num/den (velocity damping, k s / (1 + s/wc)),
+  # and where the excitation enters relative to it.
+  controllers:
+    POS:
+      num: [2.0e-3, 0.0]
+      den: [0.013263, 1.0]           # 1/(2*pi*12), 1
+  injection_point: after_controller  # or: before_controller (needs channels.drive)
+
+priors:
+  POS:
+    resonances: [[1.3, 14]]          # ~30% off in f0 and Q
+    gain: 130
+
+safety:
+  actuator_sat: 1000.0
+  rms_ceiling:
+    POS: 1000.0
+  ramp_down_secs: 2.0
+
+stop_criteria:
+  uncertainty_target: 0.02
+  max_iter: 3

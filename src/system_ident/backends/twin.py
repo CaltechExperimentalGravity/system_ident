@@ -50,6 +50,9 @@ class TwinBackend(ChannelBackend):
         disturbance_asd: float = 0.0,
         seed: int | np.random.Generator | None = None,
         controllers: dict[str, tuple] | None = None,
+        injection_point: str | dict[str, str] = "after_controller",
+        drive_channels: dict[str, str] | None = None,
+        error_channels: dict[str, str] | None = None,
         response_delay_samples: int = 0,
         saturate: float | None = None,
         coupling: dict | None = None,
@@ -57,6 +60,11 @@ class TwinBackend(ChannelBackend):
         self.plant = plant
         self.exc_channels = dict(exc_channels)
         self.readback_channels = dict(readback_channels)
+        # Closed-loop digital test points (per DoF): the after-controller drive
+        # ``u`` (the plant input -> FRF input X) and the before-controller error
+        # ``e`` (a diagnostic). Both map channel name -> DoF, like the others.
+        self.drive_channels = dict(drive_channels) if drive_channels else {}
+        self.error_channels = dict(error_channels) if error_channels else {}
         self.fs = float(fs if fs is not None else plant.fs)
         self.sensor_asd = float(sensor_asd)
         self.disturbance_asd = float(disturbance_asd)
@@ -77,6 +85,22 @@ class TwinBackend(ChannelBackend):
         #    path (a real DAC->analog->ADC chain), a linear phase a rational fit sees.
         #  * saturate       : hard actuator clip, so the multisine crest factor matters.
         self.controllers = dict(controllers) if controllers else None
+        # Per-DoF excitation injection point relative to the digital controller:
+        #  * "after_controller"  (default): EXC sums into the drive u (= r − C·y),
+        #    the actuator-side injection the twin has always modelled;
+        #  * "before_controller": EXC enters ahead of C (u = C·(EXC − y)), so EXC
+        #    propagates through the loop filter. Either way the reference-based FRF
+        #    mean(Y)/mean(X) with X = u, Y = y recovers the open-loop plant G.
+        if isinstance(injection_point, str):
+            self.injection_point = {d: injection_point for d in (self.controllers or {})}
+        else:
+            self.injection_point = dict(injection_point)
+        for d, ip in self.injection_point.items():
+            if ip not in ("after_controller", "before_controller"):
+                raise ValueError(
+                    f"injection_point for {d!r} must be 'after_controller' or "
+                    f"'before_controller', got {ip!r}"
+                )
         self.response_delay_samples = int(response_delay_samples)
         self.saturate = None if saturate is None else float(saturate)
         self._cl = self._build_closed_loop() if self.controllers else {}
@@ -98,11 +122,18 @@ class TwinBackend(ChannelBackend):
     def from_config(
         cls, config: dict, plant: SuspensionPlant, **kwargs
     ) -> "TwinBackend":
-        """Build from a run config's ``channels`` section (``{dof: channel}``)."""
+        """Build from a run config's ``channels`` section (``{dof: channel}``).
+
+        Optional ``channels.drive`` / ``channels.error`` sections name the
+        after-controller drive (``u``) and before-controller error (``e``)
+        readback channels used for closed-loop identification.
+        """
         ch = config["channels"]
         exc = {chan: dof for dof, chan in ch["excitation"].items()}
         rb = {chan: dof for dof, chan in ch["readback"].items()}
-        return cls(plant, exc, rb, **kwargs)
+        drive = {chan: dof for dof, chan in ch.get("drive", {}).items()}
+        error = {chan: dof for dof, chan in ch.get("error", {}).items()}
+        return cls(plant, exc, rb, drive_channels=drive, error_channels=error, **kwargs)
 
     # -- channel API ---------------------------------------------------------
     def inject(self, channel: str, timeseries: np.ndarray, fs: float) -> None:
@@ -132,13 +163,30 @@ class TwinBackend(ChannelBackend):
             if ch in self.readback_channels:
                 dof = self.readback_channels[ch]
                 if self.controllers and dof in self.controllers:
-                    out[ch] = _pair(dof)[1]            # response y_meas
+                    out[ch] = _pair(dof)[1]            # response y_meas (Y)
                 else:
                     out[ch] = self._simulate(dof, n)
+            elif ch in self.drive_channels:
+                dof = self.drive_channels[ch]
+                if self.controllers and dof in self.controllers:
+                    out[ch] = _pair(dof)[0]            # after-controller drive u (X)
+                else:
+                    out[ch] = self._fit_length(self._drives.get(dof), n)
+            elif ch in self.error_channels:
+                dof = self.error_channels[ch]
+                if self.controllers and dof in self.controllers:
+                    u, y = _pair(dof)
+                    # before-controller error e = (injected ref if before-C) − y_meas
+                    a = (self._fit_length(self._drives.get(dof), n)
+                         if self.injection_point.get(dof) == "before_controller"
+                         else 0.0)
+                    out[ch] = a - y
+                else:
+                    out[ch] = -self._simulate(dof, n)
             elif ch in self.exc_channels:
                 dof = self.exc_channels[ch]
                 if self.controllers and dof in self.controllers:
-                    out[ch] = _pair(dof)[0]            # drive monitor u
+                    out[ch] = _pair(dof)[0]            # drive monitor u (twin convenience)
                 else:
                     # monitoring the drive itself
                     drive = self._drives.get(dof)
@@ -188,18 +236,28 @@ class TwinBackend(ChannelBackend):
         return self._delay(resp) + self._sensor_noise(n)
 
     def _build_closed_loop(self) -> dict:
-        """Per-DoF discrete closed-loop filters for negative feedback ``u = r - C y``.
+        """Per-DoF discrete closed-loop filters mapping (excitation, disturbance,
+        sensor noise) to the measured response ``y`` and the after-controller
+        drive ``u``.
 
         With plant ``G = Gn/Gd``, controller ``C = Cn/Cd`` and ``D = Gd*Cd + Gn*Cn``,
-        the loop maps the independent inputs (reference ``r``, input-referred
-        disturbance ``w``, sensor noise ``n``) to the response ``y`` and the drive
-        monitor ``u`` through transfer functions that all share denominator ``D``:
+        every map shares denominator ``D``.  The six numerators depend on where the
+        excitation ``r`` is injected:
+
+        **after_controller** (``u = r − C y``; the actuator-side injection):
 
             y = (Gn*Cd/D)(r + w) + (Gd*Cd/D) n
-            u = (Gd*Cd/D) r - (Cn*Gn/D) w - (Cn*Gd/D) n
+            u = (Gd*Cd/D) r − (Cn*Gn/D) w − (Cn*Gd/D) n
 
-        Each numerator is discretised against ``D`` (bilinear at ``fs``).  The
-        reference-based FRF ``mean(Y)/mean(X)`` then recovers the open-loop ``G``.
+        **before_controller** (``u = C(r − y) + w``; EXC enters ahead of C):
+
+            y = (Gn*Cn/D) r + (Gn*Cd/D) w + (Gd*Cd/D) n
+            u = (Gd*Cn/D) r + (Gd*Cd/D) w − (Gd*Cn/D) n
+
+        In both cases the reference-based FRF ``mean(Y)/mean(X)`` with ``X = u``,
+        ``Y = y`` projects onto the deterministic ``r`` and recovers the open-loop
+        ``G`` (``Y_r / U_r = Gn/Gd``).  Each numerator is discretised against ``D``
+        (bilinear at ``fs``).
         """
         cl: dict[str, dict] = {}
         for dof, tf in self.plant.transfer_functions.items():
@@ -209,13 +267,24 @@ class TwinBackend(ChannelBackend):
             Cn, Cd = (np.atleast_1d(np.asarray(c, dtype=float))
                       for c in self.controllers[dof])
             D = np.polyadd(np.polymul(Gd, Cd), np.polymul(Gn, Cn))
-            nums = {
-                "y_rw": np.polymul(Gn, Cd),     # (r + w) -> y
-                "y_n": np.polymul(Gd, Cd),      # n       -> y
-                "u_r": np.polymul(Gd, Cd),      # r       -> u
-                "u_w": -np.polymul(Cn, Gn),     # w       -> u
-                "u_n": -np.polymul(Cn, Gd),     # n       -> u
-            }
+            if self.injection_point.get(dof) == "before_controller":
+                nums = {
+                    "y_r": np.polymul(Gn, Cn),      # r -> y
+                    "y_w": np.polymul(Gn, Cd),      # w -> y
+                    "y_n": np.polymul(Gd, Cd),      # n -> y
+                    "u_r": np.polymul(Gd, Cn),      # r -> u
+                    "u_w": np.polymul(Gd, Cd),      # w -> u
+                    "u_n": -np.polymul(Gd, Cn),     # n -> u
+                }
+            else:  # after_controller (default)
+                nums = {
+                    "y_r": np.polymul(Gn, Cd),      # r -> y
+                    "y_w": np.polymul(Gn, Cd),      # w -> y
+                    "y_n": np.polymul(Gd, Cd),      # n -> y
+                    "u_r": np.polymul(Gd, Cd),      # r -> u
+                    "u_w": -np.polymul(Cn, Gn),     # w -> u
+                    "u_n": -np.polymul(Cn, Gd),     # n -> u
+                }
             cl[dof] = {k: sig.bilinear(num, D, self.fs) for k, num in nums.items()}
         return cl
 
@@ -226,7 +295,9 @@ class TwinBackend(ChannelBackend):
         r = self._fit_length(drive, n) if drive is not None else np.zeros(n)
         w = self._disturbance(n)
         nz = self._sensor_noise(n)
-        y = sig.lfilter(*f["y_rw"], r + w) + sig.lfilter(*f["y_n"], nz)
+        y = (sig.lfilter(*f["y_r"], r)
+             + sig.lfilter(*f["y_w"], w)
+             + sig.lfilter(*f["y_n"], nz))
         u = (sig.lfilter(*f["u_r"], r)
              + sig.lfilter(*f["u_w"], w)
              + sig.lfilter(*f["u_n"], nz))

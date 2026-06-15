@@ -124,3 +124,52 @@ pair — each carrying:
 The fitted models themselves live in `result.models` (keyed by DoF), updated in
 place as the campaign runs.  These records are the raw material for convergence
 plots — see the [multi-DoF suspension example](../examples/04-suspension-multidof.qmd).
+
+## Identifying in closed loop (controller-aware)
+
+A suspension is usually held by a **digital damping loop**, and the reference-based FRF
+makes closed-loop identification a *first-class, declarable* mode — no controller-division.
+Picture the digital controller `C` with four access points per DoF:
+
+```
+                       ┌─────────── inject (before C) ───────────┐
+   error e  ──►(+)──►──┤                                         │
+            ▲          │              C (digital)                ▼
+            │          └────────────────►────────────── (+) ──► drive u ──► plant G ──► y
+            │                          inject (after C) ▲                        │
+            └──────────────────────── sensor ◄──────────────────────────────────┘
+   read: e (before C)                          read: u (after C)   read: y (response)
+```
+
+The open-loop plant FRF uses **X = the after-controller drive `u`** (the plant input) and
+**Y = the response `y`**; the ratio of period-averaged spectra projects onto the
+deterministic multisine and yields `G` for **either injection point** (the controller
+cancels). The after-controller drive must be its own channel: under *before-controller*
+injection the injected signal is **not** `u`.
+
+Declare it in the config:
+
+```yaml
+channels:
+  excitation: {POS: C1:EXC}        # where the multisine is injected
+  readback:   {POS: C1:RSP}        # response y  →  FRF output Y
+  drive:      {POS: C1:DRV}        # after-controller drive u  →  FRF input X
+
+twin:
+  controllers:
+    POS: {num: [2.0e-3, 0.0], den: [0.013263, 1.0]}   # C(s) = num/den
+  injection_point: after_controller                    # or before_controller
+```
+
+`SysIDLoop` then reads `channels.drive` as X (falling back to the excitation channel when
+absent); everything downstream — the leakage-free FRF, the ML fit, the accumulation — is
+unchanged. See the [closed-loop example](../examples/05-closed-loop-arm.qmd) for a full run
+and the bias story, and `configs/closed_loop_demo.yml` to run it from the CLI.
+
+::: {.callout-warning}
+## The drive monitor is not the reference
+On the digital twin, reading the excitation channel already returns `u`, so a `drive`
+channel is optional. On **real hardware** under before-controller injection the excitation
+point carries the bare reference `r`, not `u` — name the after-controller drive in
+`channels.drive`, or the fit is biased toward the closed-loop response `T`.
+:::

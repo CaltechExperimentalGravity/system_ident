@@ -30,6 +30,7 @@ global refit does not degrade as refinement proceeds.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -80,8 +81,14 @@ class SysIDLoop:
     ) -> LoopResult:
         rng = np.random.default_rng(seed)
         ch = config["channels"]
-        exc = ch["excitation"]      # {dof: channel}
-        rb = ch["readback"]         # {dof: channel}
+        exc = ch["excitation"]      # {dof: channel}  (where the multisine is injected)
+        rb = ch["readback"]         # {dof: channel}  (the response y -> FRF output Y)
+        # Closed-loop: the FRF input X is the after-controller drive u. Read it from
+        # an optional per-DoF ``channels.drive`` monitor; with no drive channel it
+        # falls back to the excitation channel (on the twin the excitation read-back
+        # already returns u; on hardware that channel must be the drive monitor).
+        drive_mon = ch.get("drive", {})
+        self._warn_open_drive_monitor(config, drive_mon)
         m = config["measurement"]
         fs = float(m["fs"])
         T_perseg = float(m["segment_duration"])
@@ -149,7 +156,8 @@ class SysIDLoop:
                 if sequential:
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
-                            it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                            it, d, exc[d], rb[d], drive_mon.get(d, exc[d]),
+                            models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, n_iter, rng,
                             result, accum[d], info[d], t_ramp=t_ramp, prior_u=prior_u,
                         )
@@ -161,7 +169,8 @@ class SysIDLoop:
                                      t_ramp=t_ramp, prior_u=prior_u)
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
-                            it, d, exc[d], rb[d], models, Pyy, freq, fs,
+                            it, d, exc[d], rb[d], drive_mon.get(d, exc[d]),
+                            models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, n_iter, rng,
                             result, accum[d], info[d], reuse_injection=True,
                             t_ramp=t_ramp, prior_u=prior_u,
@@ -181,7 +190,7 @@ class SysIDLoop:
 
     # -- per-DoF measurement -------------------------------------------------
     def _measure_dof(
-        self, it, dof, exc_ch, rb_ch, models, Pyy, freq, fs, nperseg, band,
+        self, it, dof, exc_ch, rb_ch, x_ch, models, Pyy, freq, fs, nperseg, band,
         total_dur, px_total, n_iter, rng, result, accum, info,
         reuse_injection=False, t_ramp=0.0, prior_u=0.0,
     ) -> float:
@@ -199,10 +208,14 @@ class SysIDLoop:
             drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
             self.backend.inject(exc_ch, drive, fs)
 
-        seg = self.backend.read([rb_ch, exc_ch], total_dur)
+        # Read the response (Y), the FRF input X (the after-controller drive
+        # monitor ``x_ch``; == exc_ch in open loop / when no drive channel is set),
+        # and the excitation channel for the watchdog's drive check (deduped).
+        read_chans = list(dict.fromkeys([rb_ch, x_ch, exc_ch]))
+        seg = self.backend.read(read_chans, total_dur)
         report = self.watchdog.check(seg)  # raises SafetyAbort on a breach
 
-        H_meas, H_err, coh = self._estimate(seg[exc_ch], seg[rb_ch], fs, nperseg, band)
+        H_meas, H_err, coh = self._estimate(seg[x_ch], seg[rb_ch], fs, nperseg, band)
         # fold this pass into the inverse-variance accumulator, then refit on the
         # combined estimate (retains broadband coverage across passes)
         H_acc, err_acc = self._accumulate(accum, H_meas, H_err)
@@ -258,6 +271,31 @@ class SysIDLoop:
             snap["model_Q"] = float(model.Q[0])
             snap["model_gain"] = float(model.gain)
         self.listener(snap)
+
+    @staticmethod
+    def _warn_open_drive_monitor(config, drive_mon) -> None:
+        """Warn when a closed loop uses before-controller injection without a
+        ``channels.drive`` monitor: on hardware the FRF input would then be the bare
+        reference (X = r), biasing the estimate toward the closed-loop response T."""
+        twin = config.get("twin", {})
+        controllers = twin.get("controllers", {})
+        if not controllers:
+            return
+        ip = twin.get("injection_point", "after_controller")
+
+        def _ip(d):
+            return ip if isinstance(ip, str) else ip.get(d, "after_controller")
+
+        missing = [d for d in controllers
+                   if _ip(d) == "before_controller" and d not in drive_mon]
+        if missing:
+            warnings.warn(
+                f"closed-loop before-controller injection without channels.drive "
+                f"for {missing}: the FRF input falls back to the excitation channel "
+                "(the drive monitor on the twin, but the bare reference on real "
+                "hardware — set channels.drive to the after-controller drive there).",
+                stacklevel=2,
+            )
 
     def _inject_all(self, dofs, exc, models, Pyy, freq, fs, nperseg, total_dur,
                     px_total, n_iter, rng, t_ramp=0.0, prior_u=0.0):
