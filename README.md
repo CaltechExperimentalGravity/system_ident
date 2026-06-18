@@ -154,15 +154,20 @@ python -c "import system_ident, x1hsts; print('sample_rate', x1hsts.x1hsts().sam
 ```
 
 Repeat step 2 with a different `model=`/`RCG_LIB_PATH` for other models
-(`x1hstsdamped`, `x1hsts6dof`, …). Then run a demo:
+(`x1hstsdamped`, `x1hsts6dof`, …). Then run the HSTS demo — the proven P&S path
+(periodic multisine → leakage-free FRF → ML fit) identifying the compiled
+`x1hsts` drive→sensor suspension plant under the twin's own seismic + readout
+noise, scored against an analytic oracle (`backends/rtsfreerun_oracle`):
 
 ```bash
-system_ident run src/system_ident/configs/rtsfreerun_demo.yml --rtsfreerun --yes
+python experiments/rtsfreerun/run_hsts.py     # prints A1+A2 recovery, writes a Bode overlay
 ```
 
-Without a model installed, `import x1hsts` fails and the RTSfreerun integration
-test (`tests/test_rtsfreerun_backend.py`) `skip`s its real-model case; the rest
-of the suite is unaffected.
+The run config is `src/system_ident/configs/rtsfreerun_hsts.yml` (channels,
+band, noise, the scenario that loads the plant, and the corrected 5-mode prior).
+Recovery is gated by `tests/test_rtsfreerun_real_model.py` (A1 wiring/oracle, A2
+SISO recovery), which `skip`s when no model is installed — so the rest of the
+suite is unaffected on machines without the twin.
 
 ## Status
 

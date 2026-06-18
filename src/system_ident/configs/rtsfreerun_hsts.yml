@@ -1,0 +1,81 @@
+# Identify a LIGO digital-twin suspension (RTSfreerun, model x1hsts) under realistic noise.
+#
+# Drives the *compiled* rtsfreerun model (GIT/digital_twin/, model `x1hsts`) with the
+# Pintelon-Schoukens periodic-multisine pipeline and recovers the drive->sensor
+# suspension plant (HSTS_DRV_TF) while the twin's own seismic + readout noise runs.
+#
+# Run on a box where BOTH `system_ident` and the built `x1hsts` model import (build the
+# model into the sysid env — see README §"Run against the RTSfreerun digital twin").
+#
+# The drive->sensor plant is the order-10 HSTS_DRV_TF cascade: FIVE modes at
+# ~0.67 / 1.01 / 1.52 / 2.81 / 3.78 Hz, each Q~50, with interleaved zeros. (The old
+# skeleton's single 0.9 Hz / Q 10 prior was wrong — corrected below against the
+# scenario.) The `scenario:` field loads that plant onto the bare model via the same
+# foton ZPK the twin orchestrator applies; the analytic oracle for scoring is derived
+# from it by `backends.rtsfreerun_oracle`.
+#
+# Reproducible demo (proven path — flat multisine -> leakage-free FRF -> ML fit):
+#   conda run -n sysid python experiments/rtsfreerun/run_hsts.py
+# The validation gate lives in tests/test_rtsfreerun_real_model.py (A1 + A2).
+
+run:
+  name: rtsfreerun_hsts
+  excitation_mode: sequential
+
+channels:
+  excitation:
+    POS: COIL_DRIVER_EXC        # inject the multisine at the actuator (coil driver)
+  drive:
+    POS: COIL_DRIVER_OUT        # after-actuator drive monitor u  ->  FRF input X
+  readback:
+    POS: READOUT_NOISE_OUT      # sensor displacement (16-bit ADC in the model)  ->  Y
+
+measurement:
+  fs: 256                       # analysis rate; the adapter decimates the 16384 Hz model (x64)
+  freq_min: 0.3
+  freq_max: 8.0
+  segment_duration: 16.0        # T_fft = 16 s (> 3/f_min); nperseg = 16*256 = 4096
+  n_segments: 4                 # periods averaged in the leakage-free FRF
+  px_total: 1.0e6               # drive power budget (counts^2); keep the peak < COIL_DRIVER_LIMIT
+  t_ramp: 2.0
+
+strategy:
+  estimator: gml
+  input_designer: pintelon_schoukens
+  n_design_iter: 3
+  prior_uncertainty: 0.5
+
+rtsfreerun:
+  model: x1hsts                 # the built rtsfreerun module to import
+  scenario: /Users/rana/Desktop/Dropbox/GIT/digital_twin/twin/scenarios/hsts.yaml
+  warmup_s: 24.0                # settle the high-Q low-frequency modes before recording (discarded)
+  noise:                        # the twin's realistic background, injected each read
+    - {channel: ISI_RESIDUAL_EXC,  kind: seismic, params: {preset: ligo-india}}
+    - {channel: READOUT_NOISE_EXC, kind: bosem,   params: {floor: 1.0e-10, knee_hz: 1.0}}
+
+# Prior = the suspension *design* model (correct order: 5 pole pairs + 4 zero pairs),
+# derived from the scenario. The measurement refines it to the as-built plant; a
+# perturbed copy is used in tests/demo so recovery is not a trivial echo of the prior.
+priors:
+  POS:
+    resonances: [[0.6725, 50], [1.0051, 50], [1.5156, 50], [2.8067, 50], [3.7814, 50]]
+    zeros:
+      - "-0.0499517+5.40717j"
+      - "-0.0499517-5.40717j"
+      - "-0.0633203+6.35904j"
+      - "-0.0633203-6.35904j"
+      - "-0.126093+13.3273j"
+      - "-0.126093-13.3273j"
+      - "-0.237456+23.747j"
+      - "-0.237456-23.747j"
+    gain: 0.32101
+
+safety:
+  actuator_sat: 30000.0         # matches the model's COIL_DRIVER_LIMIT
+  rms_ceiling:
+    POS: 1.0e9
+  ramp_down_secs: 2.0
+
+stop_criteria:
+  uncertainty_target: 0.05
+  max_iter: 3

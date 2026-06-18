@@ -191,6 +191,8 @@ def test_build_rtsfreerun_backend_requires_model():
 
 @pytest.mark.skipif(importlib.util.find_spec("x1hsts") is None,
                     reason="rtsfreerun x1hsts model not installed (built on the twin box)")
-def test_real_x1hsts_smoke():  # pragma: no cover - runs only where the twin is built
-    tw = RTSfreerunBackend("x1hsts", exc_channels={EXC: "POS"}, readback_channels={SENSOR: "POS"})
+def test_real_x1hsts_smoke(x1hsts_model):  # pragma: no cover - runs only where the twin is built
+    # Share the one-per-process model instance (see conftest.x1hsts_model).
+    tw = RTSfreerunBackend(mdl=x1hsts_model, exc_channels={EXC: "POS"},
+                           readback_channels={SENSOR: "POS"})
     assert tw.fs_model > 0

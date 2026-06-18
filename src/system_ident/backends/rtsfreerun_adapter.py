@@ -94,12 +94,20 @@ class RTSfreerunBackend(ChannelBackend):
     """
 
     def __init__(self, model=None, *, exc_channels, readback_channels=None, fs=None,
-                 noise=None, warmup_s=0.0, saturate=None, seed=None, mdl=None):
+                 noise=None, warmup_s=0.0, saturate=None, seed=None, mdl=None,
+                 scenario=None):
         if mdl is None:
             if model is None:
                 raise ValueError("RTSfreerunBackend needs a model name or an mdl instance")
             pkg = importlib.import_module(model)
             mdl = getattr(pkg, model)()
+        if scenario is not None:
+            # Realise the scenario plant on the bare model (foton ZPK → cdsFilt
+            # modules), exactly as the twin orchestrator does. A dict is applied
+            # as-is; a path is loaded first.
+            from .rtsfreerun_oracle import apply_scenario_init, load_scenario
+            scen = scenario if isinstance(scenario, dict) else load_scenario(scenario)
+            apply_scenario_init(mdl, scen)
         self._mdl = mdl
         self.model = model
         self.fs_model = float(mdl.sample_rate)
@@ -121,7 +129,7 @@ class RTSfreerunBackend(ChannelBackend):
         rts = config.get("rtsfreerun", {})
         return cls(rts.get("model"), exc_channels=exc, readback_channels=rb,
                    noise=rts.get("noise", []), warmup_s=float(rts.get("warmup_s", 0.0)),
-                   saturate=rts.get("saturate"), **kwargs)
+                   saturate=rts.get("saturate"), scenario=rts.get("scenario"), **kwargs)
 
     # -- channel API ---------------------------------------------------------
     def inject(self, channel: str, timeseries: np.ndarray, fs: float) -> None:

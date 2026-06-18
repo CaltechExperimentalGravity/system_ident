@@ -38,3 +38,17 @@ def load_oracle():
 @pytest.fixture(scope="session")
 def oracle():
     return load_oracle()
+
+
+@pytest.fixture(scope="session")
+def x1hsts_model():
+    """The one compiled ``x1hsts`` instance for the whole session.
+
+    rtsfreerun allows only **one model per process**, so every real-model test
+    must share a single instance (a second ``x1hsts.x1hsts()`` fails). Skipped
+    when the model is not built into the env.
+    """
+    if importlib.util.find_spec("x1hsts") is None:
+        pytest.skip("rtsfreerun x1hsts model not installed (see README)")
+    import x1hsts
+    return x1hsts.x1hsts()
