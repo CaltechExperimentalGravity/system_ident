@@ -1,0 +1,109 @@
+---
+title: "07 — The compiled LIGO twin (RTSfreerun)"
+description: "The same P&S pipeline on the real compiled-CDS suspension front-end — open-loop under twin seismic+readout noise, then the 6-DOF plant with the production damping loops closed."
+image: thumbnails/07.png
+categories: [twin, closed-loop, MIMO]
+freeze: true
+---
+
+Examples [01–06](index.qmd) identify *teaching* plants — lumped resonances and a coupled
+normal-mode expansion. This one identifies the **real thing**: a compiled
+[`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun) advligorts front-end model
+of a LIGO HSTS suspension — *the same C filter numerics a control-room front-end runs*,
+driven through the same channel API, under the digital twin's own seismic and readout noise.
+No hardware; no method changes. The Pintelon–Schoukens loop (periodic multisine →
+leakage-free reference FRF → maximum-likelihood fit → Cramér–Rao refinement) runs exactly as
+it does on the teaching plants.
+
+::: {.callout-note appearance="simple"}
+## What makes this page different
+The plant here is **not** a Python lumped model — it is the compiled `x1hsts` / `x1hsts6dof`
+CDS composite (built from a `.mdl` by `rtsfreerun`), carrying the as-built `HSTS_DRV_TF`
+foton cascade and a 36-state MIMO suspension state space. Because that model is not installed
+in CI, this page is rendered with `freeze: true` from a locally executed cache; the figures
+below are real recovery runs against the compiled model, scored against an **analytic oracle**
+derived from the twin's own filter definitions (`backends.rtsfreerun_oracle`).
+:::
+
+```{python}
+#| code-summary: "Setup — import the presentation glue (runs the real models)"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    if (_c / "docs" / "rtsfreerun_demo.py").exists() and str(_c / "docs") not in sys.path:
+        sys.path.insert(0, str(_c / "docs"))
+    if (_c / "rtsfreerun_demo.py").exists() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+
+import numpy as np
+import rtsfreerun_demo as rd
+```
+
+## A1–A2 · Open-loop SISO under the twin's own noise
+
+The HSTS drive→sensor plant is the order-10 `HSTS_DRV_TF` cascade — **five modes** near
+0.67, 1.01, 1.52, 2.81 and 3.78 Hz, each $Q\!\approx\!50$, threaded with near-cancelling
+zeros. We inject the multisine at the coil-driver excitation port and read the 16-bit sensor
+displacement while the twin runs `ligo-india` seismic on the ISI and BOSEM readout noise.
+The FRF input is the **after-actuator drive monitor**, so the coil driver divides out and the
+recovered transfer is the bare suspension. *(A1 — the wiring/oracle smoke test that gates this
+page — lives in the test suite; here we go straight to recovery.)*
+
+```{python}
+#| code-summary: "Run the A2 optimal-excitation campaign against compiled x1hsts"
+a2 = rd.a2_recovery(seed=1, n_passes=3)
+rd.bode_overlay(a2.ff, a2.oracle, a2.fit, freq=a2.freq, H_meas=a2.H_meas,
+                title="x1hsts drive→sensor — analytic oracle vs P&S recovery (noise on)")
+```
+
+The recovered model tracks the oracle through every mode and anti-resonance. Because the
+prior-robust first pass is followed by point-optimal excitation, the drive concentrates power
+where the Fisher information is — so the parameter uncertainty falls pass over pass while the
+peak drive stays well under the coil-driver limit.
+
+```{python}
+#| code-summary: "Modal recovery + uncertainty convergence"
+display(rd.modes_table(a2.oracle, a2.fit))
+rd.convergence_fig(a2.fracs)
+```
+
+## A3 · Closed-loop — the real damping loops engaged
+
+Now the `x1hsts6dof` composite: the bare-M1 **6×6 MIMO** HSTS state space with the
+**production L1 `MC2_M1_DAMP` foton banks** closed around all six rigid-body DOFs
+(L, T, V, R, P, Y), tuned to a $\tau\!\approx\!5$ s ringdown — the very loops that damp the
+suspension in the observatory. A closed loop normally *hides* the plant: the sensor sees the
+suppressed response $G/(1+GC)$, not $G$. The P&S **reference-based** estimate recovers $G$ anyway,
+by taking the FRF against the **true plant input** — the drive *minus* the controller feedback
+at the `COIL_DRV_SUM` junction. The feedback sign is load-bearing: negligible off-resonance,
+it dominates exactly at the damped modes.
+
+```{python}
+#| code-summary: "Drive each DOF open- and closed-loop; recover the plant tensor"
+d = rd.a34(n_passes=2)
+display(rd.diag_table(d))
+```
+
+With the loops closed, every diagonal element comes back as the **open-loop** plant to a part
+in a thousand — the controller is cancelled, not fit. That is the whole point of a
+reference-based closed-loop identification: you measure the suspension you want to model, not
+the suppressed loop you happened to be running.
+
+## A4 · The full 6×6 MIMO tensor
+
+Opening the loops and driving each input DOF in turn gives the complete drive→sense FRF
+tensor. The diagonals carry the suspension's anti-resonance notches; the off-diagonals are the
+genuine cross-coupling — strongest on the L↔P and R↔Y pairs the suspension's geometry
+dictates. Each per-pair FRF is overlaid on its analytic state-space element below (black line),
+with the closed-loop diagonal recovery from A3 in green on the diagonal.
+
+```{python}
+#| code-summary: "6×6 |FRF| tensor — oracle vs open-loop (A4) and closed-loop diagonal (A3)"
+rd.tensor_grid(d)
+```
+
+The off-diagonal elements *under closed loop* still carry the cross-loop bias — recovering the
+coupled matrix jointly, with shared modal poles across elements, is the parametric MIMO fit
+(the named Track B follow-on). The per-pair open-loop tensor here is the honest nonparametric
+MIMO result, and the closed-loop diagonal is the controller-cancelled SISO recovery — both
+against the same compiled twin a real front-end runs.

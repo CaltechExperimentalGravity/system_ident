@@ -108,6 +108,19 @@ def thumb_06():
     return _thumb_axes(fig)
 
 
+def thumb_07():
+    # The compiled-twin HSTS plant: 5 real modes (~0.67–3.78 Hz, Q≈50) under the
+    # optimal drive, with a faint cross-coupling curve hinting the closed-loop MIMO.
+    f = np.linspace(0.3, 8, 700)
+    m = TFModel.from_resonances([(0.67, 50), (1.01, 50), (1.52, 50),
+                                 (2.81, 50), (3.78, 50)], 100.0)
+    Pxx = optimal_excitation(f, m, np.ones_like(f), 1.0, n_iter=6)
+    coup = TFModel.from_resonances([(0.67, 50), (2.81, 50)], 18.0)
+    extra = [go.Scatter(x=f, y=np.abs(coup.eval(f)), mode="lines",
+             line=dict(color=sp.ROSE, width=2.5))]
+    return _curve_thumb(f, np.abs(m.eval(f)), np.sqrt(Pxx), extra=extra)
+
+
 def og_card():
     f = np.linspace(0.2, 8, 800)
     m = TFModel.from_resonances([(1.0, 20.0)], 100.0)
@@ -136,7 +149,7 @@ def og_card():
 
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
-              "04": thumb_04, "05": thumb_05, "06": thumb_06}
+              "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07}
 
 if __name__ == "__main__":
     for name, fn in THUMBS_FNS.items():
