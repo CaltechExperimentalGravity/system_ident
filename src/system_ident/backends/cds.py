@@ -1,6 +1,6 @@
 """Real-hardware backend: awg excitation injection + nds2 online readback.
 
-The CDS libraries (``awg``/``cdsutils``, ``nds2``, ``foton``) are provided by
+The CDS libraries (``awg``/``cdsutils``, ``nds2``) are provided by
 the LIGO control-room environment and are **lazy-imported** inside the methods,
 so importing this module (and the package) never requires them — the twin path
 stays usable on a plain scientific-Python stack. Implemented in build step 8.

@@ -17,7 +17,7 @@ which coefficient-space fitting cannot.
 The parameter vector is ``theta = [f0_0..f0_{m-1}, Q_0..Q_{m-1}, gain]`` (all
 free, no gauge). ``eval`` / ``jacobian`` / ``with_params`` give the numeric
 surface the Fisher and Bayesian machinery need; ``to_tf`` converts to a
-:class:`~system_ident.model.TFModel` for discretisation / Foton export.
+:class:`~system_ident.model.TFModel` for discretisation.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """system_ident — real-time, optimal-excitation system identification for LIGO suspensions.
 
 This package consolidates the proven research code in this repository (the
-``sys_id_dev/sysIDlib.py`` engine, ``Plant_Model`` 3-DoF suspension, the
-``Optimal_Controls`` estimators, and the ``CDS_Interface`` Foton export) into a
+``sys_id_dev/sysIDlib.py`` engine, ``Plant_Model`` 3-DoF suspension, and the
+``Optimal_Controls`` estimators) into a
 single installable tool that runs iterative system identification of a 3-DoF
 suspension (POS / Pitch / Yaw) against either real CDS hardware (awg inject +
 nds2 readback) or a digital twin — through one identical channel API — with a
@@ -18,7 +18,7 @@ from __future__ import annotations
 __version__ = "0.0.1"
 
 # Lightweight public API (numpy-only). Heavier pieces (plant, dashboard, CDS
-# backend, Foton export) are imported from their submodules on demand.
+# backend) are imported from their submodules on demand.
 from .model import TFModel
 from .estimators.base import Estimator
 from .design.base import InputDesigner

@@ -12,8 +12,8 @@ license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "LIGO SysID contributors" }]
 keywords = ["LIGO", "system-identification", "suspension", "controls", "CDS"]
 
-# Core runtime deps. The CDS backend (nds2/awg) and Foton export are optional
-# and lazy-imported so the twin path works on a plain scientific-Python stack.
+# Core runtime deps. The CDS backend (nds2/awg) is optional and lazy-imported
+# so the twin path works on a plain scientific-Python stack.
 dependencies = [
     "numpy",
     "scipy",
@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dashboard = ["fastapi", "uvicorn[standard]", "websockets"]
-# CDS libs (nds2-client, awg/cdsutils, foton) are provided by the LIGO CDS
+# CDS libs (nds2-client, awg/cdsutils) are provided by the LIGO CDS
 # environment and are not pip-installable here; listed for documentation.
 cds = []
 dev = ["pytest", "pytest-cov"]

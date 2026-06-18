@@ -47,7 +47,6 @@ def test_submodules_import():
         "system_ident.design.pintelon",
         "system_ident.backends.twin",
         "system_ident.backends.cds",
-        "system_ident.export.foton",
         "system_ident.dashboard.server",
         "system_ident.dashboard.ws",
     ]:

@@ -1,7 +1,7 @@
 """Canonical transfer-function model.
 
 ``TFModel`` is the one parameter representation shared across the package, so an
-estimator, an input designer, the Fisher calculation, and the Foton export all
+estimator, an input designer, and the Fisher calculation all
 speak the same language. It mirrors the ``{num, den}`` dict convention used by
 ``sys_id_dev/sysIDlib.py`` (``unpack_par_dict`` / ``pack_par_to_dict``) so the
 existing engine can be wrapped without translation layers.

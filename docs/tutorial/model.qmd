@@ -86,8 +86,8 @@ that: a product of second-order resonances whose gradient `∂H/∂f0` *directly
 moves a peak in frequency, so a Gauss-Newton / MAP step can relocate a resonance
 that sits away from the prior — which coefficient-space fitting cannot.  It
 exposes the same four-method protocol (`params`, `jacobian`, `eval`,
-`with_params`) and a `to_tf()` bridge back to `TFModel` for discretisation and
-Foton export, so the Fisher, estimator, and designer machinery is unchanged.
+`with_params`) and a `to_tf()` bridge back to `TFModel` for discretisation,
+so the Fisher, estimator, and designer machinery is unchanged.
 :::
 
 ## Plotting a model

@@ -3,8 +3,8 @@
 Real-time, optimal-excitation **system identification for LIGO suspensions**.
 
 `system_ident` consolidates the proven research code in this repository — the
-`sys_id_dev/sysIDlib.py` engine, the `Plant_Model` 3-DoF suspension, the
-`Optimal_Controls` estimators, and the `CDS_Interface` Foton export — into one
+`sys_id_dev/sysIDlib.py` engine, the `Plant_Model` 3-DoF suspension, and the
+`Optimal_Controls` estimators — into one
 installable tool that runs iterative system identification of a 3-DoF
 suspension (POS / Pitch / Yaw) against either:
 
@@ -28,8 +28,7 @@ is being filled in per the build order:
 6. Live dashboard + STOP
 7. `config` + `cli` + example config
 8. `CDSBackend` (real `awg`/`nds2`)
-9. Foton export
-10. Remaining estimator/designer strategies
+9. Remaining estimator/designer strategies
 
 ## Pintelon-Schoukens measurement & ML fit
 
@@ -53,7 +52,7 @@ pip install -e ".[dev]"            # core + tests
 pip install -e ".[dev,dashboard]"  # also the live dashboard stack
 ```
 
-The CDS libraries (`nds2`, `awg`/`cdsutils`, `foton`) come from the LIGO CDS
+The CDS libraries (`nds2`, `awg`/`cdsutils`) come from the LIGO CDS
 environment and are lazy-imported, so the twin path works on a plain
 scientific-Python stack.
 

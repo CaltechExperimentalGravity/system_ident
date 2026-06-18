@@ -74,7 +74,6 @@ folding in each optimal pass's resonance-sharpening information.
 | `config.RunConfig` | Loads/validates the run YAML and builds the concrete plant, backend, priors, estimator, designer, and watchdog the loop needs. |
 | `cli` | The `system_ident` CLI — YAML base + flag overrides + a confirm-before-inject guard; the primary way to drive a run. |
 | `dashboard` | Dependency-free pub/sub `SnapshotHub` plus a lazily-built FastAPI/websocket server serving the live Plotly UI with the STOP button. |
-| `export/foton` | Foton filter-file export of the fitted plant — **stub** raising `NotImplementedError`. |
 
 ## Documentation
 
@@ -128,5 +127,4 @@ accumulation and accumulated-Fisher convergence), the safety watchdog + handoff,
 config + CLI, and the dashboard core.
 
 Not yet done: the CDS hardware backend (`backends/cds.py` — needs the LIGO CDS
-`nds2`/awg libraries and hardware) and Foton export (`export/foton.py`) are
-stubs that raise `NotImplementedError`.
+`nds2`/awg libraries and hardware) is a stub that raises `NotImplementedError`.
