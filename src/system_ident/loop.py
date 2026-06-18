@@ -37,7 +37,7 @@ import numpy as np
 import scipy.signal as sig
 
 from .excitation import multisine_from_psd
-from .fisher import fisher_matrix
+from .fisher import fisher_matrix, safe_inverse
 from .model import TFModel
 from .safety import SafetyAbort
 
@@ -226,7 +226,7 @@ class SysIDLoop:
         info += fisher_matrix(
             freq, models[dof], Pxx, Pyy[dof], total_dur * self._fisher_time_factor
         )
-        frac = self._frac_uncertainty(models[dof], np.linalg.inv(info))
+        frac = self._frac_uncertainty(models[dof], safe_inverse(info))
         result.history.append(
             IterationRecord(
                 iteration=it, dof=dof, max_frac_uncertainty=frac,

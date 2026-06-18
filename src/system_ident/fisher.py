@@ -125,6 +125,24 @@ def parameter_covariance(
     return np.linalg.inv(gamma)
 
 
+def safe_inverse(m: np.ndarray) -> np.ndarray:
+    """Inverse of a Fisher/covariance matrix, robust to rank deficiency.
+
+    A full-rank matrix inverts exactly (preserves the sysIDlib bit-for-bit path).
+    High-order plants with near-cancelling pole/zero pairs (e.g. realistic
+    suspension cascades) give a rank-deficient Fisher; the Moore–Penrose
+    pseudo-inverse is the standard handling, returning the minimum-norm result so
+    the P&S optimal-excitation design and the CRB still go through.
+    """
+    try:
+        out = np.linalg.inv(m)
+        if not np.all(np.isfinite(out)):
+            raise np.linalg.LinAlgError("non-finite inverse")
+        return out
+    except np.linalg.LinAlgError:
+        return np.linalg.pinv(m)
+
+
 def dispersion(
     freq: np.ndarray,
     model: TFModel,
@@ -151,7 +169,7 @@ def dispersion(
         freq, model, Pxx, Pyy, T_tot=1.0 / df, dpar=dpar, logflag=logflag,
         return_per_freq=True,
     )
-    sigma = np.linalg.inv(gamma)
+    sigma = safe_inverse(gamma)
     Pxx_tot = np.sum(Pxx)
     nu = np.array([
         np.trace(sigma @ (dens[:, :, i] * Pxx_tot / Pxx[i]))

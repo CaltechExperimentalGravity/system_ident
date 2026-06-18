@@ -18,7 +18,7 @@ import numpy as np
 from system_ident.design.pintelon import optimal_excitation, prior_robust_excitation
 from system_ident.estimators.gml import GMLEstimator
 from system_ident.excitation import multisine_from_psd
-from system_ident.fisher import fisher_matrix
+from system_ident.fisher import fisher_matrix, safe_inverse
 from system_ident.loop import SysIDLoop
 from system_ident.model import TFModel
 
@@ -27,17 +27,24 @@ from sysid_plots import f0_q, modes, dc_gain  # noqa: F401 (re-exported for exam
 
 def run_siso_passes(backend, exc_ch, rsp_ch, prior, *, fs, nperseg, n_periods,
                     band, freq, Pyy, px_total, n_passes=3, prior_uncertainty=0.5,
-                    n_design_iter=6, flat_drive=False, seed=0):
+                    n_design_iter=6, flat_drive=False, seed=0, x_ch=None):
     """Run `n_passes` of P&S refinement on one SISO channel pair.
 
     Pass 1 uses a prior-robust drive (spread over ``f0(1±u)``); later passes use
     the point-optimal drive from the current model. Set ``flat_drive=True`` for
     the SNR-limited (no-resonance) case where a flat in-band budget is used.
 
+    The multisine is injected at ``exc_ch``; the FRF input X is read from
+    ``x_ch`` (the drive monitor, e.g. an after-actuator/after-controller probe)
+    when given, else from ``exc_ch`` itself. This is the reference-based estimate
+    that cancels everything upstream of ``x_ch`` (so a coil driver, or a closed
+    loop, drops out of the recovered plant).
+
     Returns a list of per-pass dicts with keys:
         pass, Pxx, drive, response, H, H_err, coh, mask,
         H_acc, err_acc, model, cov, frac, peak, rms
     """
+    x_ch = x_ch or exc_ch
     rng = np.random.default_rng(seed)
     total = nperseg * n_periods / fs
     model = prior
@@ -58,16 +65,16 @@ def run_siso_passes(backend, exc_ch, rsp_ch, prior, *, fs, nperseg, n_periods,
 
         drive = multisine_from_psd(Pxx, fs, nperseg, n_periods, freq, seed=rng)
         backend.inject(exc_ch, drive, fs)
-        seg = backend.read([exc_ch, rsp_ch], total)
+        seg = backend.read(list({exc_ch, x_ch, rsp_ch}), total)
         backend.inject(exc_ch, np.zeros_like(drive), fs)  # clear for the next pass
 
         H, H_err, coh = SysIDLoop._estimate_tf_periodic(
-            seg[exc_ch], seg[rsp_ch], fs, nperseg, band)
+            seg[x_ch], seg[rsp_ch], fs, nperseg, band)
         H_acc, err_acc = SysIDLoop._accumulate(accum, H, H_err)
         model = est.fit(freq, H_acc, err_acc, model)
 
         info = info + fisher_matrix(freq, model, Pxx, Pyy, total)
-        cov = np.linalg.inv(info)
+        cov = safe_inverse(info)
         frac = SysIDLoop._frac_uncertainty(model, cov)
 
         history.append(dict(
