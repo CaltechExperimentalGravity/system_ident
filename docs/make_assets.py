@@ -1,7 +1,9 @@
 """Generate static docs assets (gallery thumbnails + Open Graph card) with kaleido.
 
 Run from docs/:   conda run -n sysid python make_assets.py
-Writes:           assets/og-card.png, examples/thumbnails/0{1..6}.png
+Writes:           examples/thumbnails/0{1..7}.svg (vector, LFS) + assets/og-card.png
+                  (the Open-Graph social card — raster only because social platforms
+                  do not render SVG previews; still committed via LFS).
 
 These are cheap signature figures (no twin simulation) rendered in the house
 style, exported to PNG for the Examples card-gallery and social-card preview.
@@ -152,9 +154,13 @@ THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
               "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07}
 
 if __name__ == "__main__":
+    # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.
     for name, fn in THUMBS_FNS.items():
-        out = THUMBS / f"{name}.png"
-        fn().write_image(str(out), width=640, height=420, scale=2)
+        out = THUMBS / f"{name}.svg"
+        fn().write_image(str(out), format="svg", width=640, height=420)
         print("wrote", out.relative_to(HERE))
-    og_card().write_image(str(ASSETS / "og-card.png"), width=1200, height=630, scale=1)
+    # og-card is the Open-Graph social preview: social platforms won't render SVG,
+    # so it stays raster (PNG) — the rare "absolutely necessary" graphic — in LFS.
+    og_card().write_image(str(ASSETS / "og-card.png"), format="png",
+                          width=1200, height=630, scale=1)
     print("wrote", (ASSETS / "og-card.png").relative_to(HERE))

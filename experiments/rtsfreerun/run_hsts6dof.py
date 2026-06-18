@@ -10,7 +10,7 @@ both against the analytic state-space oracle:
   ``DRIVE_EXC − damper_feedback``: recovers the *open-loop* diagonal through the active
   loops (controller cancelled).
 
-Writes ``hsts6dof_recovery.png`` (6×6 |FRF| grid, oracle vs open-loop recovered, with
+Writes ``hsts6dof_recovery.svg`` (6×6 |FRF| grid, oracle vs open-loop recovered, with
 the closed-loop diagonal overlaid). Requires the twin model + archives (see
 ``hsts6dof_loop.py``); prints a notice and exits otherwise.
 """
@@ -86,8 +86,8 @@ def _figure(model, freq, H_open, H_closed):
             ax.tick_params(labelsize=6)
             ax.grid(True, which="both", ls=":", alpha=0.4)
     fig.tight_layout()
-    out = Path(__file__).resolve().parent / "hsts6dof_recovery.png"
-    fig.savefig(out, dpi=130)
+    out = Path(__file__).resolve().parent / "hsts6dof_recovery.svg"   # vector, per the graphics rule
+    fig.savefig(out, format="svg")
     print(f"\n→ {out}")
 
 

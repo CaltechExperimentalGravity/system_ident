@@ -39,5 +39,6 @@ docs/objects.json
 .claude/
 .llm/
 
-# Generated demo figures
+# Generated demo figures (local quick-look artifacts; SVG per the graphics rule)
 experiments/rtsfreerun/*.png
+experiments/rtsfreerun/*.svg

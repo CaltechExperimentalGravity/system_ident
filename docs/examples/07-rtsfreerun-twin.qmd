@@ -1,7 +1,7 @@
 ---
 title: "07 — The compiled LIGO twin (RTSfreerun)"
 description: "The same P&S pipeline on the real compiled-CDS suspension front-end — open-loop under twin seismic+readout noise, then the 6-DOF plant with the production damping loops closed."
-image: thumbnails/07.png
+image: thumbnails/07.svg
 categories: [twin, closed-loop, MIMO]
 freeze: true
 ---

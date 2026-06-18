@@ -35,7 +35,7 @@ from system_ident.config import RunConfig
 from sysid_campaign import run_siso_passes        # noqa: E402
 
 CONFIG = ROOT / "src/system_ident/configs/rtsfreerun_hsts.yml"
-OUT_PNG = Path(__file__).resolve().parent / "hsts_recovery.png"
+OUT_SVG = Path(__file__).resolve().parent / "hsts_recovery.svg"   # vector, per the graphics rule
 PX_TOTAL = 1.0e7          # drive power budget (counts^2); peak stays < COIL_DRIVER_LIMIT
 N_PASSES = 3
 
@@ -113,7 +113,7 @@ def main() -> int:
         print(f"        {f0:6.3f} Hz  Q={q:5.1f}    (truth {ft:6.3f} Hz  Q={qt:5.1f})")
 
     _save_plot(ff, oracle, fit, freq, hist[-1])
-    print(f"\nwrote {OUT_PNG}")
+    print(f"\nwrote {OUT_SVG}")
     return 0
 
 
@@ -135,7 +135,7 @@ def _save_plot(ff, oracle, fit, freq, last):
     ax[2].set_ylabel(r"$\sqrt{P_{xx}}$"); ax[2].set_xlabel("frequency [Hz]"); ax[2].legend()
     for a in ax:
         a.grid(True, which="both", alpha=0.3)
-    fig.tight_layout(); fig.savefig(OUT_PNG, dpi=110); plt.close(fig)
+    fig.tight_layout(); fig.savefig(OUT_SVG, format="svg"); plt.close(fig)
 
 
 if __name__ == "__main__":

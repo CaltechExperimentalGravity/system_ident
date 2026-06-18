@@ -1,7 +1,7 @@
 ---
 title: "06 — Two-by-two coupled suspension (MIMO)"
 description: "A genuine coupled longitudinal/pitch 2×2 plant from a modal expansion — shared normal modes, diagonal notches, real cross-coupling."
-image: thumbnails/06.png
+image: thumbnails/06.svg
 categories: [MIMO, coupling]
 ---
 

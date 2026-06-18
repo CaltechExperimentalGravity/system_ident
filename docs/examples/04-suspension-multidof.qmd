@@ -1,7 +1,7 @@
 ---
 title: "04 — Multi-DoF suspension (full campaign)"
 description: "A 3-DoF POS/PIT/YAW campaign, the same path the CLI runs, with per-DoF diagnostics in tabs."
-image: thumbnails/04.png
+image: thumbnails/04.svg
 categories: [multi-DoF, campaign]
 ---
 

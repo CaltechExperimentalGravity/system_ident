@@ -1,7 +1,7 @@
 ---
 title: "01 — Single resonance (SHO)"
 description: "The smallest complete experiment: a 1 Hz, Q = 20 oscillator, end to end through the full diagnostic set."
-image: thumbnails/01.png
+image: thumbnails/01.svg
 categories: [SISO, resonance]
 ---
 
