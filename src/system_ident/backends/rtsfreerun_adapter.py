@@ -95,7 +95,7 @@ class RTSfreerunBackend(ChannelBackend):
 
     def __init__(self, model=None, *, exc_channels, readback_channels=None, fs=None,
                  noise=None, warmup_s=0.0, saturate=None, seed=None, mdl=None,
-                 scenario=None):
+                 scenario=None, plant_inputs=None):
         if mdl is None:
             if model is None:
                 raise ValueError("RTSfreerunBackend needs a model name or an mdl instance")
@@ -119,6 +119,14 @@ class RTSfreerunBackend(ChannelBackend):
         self.saturate = None if saturate is None else float(saturate)
         self._rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
         self._drives: dict[str, np.ndarray] = {}
+        # Virtual "plant input" channels: the true input to a plant inside a closed
+        # loop = injected drive + the controller's feedback. Reading one reconstructs
+        # ``drive(exc) + coeff·Σ feedback_probes`` (at the model rate, then decimated)
+        # so the reference-based FRF (X = plant input) cancels the loop and recovers
+        # the *open-loop* plant. ``coeff`` (``feedback_coeff``, default ``+1``) carries
+        # the summing-junction sign — e.g. ``-1`` for a ``"+-"`` drive/feedback sum.
+        # {name: {"exc": ch, "feedback": [ch,…], "feedback_coeff": ±1}}.
+        self.plant_inputs = {k: dict(v) for k, v in (plant_inputs or {}).items()}
 
     @classmethod
     def from_config(cls, config: dict, **kwargs) -> "RTSfreerunBackend":
@@ -160,7 +168,14 @@ class RTSfreerunBackend(ChannelBackend):
             cols.append(self._gen_noise(ns, n_total))
         exc_data = np.column_stack(cols) if cols else None
 
-        probe_names = [c for c in channels if c not in self.exc_channels]
+        # Expand any requested virtual plant-input channel into the model probes it
+        # needs (its feedback monitors), so they get fetched alongside the rest.
+        feedback_needed: list[str] = []
+        for c in channels:
+            if c in self.plant_inputs:
+                feedback_needed += self.plant_inputs[c]["feedback"]
+        probe_names = [c for c in dict.fromkeys(list(channels) + feedback_needed)
+                       if c not in self.exc_channels and c not in self.plant_inputs]
         if n_warm > 0:
             self._mdl.run(cycles=n_warm, excitations=names or None,
                           excitation_data=None if exc_data is None else exc_data[:n_warm])
@@ -175,7 +190,14 @@ class RTSfreerunBackend(ChannelBackend):
 
         out: dict[str, np.ndarray] = {}
         for c in channels:
-            if c in self.exc_channels:                      # drive monitor (stashed)
+            if c in self.plant_inputs:                      # virtual: drive ± feedback
+                spec = self.plant_inputs[c]
+                coeff = float(spec.get("feedback_coeff", 1.0))
+                x = self._fit_periodic(self._drives.get(spec["exc"]), n_total)[n_warm:n_total]
+                for fb in spec["feedback"]:
+                    x = x + coeff * fetched.get(fb, np.zeros(n_rec))
+                out[c] = self._to_sysid_rate(x, n_rec)
+            elif c in self.exc_channels:                    # drive monitor (stashed)
                 d = self._fit_periodic(self._drives.get(c), n_total)[n_warm:n_total]
                 out[c] = self._to_sysid_rate(d, n_rec)
             else:                                           # model probe

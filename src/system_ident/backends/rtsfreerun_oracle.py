@@ -139,6 +139,24 @@ def realized_plant_response(mdl, freq, scenario: dict,
     return H
 
 
+def state_space_frf(Ad, Bd, Cd, Dd, fs, freq) -> np.ndarray:
+    """FRF tensor ``H[k, out, in]`` of a **discrete-time** state space at ``freq``.
+
+    The oracle for the ``x1hsts6dof`` composite, whose plant is not foton ZPK but a
+    ``cdsStatespace`` block loaded at run time from the bare-M1 HSTS state space
+    (``twin.plant_loader.load_plant_ss`` → ZOH-discretised → ``mdl.ss_set_abcd``).
+    Evaluates ``C (zI − A)^-1 B + D`` at ``z = exp(j2πf/fs)`` so each ``[out, in]``
+    element is the analytic drive→sensor transfer the MIMO recovery is scored against.
+    """
+    Ad, Bd, Cd, Dd = (np.asarray(M, float) for M in (Ad, Bd, Cd, Dd))
+    z = np.exp(2j * np.pi * np.asarray(freq, float) / float(fs))
+    I = np.eye(Ad.shape[0])
+    H = np.empty((len(z), Cd.shape[0], Bd.shape[1]), dtype=complex)
+    for k, zz in enumerate(z):
+        H[k] = Cd @ np.linalg.solve(zz * I - Ad, Bd) + Dd
+    return H
+
+
 def plant_modes(model: TFModel) -> list[tuple[float, float]]:
     """``(f0_Hz, Q)`` for each conjugate pole pair of ``model``, low → high f0."""
     roots = np.roots(np.asarray(model.den, float))

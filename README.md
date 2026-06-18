@@ -169,6 +169,20 @@ Recovery is gated by `tests/test_rtsfreerun_real_model.py` (A1 wiring/oracle, A2
 SISO recovery), which `skip`s when no model is installed — so the rest of the
 suite is unaffected on machines without the twin.
 
+**Closed-loop, full 6-DOF (A3+A4).** With the `x1hsts6dof` composite built and the
+twin's `sus_hsts_6dof` example archives present (production **L1-MC2** foton banks +
+the bare-M1 HSTS state-space plant), the same P&S reference-FRF identifies the 6×6
+MIMO suspension under the **real damping loops closed around all six DOFs**:
+
+```bash
+python experiments/rtsfreerun/run_hsts6dof.py   # A4 open-loop tensor + A3 closed-loop diagonal
+```
+
+A4 recovers the open-loop FRF tensor (diagonal anti-resonances + L↔P / R↔Y coupling);
+A3 recovers the **open-loop** plant diagonal *through* the closed loops (controller
+cancelled) using the true plant input `DRIVE_EXC − damper_feedback`. Gated by
+`tests/test_rtsfreerun_6dof.py` (skips without the twin archives).
+
 ## Status
 
 Implemented and tested: model / Fisher / excitation, the resonant plant, the

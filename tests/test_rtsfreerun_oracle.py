@@ -65,6 +65,41 @@ def test_prior_from_scenario_perturb_keeps_real_coeffs():
     assert len(modes) == 2 and 1.0 < modes[0][0] < 3.0
 
 
+def test_state_space_frf_matches_scipy_freqz():
+    """SS-plant FRF == scipy.signal.freqz for a known discrete SISO transfer."""
+    import scipy.signal as sig
+    fs = 256.0
+    b = np.array([1.0, -0.5, 0.2]); a = np.array([1.0, -1.3, 0.6])
+    Ad, Bd, Cd, Dd = sig.tf2ss(b, a)
+    freq = np.linspace(1.0, 100.0, 64)
+    H = orc.state_space_frf(Ad, Bd, Cd, Dd, fs, freq)
+    assert H.shape == (64, 1, 1)
+    _, h_ref = sig.freqz(b, a, worN=2 * np.pi * freq / fs)
+    np.testing.assert_allclose(H[:, 0, 0], h_ref, rtol=1e-9, atol=1e-12)
+
+
+def test_state_space_frf_tensor_indexing():
+    """A block-diagonal 2-in/2-out SS gives diagonal FRF, zero off-diagonal."""
+    import scipy.signal as sig
+    fs = 256.0
+    A1, B1, C1, D1 = sig.tf2ss([1.0, 0.0], [1.0, -0.9])
+    A2, B2, C2, D2 = sig.tf2ss([0.5], [1.0, -0.5])
+    Ad = np.block([[A1, np.zeros((A1.shape[0], A2.shape[0]))],
+                   [np.zeros((A2.shape[0], A1.shape[0])), A2]])
+    Bd = np.block([[B1, np.zeros((B1.shape[0], 1))],
+                   [np.zeros((B2.shape[0], 1)), B2]])
+    Cd = np.block([[C1, np.zeros((1, A2.shape[0]))],
+                   [np.zeros((1, A1.shape[0])), C2]])
+    Dd = np.array([[float(D1[0, 0]), 0.0], [0.0, float(D2[0, 0])]])
+    freq = np.linspace(1.0, 100.0, 32)
+    H = orc.state_space_frf(Ad, Bd, Cd, Dd, fs, freq)
+    assert H.shape == (32, 2, 2)
+    np.testing.assert_allclose(H[:, 0, 1], 0.0, atol=1e-12)
+    np.testing.assert_allclose(H[:, 1, 0], 0.0, atol=1e-12)
+    _, h0 = sig.freqz([1.0, 0.0], [1.0, -0.9], worN=2 * np.pi * freq / fs)
+    np.testing.assert_allclose(H[:, 0, 0], h0, rtol=1e-9)
+
+
 def test_analytic_plant_ignores_other_modules():
     """Only the named drive modules contribute to the plant."""
     scen = _scenario()

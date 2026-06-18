@@ -84,6 +84,36 @@ the analytic oracle curve. If they disagree, the oracle (sign/compose/units) is 
 
 ---
 
+## 3a. Implementation update — A3/A4 on `x1hsts6dof` (2026-06-18)
+
+A3/A4 were implemented on the **`x1hsts6dof`** composite (not the single-DOF
+`x1hstsdamped` the table below sketches). `x1hstsdamped`'s damping bank ships
+unconfigured and its scenario never engages it, so its loop stays open — A3 there
+would just repeat A2. The **real** closed loop the project wants is the digital-twin's
+canonical `twin/examples/sus_hsts_6dof` setup: the bare-M1 6×6 HSTS plant (a
+`cdsStatespace` block loaded at run time via `lib.load_plant_continuous`→`ss_set_abcd`)
+with the **real production L1-MC2 top-mass dampers** (`SUS-MC2_M1_DAMP_<dof>` foton
+banks + per-DOF CAL) closed around all six DOFs. Both A3 and A4 run on this one model;
+the helper `experiments/rtsfreerun/hsts6dof_loop.py` reuses the twin example's `lib.py`
+verbatim. Consequences:
+
+- **Oracle** = the discretised state space (`orc.state_space_frf`), **not** the
+  scenario-YAML ZPK cascade A1/A2 use.
+- **A4 (open loop)** = the full 6×6 reference-FRF tensor vs the SS oracle: diagonal
+  anti-resonances <0.1%, dominant L↔P / R↔Y couplings ~0.1–0.2%.
+- **A3 (closed loop)** = the reference FRF with the true plant input
+  `PLANT_IN = DRIVE_EXC − damper_feedback`. The composite's `COIL_DRV_SUM_<dof>` is a
+  **`"+-"`** junction (drive **minus** the delayed `MC2_M1_DAMP` feedback); the plant
+  input is not an exposed channel, so it is reconstructed, and the **feedback sign is
+  load-bearing** (negligible off-resonance, dominant at the damped modes). With the
+  right sign the closed-loop diagonal recovers the open-loop plant to <0.1% for all six
+  DOFs. The adapter gained an additive `plant_inputs={…, "feedback_coeff": -1}` virtual
+  channel so `run_siso_passes` recovers through the loop unchanged.
+- **Gate**: `tests/test_rtsfreerun_6dof.py` (guarded; skips without the twin archives).
+  Off-diagonal *closed-loop* coupling is the genuine MIMO story (Track B), unchanged.
+
+The original four-rung table is retained below for context.
+
 ## 4. The four rungs
 
 Each rung, in order: **build the model into `sysid`** (README recipe; A3/A4 builds happen at their
