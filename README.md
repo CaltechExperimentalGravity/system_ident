@@ -117,6 +117,53 @@ With the dashboard extra installed, drop `--yes` and a live Plotly view
 (transfer function, coherence, designed excitation) is served locally with a
 STOP button that triggers the safe-state handoff.
 
+## Run against the RTSfreerun digital twin (compiled CDS models)
+
+The `--rtsfreerun` path drives a **compiled** advligorts front-end model (built
+from a `.mdl` by [`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun))
+instead of the pure-Python `TwinBackend`, so the identification runs against the
+*same C numerics a real front-end runs*. This needs the same C numerics
+**importable in the same interpreter as `system_ident`** — i.e. the RTSfreerun
+model package installed into this repo's `sysid` env.
+
+> `system_ident` and `rtsfreerun`/`digital_twin` are **separate repos**. We do
+> **not** install `system_ident` into the twin env; instead we install the
+> compiled RTS model(s) into the `sysid` env. (`rtsfreerun` only supports one
+> model per Python process — install whichever model a demo needs.)
+
+**Required, one-time per model.** From the `digital_twin` checkout (the repo that
+contains `rtsfreerun/` + `rtsfreerun-models/`), with the `sysid` env active:
+
+```bash
+conda activate sysid
+
+# 1. RTS build toolchain into sysid (one-time; needs a C/C++ compiler too)
+conda install -c conda-forge make cmake spdlog rapidjson pybind11
+
+# 2. Build + install one model (e.g. x1hsts) into sysid.
+#    RCG_LIB_PATH must point at that model's source dir, and conda's bin must be
+#    first on PATH so the conda cmake/make are used.
+cd <digital_twin>/rtsfreerun
+PATH=$CONDA_PREFIX/bin:$PATH \
+  RCG_LIB_PATH=<digital_twin>/rtsfreerun-models/x1hsts \
+  model=x1hsts pip install .
+
+# 3. Verify it imports in the same interpreter as system_ident
+python -c "import system_ident, x1hsts; print('sample_rate', x1hsts.x1hsts().sample_rate)"
+# -> sample_rate 16384
+```
+
+Repeat step 2 with a different `model=`/`RCG_LIB_PATH` for other models
+(`x1hstsdamped`, `x1hsts6dof`, …). Then run a demo:
+
+```bash
+system_ident run src/system_ident/configs/rtsfreerun_demo.yml --rtsfreerun --yes
+```
+
+Without a model installed, `import x1hsts` fails and the RTSfreerun integration
+test (`tests/test_rtsfreerun_backend.py`) `skip`s its real-model case; the rest
+of the suite is unaffected.
+
 ## Status
 
 Implemented and tested: model / Fisher / excitation, the resonant plant, the
