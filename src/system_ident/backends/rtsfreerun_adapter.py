@@ -95,7 +95,7 @@ class RTSfreerunBackend(ChannelBackend):
 
     def __init__(self, model=None, *, exc_channels, readback_channels=None, fs=None,
                  noise=None, warmup_s=0.0, saturate=None, seed=None, mdl=None,
-                 scenario=None, plant_inputs=None):
+                 scenario=None, plant_inputs=None, ramp_s=3.0):
         if mdl is None:
             if model is None:
                 raise ValueError("RTSfreerunBackend needs a model name or an mdl instance")
@@ -127,6 +127,11 @@ class RTSfreerunBackend(ChannelBackend):
         # the summing-junction sign — e.g. ``-1`` for a ``"+-"`` drive/feedback sum.
         # {name: {"exc": ch, "feedback": [ch,…], "feedback_coeff": ±1}}.
         self.plant_inputs = {k: dict(v) for k, v in (plant_inputs or {}).items()}
+        # Actuator-safe injection: ramp every sysID drive up over ``ramp_s`` s and down
+        # over ``ramp_s`` s (Tukey) across the assembled warmup+record. The ramp-up lands
+        # in the discarded warmup and the ramp-down in the last (dropped) period, so the
+        # leakage-free FRF is unaffected. ``ramp_s=0`` disables it.
+        self.ramp_s = float(ramp_s)
 
     @classmethod
     def from_config(cls, config: dict, **kwargs) -> "RTSfreerunBackend":
@@ -135,6 +140,7 @@ class RTSfreerunBackend(ChannelBackend):
         exc = {chan: dof for dof, chan in ch["excitation"].items()}
         rb = {chan: dof for dof, chan in ch["readback"].items()}
         rts = config.get("rtsfreerun", {})
+        kwargs.setdefault("ramp_s", float(config.get("measurement", {}).get("t_ramp", 3.0)))
         return cls(rts.get("model"), exc_channels=exc, readback_channels=rb,
                    noise=rts.get("noise", []), warmup_s=float(rts.get("warmup_s", 0.0)),
                    saturate=rts.get("saturate"), scenario=rts.get("scenario"), **kwargs)
@@ -154,15 +160,34 @@ class RTSfreerunBackend(ChannelBackend):
     def read(self, channels: list[str], duration: float) -> dict[str, np.ndarray]:
         n_rec = int(round(duration * self.fs_model))
         n_warm = int(round(self.warmup_s * self.fs_model))
-        n_total = n_warm + n_rec
+        # Actuator-safe injection lives OUTSIDE the measured record: the drive ramps up
+        # over ``ramp_s`` s BEFORE the warmup settle (so ``warmup_s`` is still a
+        # full-amplitude settling time) and ramps down over ``ramp_s`` s in a trailing
+        # tail that is not fetched. The measured record stays full-amplitude flat, so the
+        # FRF recovers the plant to within tolerance — NOT bit-identical to the un-ramped
+        # case: the ramp-up shifts the multisine phase seen during settling, leaving a
+        # small high-Q transient residual that ``warmup_s`` must be large enough to absorb
+        # (≈2× the slowest mode's ringdown; the 6-DOF HSTS demo uses 32 s for its ~0.67 Hz
+        # modes). Budget the warmup accordingly when adding a high-Q model.
+        n_ramp = int(round(self.ramp_s * self.fs_model)) if self.ramp_s > 0.0 else 0
+        n_lead = n_ramp + n_warm                            # ramp-up + full-amplitude settle
+        n_total = n_lead + n_rec + n_ramp
 
-        # Assemble excitation columns: the stashed sysID drives + realistic noise,
-        # each tiled/periodic over the warmup+record window.
+        # Assemble excitation columns over lead+record+tail (drives tiled then ramped;
+        # noise/disturbance channels are never ramped). The drive is phase-aligned so the
+        # measured record begins exactly at the injected drive's period start — otherwise
+        # the lead (not a whole number of periods) cyclically shifts the multisine and the
+        # decimation edges turn that shift into FRF bias. Cache the ramped drives so the
+        # drive-monitor and plant-input readbacks reuse the same waveform.
+        ramped: dict[str, np.ndarray] = {
+            chan: self._soft_start_stop(self._fit_periodic(drive, n_total))
+            for chan, drive in self._drives.items()
+        }
         names: list[str] = []
         cols: list[np.ndarray] = []
-        for chan, drive in self._drives.items():
+        for chan in self._drives:
             names.append(chan)
-            cols.append(self._fit_periodic(drive, n_total))
+            cols.append(ramped[chan])
         for ns in self.noise:
             names.append(ns["channel"])
             cols.append(self._gen_noise(ns, n_total))
@@ -176,12 +201,15 @@ class RTSfreerunBackend(ChannelBackend):
                 feedback_needed += self.plant_inputs[c]["feedback"]
         probe_names = [c for c in dict.fromkeys(list(channels) + feedback_needed)
                        if c not in self.exc_channels and c not in self.plant_inputs]
-        if n_warm > 0:
-            self._mdl.run(cycles=n_warm, excitations=names or None,
-                          excitation_data=None if exc_data is None else exc_data[:n_warm])
+        if n_lead > 0:                                       # ramp-up + settle (discarded)
+            self._mdl.run(cycles=n_lead, excitations=names or None,
+                          excitation_data=None if exc_data is None else exc_data[:n_lead])
         fetch = self._mdl.fetch_later(0, duration, probe_names) if probe_names else None
         self._mdl.run(cycles=n_rec, excitations=names or None,
-                      excitation_data=None if exc_data is None else exc_data[n_warm:n_total])
+                      excitation_data=None if exc_data is None else exc_data[n_lead:n_lead + n_rec])
+        if n_ramp > 0:                                       # ramp the actuator down (not fetched)
+            self._mdl.run(cycles=n_ramp, excitations=names or None,
+                          excitation_data=None if exc_data is None else exc_data[n_lead + n_rec:n_total])
 
         fetched: dict[str, np.ndarray] = {}
         if fetch is not None:
@@ -193,12 +221,12 @@ class RTSfreerunBackend(ChannelBackend):
             if c in self.plant_inputs:                      # virtual: drive ± feedback
                 spec = self.plant_inputs[c]
                 coeff = float(spec.get("feedback_coeff", 1.0))
-                x = self._fit_periodic(self._drives.get(spec["exc"]), n_total)[n_warm:n_total]
+                x = self._drive_record(ramped, spec["exc"], n_total, n_lead, n_rec)
                 for fb in spec["feedback"]:
                     x = x + coeff * fetched.get(fb, np.zeros(n_rec))
                 out[c] = self._to_sysid_rate(x, n_rec)
             elif c in self.exc_channels:                    # drive monitor (stashed)
-                d = self._fit_periodic(self._drives.get(c), n_total)[n_warm:n_total]
+                d = self._drive_record(ramped, c, n_total, n_lead, n_rec)
                 out[c] = self._to_sysid_rate(d, n_rec)
             else:                                           # model probe
                 out[c] = self._to_sysid_rate(fetched.get(c, np.zeros(n_rec)), n_rec)
@@ -251,6 +279,19 @@ class RTSfreerunBackend(ChannelBackend):
         frac = Fraction(self.fs / self.fs_model).limit_denominator(100000)
         res = sig.resample_poly(arr, frac.numerator, frac.denominator)
         return self._fit_length(res, n_out)
+
+    def _soft_start_stop(self, col: np.ndarray) -> np.ndarray:
+        """The base on/off ramp over the assembled drive at the model rate."""
+        return ChannelBackend._soft_start_stop(self, col, self.fs_model)
+
+    def _drive_record(self, ramped: dict, chan, n_total: int, n_lead: int,
+                      n_rec: int) -> np.ndarray:
+        """The measured-record slice (full-amplitude flat) of the cached ramped drive —
+        between the leading ramp-up+settle and the trailing ramp-down tail."""
+        col = ramped.get(chan)
+        if col is None:
+            col = self._soft_start_stop(self._fit_periodic(self._drives.get(chan), n_total))
+        return col[n_lead:n_lead + n_rec]
 
     @staticmethod
     def _fit_periodic(x, n: int) -> np.ndarray:

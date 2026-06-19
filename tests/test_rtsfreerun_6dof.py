@@ -32,7 +32,7 @@ pytestmark = pytest.mark.skipif(
     reason="x1hsts6dof model / twin example / production archives not present",
 )
 
-FS, NPERSEG, NPERIODS, NPASSES = 256.0, 4096, 4, 2
+FS, NPERSEG, NPERIODS, NPASSES = 256.0, 4096, 6, 2
 
 
 def _grid():
@@ -51,7 +51,7 @@ def tensors(model):
     """Open- and closed-loop FRF tensors + the analytic oracle, measured once."""
     band, freq = _grid()
     kw = dict(fs=FS, nperseg=NPERSEG, n_periods=NPERIODS, band=band, freq=freq,
-              n_passes=NPASSES, warmup_s=16.0, seed=0)
+              n_passes=NPASSES, warmup_s=32.0, seed=0)
     H_open = model.measure_tensor(closed=False, **kw)
     H_closed = model.measure_tensor(closed=True, **kw)
     return model, freq, H_open, H_closed
@@ -97,7 +97,7 @@ def test_a3_parametric_campaign_recovers_all_dofs(model):
     band, freq = _grid()
     for dof in model.dofs:
         hist = model.parametric_recovery(dof, fs=FS, nperseg=NPERSEG, n_periods=NPERIODS,
-                                         band=band, freq=freq, n_passes=3, warmup_s=16.0)
+                                         band=band, freq=freq, n_passes=3, warmup_s=32.0)
         fit = hist[-1]["model"]
         G = model.oracle_tensor(freq)[:, _idx(model, dof), _idx(model, dof)]
         rel = float(np.median(np.abs(fit.eval(freq) - G) / np.abs(G)))

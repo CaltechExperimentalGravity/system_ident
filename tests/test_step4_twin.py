@@ -20,9 +20,34 @@ EXC = {"C1:EXC_POS": "POS"}
 RB = {"C1:RESP_POS": "POS"}
 
 
-def _single_dof_twin(sensor_asd=0.0, seed=0):
+def _single_dof_twin(sensor_asd=0.0, seed=0, ramp_s=0.0):
+    # ramp_s=0 here: these are unit tests of the plant-filter / impulse / ramp_down
+    # mechanics, where the actuator-safe injection ramp is orthogonal. The ramp default
+    # itself is covered by test_inject_applies_soft_start_stop_ramp.
     plant = SuspensionPlant({"POS": double_pendulum()}, fs=FS)
-    return TwinBackend(plant, EXC, RB, fs=FS, sensor_asd=sensor_asd, seed=seed)
+    return TwinBackend(plant, EXC, RB, fs=FS, sensor_asd=sensor_asd, seed=seed, ramp_s=ramp_s)
+
+
+def test_inject_applies_soft_start_stop_ramp():
+    """By default the injected drive ramps on/off with a **3 s** Tukey taper at each
+    end — actuator-safe; the middle stays at full amplitude and ramp_s=0 disables it."""
+    plant = SuspensionPlant({"POS": double_pendulum()}, fs=FS)
+    drive = np.ones(int(30 * FS))
+    ramped = TwinBackend(plant, EXC, RB, fs=FS, ramp_s=3.0)
+    ramped.inject("C1:EXC_POS", drive, FS)
+    mon = ramped.read(["C1:EXC_POS"], duration=30.0)["C1:EXC_POS"]
+    assert abs(mon[0]) < 1e-9 and abs(mon[-1]) < 1e-9        # tapered on and off
+    assert mon[len(mon) // 2] == pytest.approx(1.0)          # full amplitude in the middle
+    # the taper is specifically 3 s: full by 3 s in (and out), ~half-cosine at 1.5 s,
+    # still ramping at 1 s — a 1 s ramp would already be at full amplitude here.
+    assert mon[int(3.0 * FS)] == pytest.approx(1.0, abs=1e-6)
+    assert mon[-int(3.0 * FS) - 1] == pytest.approx(1.0, abs=1e-6)
+    assert mon[int(1.5 * FS)] == pytest.approx(0.5, abs=0.05)
+    assert mon[int(1.0 * FS)] < 0.8                          # not yet full at 1 s (3 s ramp)
+
+    plain = TwinBackend(plant, EXC, RB, fs=FS, ramp_s=0.0)
+    plain.inject("C1:EXC_POS", drive, FS)
+    assert plain.read(["C1:EXC_POS"], duration=30.0)["C1:EXC_POS"][0] == pytest.approx(1.0)
 
 
 def test_inject_read_applies_plant_filter():

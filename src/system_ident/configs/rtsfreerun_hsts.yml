@@ -35,9 +35,9 @@ measurement:
   freq_min: 0.3
   freq_max: 8.0
   segment_duration: 16.0        # T_fft = 16 s (> 3/f_min); nperseg = 16*256 = 4096
-  n_segments: 4                 # periods averaged in the leakage-free FRF
+  n_segments: 6                 # periods averaged in the leakage-free FRF
   px_total: 1.0e6               # drive power budget (counts^2); keep the peak < COIL_DRIVER_LIMIT
-  t_ramp: 2.0
+  t_ramp: 3.0                  # backend actuator-safe Tukey on/off ramp [s] (ramp up + down)
 
 strategy:
   estimator: gml

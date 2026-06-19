@@ -25,7 +25,7 @@ measurement:
   segment_duration: 64.0
   n_segments: 4
   px_total: 1.0
-  t_ramp: 4.0
+  t_ramp: 3.0                  # backend actuator-safe Tukey on/off ramp [s]
 
 strategy:
   estimator: gml

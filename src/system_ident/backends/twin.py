@@ -56,6 +56,7 @@ class TwinBackend(ChannelBackend):
         response_delay_samples: int = 0,
         saturate: float | None = None,
         coupling: dict | None = None,
+        ramp_s: float = 3.0,
     ) -> None:
         self.plant = plant
         self.exc_channels = dict(exc_channels)
@@ -72,6 +73,7 @@ class TwinBackend(ChannelBackend):
             seed if isinstance(seed, np.random.Generator)
             else np.random.default_rng(seed)
         )
+        self.ramp_s = float(ramp_s)
         self._drives: dict[str, np.ndarray] = {}
         # Discretise each plant TF once (bilinear at the backend rate).
         self._ba = {
@@ -133,6 +135,9 @@ class TwinBackend(ChannelBackend):
         rb = {chan: dof for dof, chan in ch["readback"].items()}
         drive = {chan: dof for dof, chan in ch.get("drive", {}).items()}
         error = {chan: dof for dof, chan in ch.get("error", {}).items()}
+        # The injection on/off ramp (actuator-safe Tukey) is a backend property; take
+        # it from measurement.t_ramp (default 3 s).
+        kwargs.setdefault("ramp_s", float(config.get("measurement", {}).get("t_ramp", 3.0)))
         return cls(plant, exc, rb, drive_channels=drive, error_channels=error, **kwargs)
 
     # -- channel API ---------------------------------------------------------
@@ -145,7 +150,11 @@ class TwinBackend(ChannelBackend):
             ts = sig.resample_poly(ts, frac.numerator, frac.denominator)
         if self.saturate is not None:
             ts = np.clip(ts, -self.saturate, self.saturate)
-        self._drives[self.exc_channels[channel]] = ts
+        # Actuator-safe on/off ramp (shared base helper). The twin has no warmup, so the
+        # tapered first/last periods are simply dropped by the leakage-free FRF
+        # (SysIDLoop._estimate_tf_periodic keeps only the full-amplitude periods); the
+        # middle periods carry the clean estimate.
+        self._drives[self.exc_channels[channel]] = self._soft_start_stop(ts, self.fs)
 
     def read(self, channels: list[str], duration: float) -> dict[str, np.ndarray]:
         n = int(round(duration * self.fs))

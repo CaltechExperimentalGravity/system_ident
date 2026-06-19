@@ -102,7 +102,6 @@ class SysIDLoop:
         band = (f_all >= float(m["freq_min"])) & (f_all <= float(m["freq_max"]))
         freq = f_all[band]
 
-        t_ramp = float(m.get("t_ramp", 0.0))
         # Pintelon-Schoukens periodic-multisine measurement is the only path: a
         # periodic drive measured by a leakage-free synchronous DFT. The first
         # ``n_transient`` periods are dropped (settling) and carry no information,
@@ -159,21 +158,21 @@ class SysIDLoop:
                             it, d, exc[d], rb[d], drive_mon.get(d, exc[d]),
                             models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, n_iter, rng,
-                            result, accum[d], info[d], t_ramp=t_ramp, prior_u=prior_u,
+                            result, accum[d], info[d], prior_u=prior_u,
                         )
                         # stop this DoF's drive before moving to the next
                         self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
                 else:
                     self._inject_all(dofs, exc, models, Pyy, freq, fs, nperseg,
                                      total_dur, px_total, n_iter, rng,
-                                     t_ramp=t_ramp, prior_u=prior_u)
+                                     prior_u=prior_u)
                     for d in dofs:
                         uncertainties[d] = self._measure_dof(
                             it, d, exc[d], rb[d], drive_mon.get(d, exc[d]),
                             models, Pyy, freq, fs,
                             nperseg, band, total_dur, px_total, n_iter, rng,
                             result, accum[d], info[d], reuse_injection=True,
-                            t_ramp=t_ramp, prior_u=prior_u,
+                            prior_u=prior_u,
                         )
 
                 if uncertainties and all(u <= target for u in uncertainties.values()):
@@ -192,7 +191,7 @@ class SysIDLoop:
     def _measure_dof(
         self, it, dof, exc_ch, rb_ch, x_ch, models, Pyy, freq, fs, nperseg, band,
         total_dur, px_total, n_iter, rng, result, accum, info,
-        reuse_injection=False, t_ramp=0.0, prior_u=0.0,
+        reuse_injection=False, prior_u=0.0,
     ) -> float:
         # honour an operator STOP issued between segments (e.g. from the
         # dashboard, which calls watchdog.abort() out of band)
@@ -205,7 +204,7 @@ class SysIDLoop:
         )
 
         if not reuse_injection:
-            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
+            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng)
             self.backend.inject(exc_ch, drive, fs)
 
         # Read the response (Y), the FRF input X (the after-controller drive
@@ -298,13 +297,13 @@ class SysIDLoop:
             )
 
     def _inject_all(self, dofs, exc, models, Pyy, freq, fs, nperseg, total_dur,
-                    px_total, n_iter, rng, t_ramp=0.0, prior_u=0.0):
+                    px_total, n_iter, rng, prior_u=0.0):
         for d in dofs:
             Pxx = self.designer.design(
                 freq, models[d], Pyy[d], px_total, n_iter=n_iter,
                 prior_uncertainty=prior_u,
             )
-            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng, t_ramp)
+            drive = self._make_drive(Pxx, total_dur, fs, freq, nperseg, rng)
             self.backend.inject(exc[d], drive, fs)
 
     @staticmethod
@@ -324,12 +323,15 @@ class SysIDLoop:
         return H_acc, err_acc
 
     # -- excitation / estimation dispatch ------------------------------------
-    def _make_drive(self, Pxx, total_dur, fs, freq, nperseg, rng, t_ramp):
-        """Build the injectable periodic-multisine drive (Pintelon-Schoukens)."""
+    def _make_drive(self, Pxx, total_dur, fs, freq, nperseg, rng):
+        """Build the injectable periodic-multisine drive (Pintelon-Schoukens).
+
+        The multisine stays a clean integer-period tiling — the leakage-free FRF needs
+        whole periods. The actuator-safe on/off ramp is applied by the **backend** at
+        injection (``ChannelBackend.ramp_s``, default 3 s), not baked into the drive.
+        """
         n_periods = int(round(total_dur * fs / nperseg))
-        return multisine_from_psd(
-            Pxx, fs, nperseg, n_periods, freq, seed=rng, t_ramp=t_ramp
-        )
+        return multisine_from_psd(Pxx, fs, nperseg, n_periods, freq, seed=rng)
 
     def _estimate(self, x, y, fs, nperseg, band):
         """Leakage-free periodic-multisine FRF (Pintelon-Schoukens)."""
@@ -408,6 +410,18 @@ class SysIDLoop:
             raise ValueError("periodic FRF needs at least 2 whole periods")
         xr = x[: P * nperseg].reshape(P, nperseg)
         yr = y[: P * nperseg].reshape(P, nperseg)
+        # Keep only the full-amplitude periods. Drives are injected through a soft
+        # Tukey on/off ramp (the backends' default actuator-safe start/stop), so the
+        # first/last period(s) are tapered and carry less energy; averaging them would
+        # bias the leakage-free FRF. Restrict to the contiguous block of full-energy
+        # periods first. A clean (un-ramped) drive has equal-energy periods, so this is
+        # a no-op there.
+        e = (xr ** 2).sum(axis=1)
+        if e.size and e.max() > 0:
+            full = np.flatnonzero(e >= 0.999 * e.max())
+            if full.size >= 2:
+                xr, yr = xr[full[0]: full[-1] + 1], yr[full[0]: full[-1] + 1]
+                P = xr.shape[0]
         X = np.fft.rfft(xr, axis=1)
         Y = np.fft.rfft(yr, axis=1)
 

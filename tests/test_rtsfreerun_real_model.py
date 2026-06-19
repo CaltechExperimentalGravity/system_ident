@@ -34,7 +34,7 @@ from sysid_campaign import run_siso_passes  # noqa: E402  (the P&S campaign the 
 SCENARIO = Path("/Users/rana/Desktop/Dropbox/GIT/digital_twin/twin/scenarios/hsts.yaml")
 
 EXC, DRIVE_MON, SENSOR = "COIL_DRIVER_EXC", "COIL_DRIVER_OUT", "READOUT_NOISE_OUT"
-FS, NPER, NPERIODS = 256.0, 4096, 4
+FS, NPER, NPERIODS = 256.0, 4096, 6
 PX_TOTAL = 1.0e7
 NOISE = [{"channel": "ISI_RESIDUAL_EXC", "kind": "seismic", "params": {"preset": "ligo-india"}},
          {"channel": "READOUT_NOISE_EXC", "kind": "bosem", "params": {"floor": 1e-10}}]

@@ -183,12 +183,14 @@ class HSTS6DOF:
         return best
 
     # -- backend wiring ------------------------------------------------------
-    def backend(self, drive_dof: str, *, fs, noise=None, warmup_s, seed, closed):
+    def backend(self, drive_dof: str, *, fs, noise=None, warmup_s, seed, closed, ramp_s=3.0):
         """An :class:`RTSfreerunBackend` driving ``drive_dof`` on this prepared model.
 
         Sets the loops first, then exposes a virtual ``PLANT_IN_<dof>`` channel =
         ``DRIVE_EXC + MC2_M1_DAMP_OUT`` so a reference-based campaign recovers the
         open-loop plant through the closed loop. Reads back every DOF's sensor.
+        ``ramp_s`` is the backend's Tukey on/off ramp (pass 0 when the caller already
+        ramps the drive itself, e.g. the raw-audit measurements).
         """
         from system_ident.backends.rtsfreerun_adapter import RTSfreerunBackend
         self.set_loops(closed)
@@ -200,7 +202,7 @@ class HSTS6DOF:
                                                "feedback_coeff": self.FEEDBACK_COEFF}}
         return RTSfreerunBackend(mdl=self.mdl, exc_channels=exc, readback_channels=rb,
                                  plant_inputs=plant_in, noise=noise, fs=fs,
-                                 warmup_s=warmup_s, seed=seed)
+                                 warmup_s=warmup_s, seed=seed, ramp_s=ramp_s)
 
     def plant_in(self, d: str) -> str:   return f"PLANT_IN_{d}"
 
