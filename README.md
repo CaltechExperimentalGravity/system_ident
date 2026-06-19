@@ -1,6 +1,6 @@
 [![CI](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml/badge.svg)](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-online-2D9D6B?logo=quarto&logoColor=white)](https://caltechexperimentalgravity.github.io/system_ident/)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-1F8AC0)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-1F8AC0)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-1F8AC0?logo=python&logoColor=white)](https://www.python.org/)
 
 # system_ident
