@@ -88,6 +88,33 @@ def a34(*, n_passes: int = 2) -> SimpleNamespace:
                            rel_closed=m.rel_err_tensor(H_closed, freq))
 
 
+class _SSDiag:
+    """``eval``-able wrapper for one diagonal element of the analytic SS oracle, so
+    the state-space truth can drive :func:`bode_overlay` like a ``TFModel``."""
+    def __init__(self, model, dof):
+        self.model, self.j = model, model.dofs.index(dof)
+
+    def eval(self, ff):
+        return self.model.oracle_tensor(np.asarray(ff, float))[:, self.j, self.j]
+
+
+def a3_parametric(d, dof="L", *, n_passes=4):
+    """The A2-style optimal-excitation parametric campaign on one DoF of the *closed*
+    6-DOF loop — the depth complement to :func:`a34`'s all-DoF breadth table. Returns
+    the recovered model, the SS-oracle truth, the raw FRF, and the CRB fractions.
+    """
+    fs, nper, nseg = 256.0, 4096, 4
+    fa = np.fft.rfftfreq(nper, 1 / fs)
+    band = (fa >= 0.3) & (fa <= 8.0)
+    freq = fa[band]
+    hist = d.model.parametric_recovery(dof, fs=fs, nperseg=nper, n_periods=nseg, band=band,
+                                       freq=freq, n_passes=n_passes, warmup_s=16.0)
+    return SimpleNamespace(dof=dof, ff=np.geomspace(0.3, 8, 400),
+                           oracle=_SSDiag(d.model, dof), oracle_modes=d.model.oracle_prior(dof),
+                           fit=hist[-1]["model"], freq=freq, H_meas=hist[-1]["H_acc"],
+                           fracs=[h["frac"] for h in hist])
+
+
 # ── figures (house style) ─────────────────────────────────────────────────────
 def bode_overlay(ff, oracle, fit, *, freq=None, H_meas=None, title="", height=560):
     """Magnitude+phase Bode: analytic oracle vs the recovered model (+ raw FRF points)."""
@@ -154,14 +181,14 @@ def convergence_fig(fracs, *, target=0.05, height=360):
     return sp.style(fig, height=height)
 
 
-def modes_table(oracle, fit):
+def modes_table(oracle, fit, caption="HSTS drive→sensor modes — analytic vs recovered"):
     om, fm = orc.plant_modes(oracle), orc.plant_modes(fit)
     rows = []
     for (f0, q0), (f1, q1) in zip(om, fm):
         rows.append([f"{f0:.3f}", f"{f1:.3f}", f"{abs(f1 - f0) / f0 * 100:.2f}%",
                      f"{q0:.0f}", f"{q1:.0f}"])
     return sp.param_table(["oracle f₀ [Hz]", "recovered f₀", "Δf₀", "oracle Q", "recovered Q"],
-                          rows, caption="HSTS drive→sensor modes — analytic vs recovered")
+                          rows, caption=caption)
 
 
 def diag_table(d):

@@ -89,6 +89,32 @@ in a thousand — the controller is cancelled, not fit. That is the whole point 
 reference-based closed-loop identification: you measure the suspension you want to model, not
 the suppressed loop you happened to be running.
 
+That table is the *breadth* result — all six loops cancelled at once, nonparametrically. The
+*depth* result is the **same parametric campaign as [A2](#a1a2-open-loop-siso-under-the-twins-own-noise)**,
+now run through a closed loop. Taking the longitudinal (L) DoF: we seed an analytic modal prior
+(its order chosen from the state-space oracle — L carries five modes; pitch and yaw carry fewer,
+and over-modelling them is what used to break the optimal-excitation design), then run the
+prior-robust → point-optimal refinement against the reconstructed plant input.
+
+```{python}
+#| code-summary: "A3 depth — the optimal-excitation parametric campaign, loops closed (L DoF)"
+a3 = rd.a3_parametric(d, "L", n_passes=4)
+rd.bode_overlay(a3.ff, a3.oracle, a3.fit, freq=a3.freq, H_meas=a3.H_meas,
+                title="L drive→sense — open-loop oracle vs closed-loop parametric recovery")
+```
+
+The recovered model sits on the **open-loop** state-space oracle through all five modes — even
+though the L damper (and the other five) are live. The modal parameters return to the analytic
+truth, and the Cramér–Rao uncertainty falls pass over pass exactly as in the open-loop case: a
+closed loop costs nothing here, because the reference-based estimate never saw it.
+
+```{python}
+#| code-summary: "Closed-loop modal recovery + CRB convergence (L DoF)"
+display(rd.modes_table(a3.oracle_modes, a3.fit,
+                       caption="L-DoF modes — open-loop oracle vs closed-loop recovery"))
+rd.convergence_fig(a3.fracs)
+```
+
 ## A4 · The full 6×6 MIMO tensor
 
 Opening the loops and driving each input DOF in turn gives the complete drive→sense FRF
