@@ -122,6 +122,66 @@ class HSTS6DOF:
         from system_ident.backends import rtsfreerun_oracle as orc
         return orc.state_space_frf(self.Ad, self.Bd, self.Cd, self.Dd, self.fs_model, freq)
 
+    def oracle_prior(self, dof, *, fmin=0.3, fmax=8.0, max_modes=7, npts=500,
+                     degen_tol=0.05, band_pad=1.5):
+        """Parametric modal prior for ``dof``'s open-loop diagonal, fit from the
+        analytic SS oracle, with the model **order chosen per DoF**.
+
+        The six HSTS DoFs carry different numbers of in-band modes (L=5, T=3, V=2,
+        R=4, P=5, Y=3). Fitting them all at a fixed high order *over-parameterises*
+        the low-order ones — the extra pole pairs land out-of-band (V picks up 44 Hz /
+        1.3 kHz ghosts) or collapse into a near-degenerate doublet (Y's 1.08/1.09),
+        and those near-cancelling pole/zero pairs make the Fisher matrix singular →
+        ``optimal_excitation`` → ``dispersion`` → ``pinv`` crashes with *SVD did not
+        converge*. So we grow the order one mode at a time and stop **before** an order
+        that (a) adds a mode outside ``[fmin/band_pad, fmax·band_pad]``, (b) adds a mode
+        within ``degen_tol`` of another, or (c) no longer improves the oracle fit.
+        """
+        from system_ident.model import TFModel
+        from system_ident.estimators.gml import GMLEstimator
+        from system_ident.backends import rtsfreerun_oracle as orc
+
+        j = self.dofs.index(dof)
+        ff = np.geomspace(fmin, fmax, npts)
+        G = self.oracle_tensor(ff)[:, j, j]
+        err = np.full(len(ff), 1e-6) * np.abs(G)
+        est = GMLEstimator()
+
+        def fit(nm):
+            fz = np.geomspace(0.4, 6.0, nm)
+            poles = []
+            for f in fz:
+                w = 2 * np.pi * f
+                poles += [-w / 40 + 1j * w, -w / 40 - 1j * w]
+            den = np.real(np.poly(poles))
+            num = np.zeros(len(den) - 2)
+            num[-1] = abs(G[0]) * den[-1]
+            return est.fit(ff, G, err, TFModel(num=num, den=den))
+
+        def rel(model):
+            return float(np.median(np.abs(model.eval(ff) - G) / np.abs(G)))
+
+        def acceptable(model):
+            ms = sorted(f for f, _ in orc.plant_modes(model))
+            if any(f < fmin / band_pad or f > fmax * band_pad for f in ms):
+                return False                                   # out-of-band ghost
+            return all((b - a) / a >= degen_tol for a, b in zip(ms, ms[1:]))  # not degenerate
+
+        best, best_rel = fit(1), None
+        best_rel = rel(best)
+        for nm in range(2, max_modes + 1):
+            try:
+                cand = fit(nm)
+            except np.linalg.LinAlgError:
+                break
+            if not acceptable(cand):
+                break
+            r = rel(cand)
+            if r >= best_rel * 0.95:                           # no meaningful gain → done
+                break
+            best, best_rel = cand, r
+        return best
+
     # -- backend wiring ------------------------------------------------------
     def backend(self, drive_dof: str, *, fs, noise=None, warmup_s, seed, closed):
         """An :class:`RTSfreerunBackend` driving ``drive_dof`` on this prepared model.
@@ -218,6 +278,29 @@ class HSTS6DOF:
             Hn, _ = SysIDLoop._accumulate(acc_n, hn, en)
         G = self.oracle_tensor(freq)[:, j, j]
         return Hr, Hn, G
+
+    def parametric_recovery(self, dof, *, fs, nperseg, n_periods, band, freq,
+                            px_total=1.0e7, n_passes=4, warmup_s=20.0, seed=0, closed=True):
+        """A2-style optimal-excitation campaign recovering ``dof``'s diagonal plant.
+
+        Seeds :meth:`oracle_prior` (auto per-DoF order), then runs the same
+        ``run_siso_passes`` campaign the SISO examples use — prior-robust drive, then
+        point-optimal refinement with CRB accumulation — against the reconstructed
+        plant input (loops closed). Returns the per-pass history list.
+        """
+        import sys as _sys
+        _docs = Path(__file__).resolve().parents[2] / "docs"
+        if str(_docs) not in _sys.path:
+            _sys.path.insert(0, str(_docs))
+        from sysid_campaign import run_siso_passes
+
+        prior = self.oracle_prior(dof)
+        be = self.backend(dof, fs=fs, warmup_s=warmup_s, seed=seed, closed=closed)
+        return run_siso_passes(be, self.exc(dof), self.readout(dof), prior,
+                               x_ch=self.plant_in(dof), fs=fs, nperseg=nperseg,
+                               n_periods=n_periods, band=band, freq=freq,
+                               Pyy=np.ones_like(freq), px_total=px_total,
+                               n_passes=n_passes, prior_uncertainty=0.3, seed=seed)
 
     def rel_err_tensor(self, H, freq):
         """Median per-element relative error ``|H − oracle| / |oracle|`` over ``freq``."""

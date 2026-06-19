@@ -21,6 +21,14 @@ from ..fisher import dispersion
 from ..model import TFModel
 from .base import InputDesigner
 
+# Never let a drive bin starve to ~0: the dispersion function divides by ``Pxx[i]``
+# (it is analytically removable — the per-bin Fisher density ``∝ Pxx[i]`` — but goes
+# 0/0 → NaN numerically at an exactly-zero bin, which then poisons the next Fisher
+# matrix and crashes the design with "SVD did not converge"). Flooring every bin at a
+# tiny fraction of the peak keeps the reweight well-posed and guarantees a sliver of
+# excitation (hence identifiability) everywhere in band.
+_EXC_FLOOR_FRAC = 1e-8
+
 
 def optimal_excitation(
     freq: np.ndarray,
@@ -59,6 +67,9 @@ def optimal_excitation(
     for cnt in range(n_iter):
         nu, gamma = dispersion(freq, model, Pxx, Pyy, dpar=dpar, logflag=logflag)
         Pxx = Pxx * nu
+        peak = np.max(Pxx)
+        if peak > 0:
+            Pxx = np.maximum(Pxx, _EXC_FLOOR_FRAC * peak)   # no bin starves to ~0
         Pxx *= Px_tot / trapezoid(Pxx, freq)
         Pxx_rec[cnt] = Pxx
         nu_rec[cnt] = nu

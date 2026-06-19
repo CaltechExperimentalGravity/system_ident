@@ -53,6 +53,17 @@ def test_dispersion_matches_oracle(oracle):
 
 
 def test_optimal_excitation_matches_oracle(oracle):
+    """Matches the legacy reweighting on the power-carrying bins, and floors the rest.
+
+    We deliberately diverge from the legacy engine in one way: every drive bin is
+    floored at ``_EXC_FLOOR_FRAC`` of the peak (``pintelon._EXC_FLOOR_FRAC``) so the
+    dispersion function can never divide by a starved bin (which otherwise NaNs and
+    crashes the design — see the pitch/yaw HSTS DoFs). That floor only moves
+    *negligible* bins; on the bins that carry real power the reweighting still
+    reproduces the legacy engine to <1e-6, and the Fisher matrices match.
+    """
+    from system_ident.design.pintelon import _EXC_FLOOR_FRAC
+
     model, freq, Pyy, Px_tot, T_tot = _demo_setup()
     n_iter = 4
 
@@ -64,9 +75,38 @@ def test_optimal_excitation_matches_oracle(oracle):
         rec_progress=True,
     )
 
-    np.testing.assert_allclose(Pxx_rec, Pxx_rec0, rtol=1e-7, atol=0)
-    np.testing.assert_allclose(nu_rec, nu_rec0, rtol=1e-7, atol=0)
-    np.testing.assert_allclose(gamma_rec, gamma_rec0, rtol=1e-7, atol=0)
+    # The Fisher matrices are integrals dominated by the power-carrying bins -> match.
+    np.testing.assert_allclose(gamma_rec, gamma_rec0, rtol=1e-5, atol=0)
+    # On the bins legacy spends real power, the floored design still reproduces it.
+    for it in range(n_iter):
+        sig = Pxx_rec0[it] > 1e-6 * Pxx_rec0[it].max()
+        np.testing.assert_allclose(Pxx_rec[it][sig], Pxx_rec0[it][sig], rtol=1e-5)
+        np.testing.assert_allclose(nu_rec[it][sig], nu_rec0[it][sig], rtol=1e-5)
+        # ...and no bin is left starved (the property the floor guarantees).
+        assert Pxx_rec[it].min() >= 0.5 * _EXC_FLOOR_FRAC * Pxx_rec[it].max()
+
+
+def test_excitation_floor_survives_concentrated_design():
+    """Regression: a sharp resonance over a wide band makes the optimal drive
+    concentrate so hard that off-resonance bins underflow to exactly 0 — the
+    dispersion function then divided 0/0 → NaN → ``pinv`` 'SVD did not converge'
+    (the pitch/yaw HSTS DoFs). The ``_EXC_FLOOR_FRAC`` floor must keep every pass
+    finite and floored."""
+    from system_ident.design.pintelon import optimal_excitation, _EXC_FLOOR_FRAC
+    from system_ident.model import TFModel
+
+    freq = np.linspace(0.1, 50.0, 2000)             # wide band, one narrow mode
+    model = TFModel.from_resonances([(1.0, 200.0)], 1.0)   # very high Q
+    Pyy = np.ones_like(freq)
+
+    Pxx_rec, nu_rec, gamma_rec = optimal_excitation(
+        freq, model, Pyy, 1.0, n_iter=6, rec_progress=True
+    )
+    assert np.all(np.isfinite(Pxx_rec)) and np.all(np.isfinite(nu_rec))
+    assert np.all(np.isfinite(gamma_rec))
+    assert np.all(Pxx_rec > 0)
+    for it in range(Pxx_rec.shape[0]):
+        assert Pxx_rec[it].min() >= 0.5 * _EXC_FLOOR_FRAC * Pxx_rec[it].max()
 
 
 def test_designer_returns_budgeted_psd():

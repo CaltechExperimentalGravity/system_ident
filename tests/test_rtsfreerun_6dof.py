@@ -89,6 +89,22 @@ def test_a3_closed_loop_recovers_open_loop_plant(tensors):
     assert np.all(diag < 0.01), dict(zip(model.dofs, np.round(diag, 4)))
 
 
+def test_a3_parametric_campaign_recovers_all_dofs(model):
+    """The A2-style optimal-excitation parametric campaign recovers every DoF's
+    closed-loop diagonal — including pitch/yaw, which over-parameterise (V has 2
+    modes, Y has 3) and used to crash the optimal-excitation design with an SVD
+    failure until the per-DoF prior order + the excitation floor landed."""
+    band, freq = _grid()
+    for dof in model.dofs:
+        hist = model.parametric_recovery(dof, fs=FS, nperseg=NPERSEG, n_periods=NPERIODS,
+                                         band=band, freq=freq, n_passes=3, warmup_s=16.0)
+        fit = hist[-1]["model"]
+        G = model.oracle_tensor(freq)[:, _idx(model, dof), _idx(model, dof)]
+        rel = float(np.median(np.abs(fit.eval(freq) - G) / np.abs(G)))
+        assert rel < 0.02, f"{dof}: parametric campaign median rel-err {rel:.4f}"
+        assert hist[-1]["frac"] <= hist[0]["frac"]            # CRB uncertainty does not grow
+
+
 def test_a3_feedback_sign_matters(tensors, model):
     """Sanity that A3 is a real closed-loop test: with the wrong feedback sign
     (drive **+** feedback), the damped-resonance recovery is badly biased — so the
