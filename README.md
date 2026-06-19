@@ -1,6 +1,11 @@
 [![CI](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml/badge.svg)](https://github.com/CaltechExperimentalGravity/system_ident/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-online-2D9D6B?logo=quarto&logoColor=white)](https://caltechexperimentalgravity.github.io/system_ident/)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-1F8AC0)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-1F8AC0?logo=python&logoColor=white)](https://www.python.org/)
 
 # system_ident
+
+**📖 Documentation: [caltechexperimentalgravity.github.io/system_ident](https://caltechexperimentalgravity.github.io/system_ident/)**
 
 Real-time, optimal-excitation system identification for LIGO suspensions
 (3-DoF: POS / Pitch / Yaw), built as a single Pintelon–Schoukens (P&S) pipeline,
@@ -15,6 +20,23 @@ toward the Cramér–Rao bound. A digital-twin backend and a (stubbed) CDS-hardw
 backend share one channel API, so simulation and hardware are interchangeable; a
 physical-safety watchdog performs a safe-state handoff on any stop; and an
 optional websocket dashboard renders the measurement as it converges.
+
+## Documentation
+
+The full documentation site is rendered from this repo and published to GitHub Pages:
+**<https://caltechexperimentalgravity.github.io/system_ident/>**.
+
+- **[Worked examples](https://caltechexperimentalgravity.github.io/system_ident/examples/)** —
+  end-to-end P&S campaigns from a single resonance to a coupled 2×2 MIMO suspension, plus
+  the [compiled-LIGO-twin closed-loop demo](https://caltechexperimentalgravity.github.io/system_ident/examples/07-rtsfreerun-twin.html)
+  (open- and closed-loop 6-DOF identification on the real CDS model).
+- **[Tutorial](https://caltechexperimentalgravity.github.io/system_ident/tutorial/overview.html)** —
+  the method end to end: the [model](https://caltechexperimentalgravity.github.io/system_ident/tutorial/model.html),
+  [Fisher information & optimal excitation](https://caltechexperimentalgravity.github.io/system_ident/tutorial/fisher.html),
+  [closing the loop](https://caltechexperimentalgravity.github.io/system_ident/tutorial/closing-the-loop.html),
+  and [safety & ops](https://caltechexperimentalgravity.github.io/system_ident/tutorial/safety-and-ops.html).
+- **[API reference](https://caltechexperimentalgravity.github.io/system_ident/reference/)** —
+  the package surface, generated from docstrings.
 
 ## Architecture
 
