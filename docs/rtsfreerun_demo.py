@@ -258,26 +258,55 @@ def bode_overlay(ff, oracle, fit, *, freq=None, H_meas=None, title="", height=56
                     line=dict(color="black", width=2.4), showlegend=False)
     fig.add_scatter(x=ff, y=np.unwrap(np.angle(Hf)) * 180 / np.pi, mode="lines", row=2, col=1,
                     line=dict(color=sp.GOLD, width=2, dash="dash"), showlegend=False)
+    # Explicit log-y range tied to the data (top ~6 decades): without it plotly
+    # auto-ranges over the full magnitude including the anti-resonance nulls (~1e-18),
+    # which squashes the modes into an unreadable band. The nulls fall off the bottom.
+    mags = [np.abs(Ho), np.abs(Hf)]
+    if freq is not None and H_meas is not None:
+        mags.append(np.abs(H_meas[np.abs(H_meas) > 0]))
+    yr = sp._logy_range(mags, decades=6)
     fig.update_xaxes(type="log", row=1, col=1)
     fig.update_xaxes(type="log", title_text="frequency [Hz]", row=2, col=1)
-    fig.update_yaxes(type="log", row=1, col=1)
+    fig.update_yaxes(type="log", range=yr, row=1, col=1)
     if title:
         fig.update_layout(title=title)
     return sp.style(fig, height=height)
+
+
+def offdiag_scale(d):
+    """The single factor every off-diagonal |FRF| is multiplied by so the weak
+    cross-coupling sits on the diagonal scale: ``diag_peak / strongest_off-diag_peak``
+    rounded to a power of ten (here ×100 — the diagonals peak ~18, the strongest
+    coupling ~0.15)."""
+    G = d.G
+    n = len(d.dofs)
+    diag_peak = max(np.abs(G[:, i, i]).max() for i in range(n))
+    off_peak = max((np.abs(G[:, i, j]).max() for i in range(n) for j in range(n) if i != j),
+                   default=diag_peak)
+    return 10.0 ** round(np.log10(diag_peak / off_peak)) if off_peak > 0 else 1.0
 
 
 def tensor_grid(d, *, height=980, decades=6):
     """6×6 |FRF| grid: analytic oracle (line) vs open-loop recovered (A4, points),
     with the closed-loop recovery (A3) overlaid in green on the diagonal.
 
-    All 36 panels share one fixed ``decades``-wide log-magnitude range with sparse
-    (2-decade) power-format ticks shown only on the outer panels — otherwise plotly
-    auto-ranges each panel over ~10 decades and stacks an unreadable wall of ticks.
+    The diagonals are plotted at their true scale; **every off-diagonal element is
+    multiplied by one shared factor** (:func:`offdiag_scale`, ×100 here) so the weak
+    cross-coupling is visible alongside the diagonals instead of squashed at the floor.
+    The off-diagonal panels are flagged ``×N`` in their row/col so the scaling is never
+    silent. All 36 panels share one fixed ``decades``-wide log range with sparse
+    power-format ticks on the outer panels.
     """
     dofs, freq, G = d.dofs, d.freq, d.G
     n = len(dofs)
-    mags = np.abs(G).ravel()
-    yhi = float(np.ceil(np.log10(mags[mags > 0].max())))      # top decade (diagonal peaks)
+    s = offdiag_scale(d)
+    fac = lambda i, j: 1.0 if i == j else s                   # the per-panel multiplier
+    # Range tight to the actual (scaled) data: top just above the peak, ``decades`` below.
+    # The diagonal anti-resonance nulls and the (numerically zero) decoupled off-diagonal
+    # pairs fall off the bottom — that is correct; what must stay on-axis is the diagonal
+    # mode structure and the real L↔P / R↔Y couplings (×s), which span the top ~3 decades.
+    scaled_peak = max(np.abs(G[:, i, j]).max() * fac(i, j) for i in range(n) for j in range(n))
+    yhi = float(np.log10(scaled_peak)) + 0.15
     ylo = yhi - decades
     xt = [0.3, 1.0, 3.0]
     fig = make_subplots(rows=n, cols=n, shared_xaxes=True, shared_yaxes=True,
@@ -288,10 +317,11 @@ def tensor_grid(d, *, height=980, decades=6):
         for j in range(n):
             r, c = i + 1, j + 1
             first = (i == 0 and j == 0)
-            fig.add_scatter(x=freq, y=np.abs(G[:, i, j]), mode="lines", row=r, col=c,
-                            line=dict(color="black", width=1.3), name="oracle",
-                            legendgroup="o", showlegend=first)
-            fig.add_scatter(x=freq, y=np.abs(d.H_open[i, j]), mode="markers", row=r, col=c,
+            k = fac(i, j)
+            fig.add_scatter(x=freq, y=np.abs(G[:, i, j]) * k, mode="lines", row=r, col=c,
+                            line=dict(color="black", width=1.3),
+                            name=f"oracle  (off-diag ×{s:g})", legendgroup="o", showlegend=first)
+            fig.add_scatter(x=freq, y=np.abs(d.H_open[i, j]) * k, mode="markers", row=r, col=c,
                             marker=dict(color=sp.ROSE, size=2.6), name="A4 open-loop",
                             legendgroup="a4", showlegend=first)
             if i == j:
@@ -305,6 +335,9 @@ def tensor_grid(d, *, height=980, decades=6):
                              exponentformat="power", showticklabels=(j == 0),
                              tickfont=dict(size=9))
     fig.update_xaxes(title_text="frequency [Hz]", row=n, col=1)
+    fig.update_layout(title=dict(
+        text=f"|FRF| tensor — diagonals at true scale, <b>off-diagonals ×{s:g}</b>",
+        x=0.5, xanchor="center", font=dict(size=14)))
     return sp.style(fig, height=height)
 
 

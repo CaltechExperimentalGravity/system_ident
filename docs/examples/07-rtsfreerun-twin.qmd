@@ -192,6 +192,12 @@ genuine cross-coupling — strongest on the L↔P and R↔Y pairs the suspension
 dictates. Each per-pair FRF is overlaid on its analytic state-space element below (black line),
 with the closed-loop diagonal recovery from A3 in green on the diagonal.
 
+The cross-coupling is small — the diagonals peak near 18, the strongest off-diagonal near 0.15.
+So the **diagonals are drawn at their true scale, and every off-diagonal element is multiplied by
+one shared factor (×100)** to lift it onto the same axis (noted in the figure title and the
+"oracle" legend entry). The scaling is purely for visibility; it is the same number for all 30
+off-diagonal panels, so their *relative* magnitudes are preserved.
+
 ```{python}
 #| code-summary: "6×6 |FRF| tensor — oracle vs open-loop (A4) and closed-loop diagonal (A3)"
 rd.tensor_grid(d)
