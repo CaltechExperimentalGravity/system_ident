@@ -35,6 +35,19 @@ from system_ident.loop import SysIDLoop  # noqa: E402
 
 CONFIG = _ROOT / "src" / "system_ident" / "configs" / "rtsfreerun_hsts.yml"
 
+_X1HSTS = None
+
+
+def _x1hsts_model():
+    """The single ``x1hsts`` instance for the page. rtsfreerun allows only one model
+    per process, so the audit and the campaign (both on x1hsts) must share it; each
+    re-applies the scenario init and clears filter history before driving."""
+    global _X1HSTS
+    if _X1HSTS is None:
+        import x1hsts
+        _X1HSTS = x1hsts.x1hsts()
+    return _X1HSTS
+
 
 def tukey_multisine(Pxx, fs, nperseg, n_periods, freq, *, ramp_s=3.0, seed=0):
     """A periodic multisine, tiled ``n_periods`` times, under a **Tukey amplitude
@@ -63,7 +76,6 @@ def _steady_frf(seg, xch, rsp, fs, nperseg, band, *, n_lead, n_trail):
 # ── A2 — open-loop SISO recovery of the compiled x1hsts plant under twin noise ──
 def a2_recovery(*, seed: int = 1, n_passes: int = 3) -> SimpleNamespace:
     import yaml
-    import x1hsts
 
     raw = yaml.safe_load(open(CONFIG))
     scen = orc.load_scenario(raw["rtsfreerun"]["scenario"])
@@ -78,7 +90,7 @@ def a2_recovery(*, seed: int = 1, n_passes: int = 3) -> SimpleNamespace:
     xmon = raw["channels"]["drive"]["POS"]
     rb = raw["channels"]["readback"]["POS"]
 
-    mdl = x1hsts.x1hsts()
+    mdl = _x1hsts_model()
     orc.apply_scenario_init(mdl, scen)
     modules = sorted({op["fm"] for op in scen.get("init", []) if "fm" in op})
     mdl.fm_clear_history(*modules)
@@ -106,7 +118,6 @@ def a2_audit(*, seed: int = 1, n_periods: int = 8, ramp_s: float = 3.0,
     leakage-free FRF (with coherence) from the steady periods and ML-fit it.
     """
     import yaml
-    import x1hsts
 
     raw = yaml.safe_load(open(CONFIG))
     scen = orc.load_scenario(raw["rtsfreerun"]["scenario"])
@@ -119,7 +130,7 @@ def a2_audit(*, seed: int = 1, n_periods: int = 8, ramp_s: float = 3.0,
     exc, xmon, rb = (raw["channels"]["excitation"]["POS"], raw["channels"]["drive"]["POS"],
                      raw["channels"]["readback"]["POS"])
 
-    mdl = x1hsts.x1hsts()
+    mdl = _x1hsts_model()
     orc.apply_scenario_init(mdl, scen)
     mdl.fm_clear_history(*sorted({op["fm"] for op in scen.get("init", []) if "fm" in op}))
 
@@ -371,6 +382,8 @@ def bode_audit_fig(a, *, fit=None, height=760):
 
 
 def residuals_fig(a, fit, *, height=380):
-    """Normalised FRF residual ``(measured − fit)/σ`` over the excited lines."""
-    resid = (a.H - fit.eval(a.freq)) / a.H_err
+    """Normalised FRF residual ``Re[(measured − fit)/σ]`` over the excited lines — the
+    in-phase part, which is ~N(0,1) for a well-specified noise model (the complex
+    residual's real and imaginary parts are each standard-normal)."""
+    resid = np.real((a.H - fit.eval(a.freq)) / a.H_err)
     return sp.residuals(a.freq, resid, mask=a.excited, height=height)

@@ -49,6 +49,55 @@ The FRF input is the **after-actuator drive monitor**, so the coil driver divide
 recovered transfer is the bare suspension. *(A1 — the wiring/oracle smoke test that gates this
 page — lives in the test suite; here we go straight to recovery.)*
 
+### What you'd watch in the control room — one raw measurement
+
+Before any fitting, here is the raw audit: a single broadband measurement, exactly the channels
+you would trend at the front end. The drive is injected through a **3 s Tukey on/off ramp**
+(actuator-safe — you never slam a suspension), held at full amplitude through the measured
+periods, then ramped back down; the readout is the real 16-bit sensor under the twin's seismic +
+BOSEM noise. Nothing here is fitted — it is what went in and what came out.
+
+```{python}
+#| code-summary: "One raw open-loop measurement (Tukey-ramped broadband drive, twin noise)"
+a2a = rd.a2_audit(seed=1)
+rd.drive_response_fig(a2a)
+```
+
+You can see the drive ramp up over 3 s, the suspension ring up to steady state, and the readout
+carry the modes plus the broadband sensor/seismic floor. The measurement uses only the flat
+middle periods (the leakage-free, integer-period window), so the ramps fall in discarded settle.
+
+```{python}
+#| code-summary: "Excitation design — the flat audit drive vs the point-optimal ASD"
+rd.exc_design_fig(a2a)
+```
+
+The audit drives **flat** in-band (every line illuminated, so coherence is interpretable
+everywhere); the campaign below instead spends its power budget where the Fisher information is —
+the gold ASD concentrates at the five modes. Now the leakage-free reference FRF and its
+**per-line coherence** — where on the band do we actually trust this measurement?
+
+```{python}
+#| code-summary: "Measured FRF vs oracle, with per-line coherence"
+rd.bode_audit_fig(a2a, fit=a2a.fit)
+```
+
+Coherence sits at ~1 across the driven band (deterministic drive, modest noise); the measured FRF
+(markers, with σ error bars) lands on the analytic oracle, and a quick ML fit threads it. The
+**residuals** — normalised `(measured − fit)/σ` — should be a structureless ±2 scatter with a
+standard-normal histogram if the noise model is right:
+
+```{python}
+#| code-summary: "Normalised FRF residuals — should be ~N(0,1)"
+rd.residuals_fig(a2a, a2a.fit)
+```
+
+### Optimal-excitation campaign
+
+The audit above is a single flat sweep. The actual identification is the P&S **optimal-excitation
+campaign**: a prior-robust first pass, then point-optimal refinement that concentrates the drive
+where the Fisher information is, folding each pass in by inverse-variance and refitting.
+
 ```{python}
 #| code-summary: "Run the A2 optimal-excitation campaign against compiled x1hsts"
 a2 = rd.a2_recovery(seed=1, n_passes=3)
@@ -56,10 +105,8 @@ rd.bode_overlay(a2.ff, a2.oracle, a2.fit, freq=a2.freq, H_meas=a2.H_meas,
                 title="x1hsts drive→sensor — analytic oracle vs P&S recovery (noise on)")
 ```
 
-The recovered model tracks the oracle through every mode and anti-resonance. Because the
-prior-robust first pass is followed by point-optimal excitation, the drive concentrates power
-where the Fisher information is — so the parameter uncertainty falls pass over pass while the
-peak drive stays well under the coil-driver limit.
+The recovered model tracks the oracle through every mode and anti-resonance, and the parameter
+uncertainty falls pass over pass while the peak drive stays well under the coil-driver limit.
 
 ```{python}
 #| code-summary: "Modal recovery + uncertainty convergence"
@@ -88,6 +135,28 @@ With the loops closed, every diagonal element comes back as the **open-loop** pl
 in a thousand — the controller is cancelled, not fit. That is the whole point of a
 reference-based closed-loop identification: you measure the suspension you want to model, not
 the suppressed loop you happened to be running.
+
+#### What the cancellation looks like in the raw time series
+
+To see *why* it works, here is one raw closed-loop measurement on the L DoF — the four channels a
+control-room audit would log: the injected `DRIVE_EXC`, the **damper feedback** it provokes, the
+**reconstructed plant input** (drive − feedback, the `"+-"` `COIL_DRV_SUM` node), and the sensor
+readout — all with the loops live.
+
+```{python}
+#| code-summary: "One raw closed-loop measurement — drive, damper feedback, plant input, readout"
+a3a = rd.a3_audit(d, "L")
+rd.loop_timeseries_fig(a3a)
+```
+
+The damper output is non-trivial (the loop is genuinely active), and the plant input is the drive
+*minus* it. Taking the FRF against that reconstructed plant input — not the injected drive —
+cancels the controller and returns the open-loop plant, with coherence at unity:
+
+```{python}
+#| code-summary: "Closed-loop reference FRF vs the OPEN-loop oracle, with coherence"
+rd.bode_audit_fig(a3a)
+```
 
 That table is the *breadth* result — all six loops cancelled at once, nonparametrically. The
 *depth* result is the **same parametric campaign as [A2](#a1a2-open-loop-siso-under-the-twins-own-noise)**,
