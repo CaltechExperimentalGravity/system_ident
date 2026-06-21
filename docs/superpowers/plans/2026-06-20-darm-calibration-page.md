@@ -671,23 +671,35 @@ git commit -m "feat(darm): recover response R(f), sensing C(g,f_cc,tau), and act
 - Consumes: `DARMLoop`, `DARMBackend`, `SysIDLoop._estimate_tf_periodic`, `multisine_from_psd`.
 - Produces:
   - `multisine_response_sigma(loop, *, nperseg, n_periods, px_total, seed) -> (freq, R, R_sigma, T_total)` — runs ONE Pcal multisine over the whole band; `T_total = nperseg*n_periods/fs`.
-  - `swept_sine_response_sigma(loop, freq_points, T_total, px_total, *, seed) -> (freq_points, R_sigma)` — splits `T_total` into `len(freq_points)` dwells, each a single-line multisine carrying the full `px_total`, measured on the same twin; returns σ(R) at each point. Same noise model, same wall-clock, same total power.
+  - `swept_sine_response_sigma(loop, freq_points, *, nperseg, dwell_periods, px_total, seed) -> (freq_points, R_sigma, T_used)` — each frequency a single-line, **full-power**, **ramp-free** dwell of `dwell_periods` periods (≥2, so a per-bin variance can be formed; ramp-free so the swept baseline is *not* handicapped by the actuator ramp). Returns the absolute σ(R) at each point and the honest wall-clock `T_used = len(points)·dwell_periods·nperseg/fs` the sweep spends.
+  - `sweep_time_to_match_coverage(loop, *, nperseg, dwell_periods) -> float` — wall-clock for a sweep to visit *every* band bin for `dwell_periods` each: the coverage the single multisine window buys in `n_periods·nperseg/fs` s.
+
+**Why this shape (verified during planning):** at 1 Hz bins a dense (e.g. 40-point) sweep cannot fit in equal wall-clock. The honest framing is: in the SAME `T_total`, the multisine measures all ~1490 band bins at once while a sweep at `dwell_periods=2` resolves only `T_total·fs/(dwell_periods·nperseg)` ≈ 8 frequencies — and matching the multisine's full-band coverage costs the sweep ~`sweep_time_to_match_coverage/T_total` ≈ 185× longer. The twin's representative noise (`sensor_asd≈300`, `disturbance_asd≈3e-4`) is set so per-bin σ(R)/R is a visible ~1% (NOT the effectively-noise-free 1e-8 the original plan's `sensor_asd=1e-3` against `g_C=1e6` produced). Also: `n_periods=16` (not 8) so the 3 s ramp leaves ~10 full periods → `P_eff≈9` → a *genuine* per-bin variance; at `n_periods=8` only 2 full periods survive → `P_eff=1` → `H_err` collapses to the 1e-9 floor and the CRB envelope would be fabricated.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/test_darm.py (append)
-from system_ident.darm import multisine_response_sigma, swept_sine_response_sigma
+from system_ident.darm import (multisine_response_sigma, swept_sine_response_sigma,
+                               sweep_time_to_match_coverage)
 
 def test_comparison_harness_produces_both_envelopes():
-    loop = DARMLoop.default(); loop.disturbance_asd = 1e-19; loop.sensor_asd = 1e-3
-    freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=4096, n_periods=8,
+    loop = DARMLoop.default(); loop.disturbance_asd = 3e-4; loop.sensor_asd = 300.0
+    freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=4096, n_periods=16,
                                                  px_total=1.0, seed=0)
     good = np.isfinite(R_sig)
-    assert np.all(R_sig[good] > 0) and T == pytest.approx(8.0, rel=1e-6)
-    pts = np.geomspace(loop.fmin, loop.fmax, 30)
-    fp, s = swept_sine_response_sigma(loop, pts, T, px_total=1.0, seed=0)
+    assert np.all(R_sig[good] > 0) and T == pytest.approx(16.0, rel=1e-6)
+    # honest, visible, representative uncertainty — NOT floored to ~1e-9, not absurd
+    frac = R_sig[good] / np.abs(R[good])
+    assert 1e-3 < np.median(frac) < 5e-2
+    # equal wall-clock: 8 points × 2 periods × 1 s = the same 16 s
+    pts = np.geomspace(loop.fmin, loop.fmax, 8)
+    fp, s, T_used = swept_sine_response_sigma(loop, pts, nperseg=4096, dwell_periods=2,
+                                              px_total=1.0, seed=0)
     assert s.shape == pts.shape and np.all(np.isfinite(s) & (s > 0))
+    assert T_used == pytest.approx(16.0, rel=1e-6)
+    # covering the whole band by sweep costs far more than the one multisine window
+    assert sweep_time_to_match_coverage(loop, nperseg=4096, dwell_periods=2) > 20 * T
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -710,8 +722,13 @@ def _band_grid(loop, nperseg):
     return fa, band, fa[band]
 
 
-def multisine_response_sigma(loop, *, nperseg=4096, n_periods=8, px_total=1.0, seed=0):
-    """One Pcal multisine over the whole band → R(f) and its per-bin σ (CRB envelope)."""
+def multisine_response_sigma(loop, *, nperseg=4096, n_periods=16, px_total=1.0, seed=0):
+    """One Pcal multisine over the whole band → R(f) and its per-bin σ (CRB envelope).
+
+    n_periods=16: with the 3 s actuator ramp this leaves ~10 full-energy periods
+    (P_eff≈9), so the per-bin variance is genuinely estimated — not the floored,
+    fabricated uncertainty that n_periods=8 (only 2 full periods → P_eff=1) produces.
+    """
     fa, band, freq = _band_grid(loop, nperseg)
     Pxx = np.full_like(freq, px_total / (freq[-1] - freq[0]))
     be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
@@ -725,31 +742,45 @@ def multisine_response_sigma(loop, *, nperseg=4096, n_periods=8, px_total=1.0, s
     return freq, R, R_sigma, T_total
 
 
-def swept_sine_response_sigma(loop, freq_points, T_total, px_total=1.0, *, seed=0):
-    """Swept sine on the same twin: one single-line dwell per point, full power each,
-    total wall-clock = T_total.  Returns σ(R) at each requested frequency."""
+def swept_sine_response_sigma(loop, freq_points, *, nperseg=4096, dwell_periods=2,
+                              px_total=1.0, seed=0):
+    """Idealised swept sine on the same twin: each frequency a single-line, full-power,
+    **ramp-free** dwell of ``dwell_periods`` periods (≥2, so a per-bin variance can be
+    formed; ramp-free so the baseline is not handicapped by the 3 s actuator ramp).
+
+    Returns ``(freq_points, R_sigma, T_used)`` — absolute σ(R) per point and the honest
+    wall-clock ``T_used = len·dwell_periods·nperseg/fs`` the sweep spends.
+    """
     freq_points = np.asarray(freq_points, dtype=float)
-    dwell = T_total / len(freq_points)
-    nperseg = int(round(loop.fs / 1.0))            # 1 Hz bins, like the multisine
-    n_per = max(2, int(round(dwell * loop.fs / nperseg)))
+    nperseg = int(nperseg)
+    n_per = max(2, int(dwell_periods))
     fa = np.fft.rfftfreq(nperseg, d=1.0 / loop.fs)
-    sigmas = np.full(len(freq_points), np.inf)
+    out = np.full(len(freq_points), np.inf)
     rng = np.random.default_rng(seed)
     for i, fpt in enumerate(freq_points):
         k = int(np.argmin(np.abs(fa - fpt)))
-        line = np.array([fa[k]])
         Pxx = np.array([px_total / (fa[1] - fa[0])])   # all power on the one line
         band = (fa >= fa[k] - 1e-9) & (fa <= fa[k] + 1e-9)
-        be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=rng)
-        x = multisine_from_psd(Pxx, loop.fs, nperseg, n_per, line, seed=rng)
+        be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=rng, ramp_s=0.0)
+        x = multisine_from_psd(Pxx, loop.fs, nperseg, n_per, np.array([fa[k]]), seed=rng)
         be.inject("PCAL_EXC", x, loop.fs)
         seg = be.read(["PCAL_EXC", "DARM_ERR"], (nperseg * n_per) / loop.fs)
+        # ramp-free single tone → no transient → keep all periods (n_transient=0)
         H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["PCAL_EXC"], seg["DARM_ERR"],
-                                                      loop.fs, nperseg, band, n_transient=1)
+                                                      loop.fs, nperseg, band, n_transient=0)
         sel = np.isfinite(H_err) & (np.abs(H) > 0)
         if np.any(sel):
-            sigmas[i] = float(np.min(H_err[sel] / np.abs(H[sel]) ** 2))
-    return freq_points, sigmas
+            R, R_sigma = recover_response(H, H_err)
+            out[i] = float(np.min(R_sigma[sel]))      # absolute σ(R) at the driven line
+    T_used = len(freq_points) * n_per * nperseg / loop.fs
+    return freq_points, out, T_used
+
+
+def sweep_time_to_match_coverage(loop, *, nperseg=4096, dwell_periods=2):
+    """Wall-clock for a swept sine to visit EVERY band bin for ``dwell_periods`` each —
+    the full-band coverage the single multisine window gets in n_periods·nperseg/fs s."""
+    _, _, freq = _band_grid(loop, nperseg)
+    return len(freq) * max(2, int(dwell_periods)) * nperseg / loop.fs
 ```
 
 Note on the import cycle: `darm.py` importing `backends.darm_adapter` which imports `darm` — Python handles this because the adapter only needs `DARMLoop` (defined before the bottom-of-file import runs). If an `ImportError` appears, move these three helper functions into a new `src/system_ident/darm_compare.py` that imports both. Prefer keeping them in `darm.py` with the import at the bottom (after the class) as written.
@@ -814,13 +845,15 @@ if str(_DOCS) not in sys.path:
 import sysid_plots as sp  # noqa: E402
 from system_ident.darm import (  # noqa: E402
     DARMLoop, recover_response, fit_sensing, recover_actuation,
-    multisine_response_sigma, swept_sine_response_sigma,
+    multisine_response_sigma, swept_sine_response_sigma, sweep_time_to_match_coverage,
 )
 from system_ident.backends.darm_adapter import DARMBackend  # noqa: E402
 from system_ident.excitation import multisine_from_psd  # noqa: E402
 from system_ident.loop import SysIDLoop  # noqa: E402
 
-NPERSEG, NPER = 4096, 8
+# NPER=16 so the 3 s ramp leaves ~10 full periods → a genuine per-bin variance
+# (P_eff≈9). NPER=8 would leave only 2 full periods → P_eff=1 → fabricated CRB bars.
+NPERSEG, NPER = 4096, 16
 
 
 def _grid(loop):
@@ -830,9 +863,13 @@ def _grid(loop):
 
 
 def _twin(seed=1):
+    # Representative noise tuned so the per-bin σ(R)/R is a visible ~1% (the O4-era
+    # cal target scale), NOT the effectively-noise-free ~1e-8 that a tiny sensor_asd
+    # against g_C=1e6 gives. disturbance (length noise, via C/(1+G)) is comparable at
+    # the low band; sensor (readout, via 1/(1+G)) dominates higher — a two-component floor.
     loop = DARMLoop.default()
-    loop.disturbance_asd = 2.0e-19    # representative length-noise floor [m/√Hz]
-    loop.sensor_asd = 2.0e-3          # representative DARM readout noise [ct/√Hz]
+    loop.disturbance_asd = 3.0e-4     # representative length-noise floor [m/√Hz]
+    loop.sensor_asd = 300.0           # representative DARM readout noise [ct/√Hz]
     return loop
 
 
@@ -892,14 +929,18 @@ def comparison(seed=0):
     loop = _twin()
     freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=NPERSEG, n_periods=NPER,
                                                  px_total=1.0, seed=seed)
-    pts = np.geomspace(loop.fmin, loop.fmax, 40)
-    fp, ssweep = swept_sine_response_sigma(loop, pts, T, px_total=1.0, seed=seed)
-    # express as fractional sigma(R)/|R|
-    Rmag = np.abs(loop.R(freq))
-    Rmag_pts = np.abs(loop.R(fp))
-    return SimpleNamespace(loop=loop, freq=freq, frac_ms=R_sig / Rmag,
+    # equal wall-clock sweep: in the SAME T, a 2-period dwell resolves only ~T*fs/(2*nperseg)
+    # frequencies (= NPER//2 = 8 points here), vs the multisine's whole-band coverage.
+    n_pts = NPER // 2
+    pts = np.geomspace(loop.fmin, loop.fmax, n_pts)
+    fp, ssweep, T_used = swept_sine_response_sigma(loop, pts, nperseg=NPERSEG,
+                                                   dwell_periods=2, px_total=1.0, seed=seed)
+    t_cover = sweep_time_to_match_coverage(loop, nperseg=NPERSEG, dwell_periods=2)
+    return SimpleNamespace(loop=loop, freq=freq, frac_ms=R_sig / np.abs(loop.R(freq)),
                            excited=np.isfinite(R_sig), pts=fp,
-                           frac_sweep=ssweep / Rmag_pts, T=T)
+                           frac_sweep=ssweep / np.abs(loop.R(fp)),
+                           T=T, T_used=T_used, t_cover=t_cover,
+                           n_bins=int(np.isfinite(R_sig).sum()), n_pts=n_pts)
 
 
 # ── figures (house style; data-driven y-ranges) ───────────────────────────────
@@ -972,24 +1013,32 @@ def actuation_table(d):
 
 
 def comparison_fig(c, *, height=520):
+    """Equal wall-clock: the multisine's dense whole-band σ(R)/R envelope vs the few
+    frequencies a swept sine resolves in the same time. The sweep points sit on (or
+    below) the envelope because each spends full power on one line — but it only reaches
+    `n_pts` frequencies; matching the multisine's coverage costs it `t_cover` (annotated)."""
     m = c.excited
     fig = go.Figure()
     fig.add_scatter(x=c.freq[m], y=c.frac_ms[m], mode="lines",
-                    name="P&S multisine (whole band, one window)",
+                    name=f"P&S multisine — all {c.n_bins} bins in one {c.T:.0f} s window",
                     line=dict(color=sp.GOLD, width=2.6))
-    fig.add_scatter(x=c.pts, y=c.frac_sweep, mode="lines+markers",
-                    name="swept sine (same wall-clock, point by point)",
-                    line=dict(color=sp.GRAY, width=2.0, dash="dash"),
-                    marker=dict(color=sp.GRAY, size=sp.MK_DATA))
+    fig.add_scatter(x=c.pts, y=c.frac_sweep, mode="markers",
+                    name=f"swept sine — {c.n_pts} points in the same {c.T_used:.0f} s",
+                    marker=dict(color=sp.GRAY, size=sp.MK_BIG, symbol="x",
+                                line=dict(width=1.5)))
     yr = sp._logy_range([c.frac_ms[m], c.frac_sweep], decades=4)
     fig.update_xaxes(type="log", title_text="frequency [Hz]")
     fig.update_yaxes(type="log", range=yr, title_text="σ(R)/|R|")
-    fig.update_layout(title=f"Fractional response uncertainty for equal wall-clock "
-                            f"(T = {c.T:.0f} s) — same twin, same noise")
+    fig.add_annotation(x=0.5, y=1.0, xref="paper", yref="paper", yanchor="bottom",
+                       showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.INK),
+                       text=f"same band coverage by sweep ≈ {c.t_cover/60:.0f} min "
+                            f"({c.t_cover/c.T:.0f}× the one multisine window)")
+    fig.update_layout(title="Fractional response uncertainty — same twin, same noise, "
+                            "equal wall-clock")
     return sp.style(fig, height=height)
 
 
-def fom_table():
+def fom_table(c=None):
     rows = [
         ["Frequencies per measurement", "1 (dwell)", "all band bins at once"],
         ["Leakage", "windowed / settle each point", "leakage-free (periodic)"],
@@ -997,9 +1046,12 @@ def fom_table():
         ["Budget allocation", "uniform / manual", "CRB-optimal (Fisher-matched)"],
         ["Loop handling", "model out the servo", "FRF cancels it (reference-based)"],
     ]
+    if c is not None:
+        rows.append([f"Time for full-band coverage", f"≈{c.t_cover/60:.0f} min",
+                     f"{c.T:.0f} s (one window)"])
     return sp.param_table(["figure of merit", "swept sine", "P&S multisine"], rows,
                           caption="Where the multisine method differs for DARM "
-                                  "(representative; the σ(R)/hr claim is shown above, not asserted)")
+                                  "(representative; the efficiency is shown above, not asserted)")
 ```
 
 - [ ] **Step 2: Append the glue smoke test and run it**
@@ -1142,18 +1194,20 @@ display(dd.actuation_table(d))
 ## Head-to-head with the swept sine
 
 Same twin, same disturbance + readout noise, same total wall-clock. The multisine measures
-every bin at once; the swept sine spends the clock one frequency at a time. Both produce a
-fractional `σ(R)/|R|` envelope — shown, not asserted.
+every bin at once; the swept sine spends the clock one frequency at a time, so in equal time
+it reaches only a handful of frequencies (each tight, because it spends full power there) —
+and covering the whole band to the same uncertainty costs it ~100× longer. Shown on the same
+twin, not asserted.
 
 ```{python}
-#| code-summary: "σ(R)/|R| — multisine vs swept sine, equal wall-clock"
+#| code-summary: "σ(R)/|R| — multisine (whole band) vs swept sine (few points), equal wall-clock"
 c = dd.comparison(seed=0)
 dd.comparison_fig(c)
 ```
 
 ```{python}
 #| code-summary: "Where the methods differ"
-display(dd.fom_table())
+display(dd.fom_table(c))
 ```
 
 ## Honest gaps
