@@ -1,9 +1,14 @@
-# NOTE: run `quartodoc build` (from this docs/ dir) before `quarto render` —
-# it generates reference/*.qmd and reference/_sidebar.yml referenced below.
+# The API reference under reference/ is GENERATED and gitignored: `quartodoc build`
+# reads the `quartodoc:` config below and writes reference/*.qmd + reference/_sidebar.yml.
+# The pre-render hook runs it automatically before every `quarto render`, so the reference
+# can never drift from the code (CI does the same on a fresh checkout). `python -m quartodoc`
+# is used rather than the bare `quartodoc` console script so it resolves under `conda run`.
 project:
   type: website
   output-dir: _site
   execute-dir: project   # run every page from docs/ so `import sysid_plots` resolves
+  pre-render:
+    - python -m quartodoc build
   render:
     - index.qmd
     - tutorial/*.qmd
