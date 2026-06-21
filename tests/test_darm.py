@@ -119,7 +119,7 @@ def test_backend_inject_ramps_drive():
 from system_ident.darm import recover_response, fit_sensing, recover_actuation
 
 def _run_pcal(loop, seed=3):
-    nperseg, nper = 4096, 8
+    nperseg, nper = 4096, 16
     fa, band, freq = _band_grid(loop, nperseg)
     be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
     Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
@@ -131,16 +131,26 @@ def _run_pcal(loop, seed=3):
     return freq, band, H, H_err
 
 def test_recover_response_tracks_truth():
-    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    loop = DARMLoop.default(); loop.sensor_asd = 300.0; loop.disturbance_asd = 3e-4
     freq, band, H, H_err = _run_pcal(loop)
     R, R_sig = recover_response(H, H_err)
     good = np.isfinite(H_err)
-    rel = np.abs(R[good] - loop.R(freq)[good]) / np.abs(loop.R(freq)[good])
-    assert np.median(rel) < 5e-3
+    R_true = loop.R(freq)[good]
+    rel = np.abs(R[good] - R_true) / np.abs(R_true)
+    # R tracks truth to within the measurement noise (~1% per bin here) — not tighter,
+    # because the recovery is genuinely noise-limited (the 5e-3 the old P_eff=1 regime
+    # hit was an artefact of floored, fabricated error bars).
+    assert np.median(rel) < 1.5e-2
     assert np.all(R_sig[good] > 0)
+    # honesty check: the recovery error is consistent with its OWN CRB envelope — the
+    # normalised residual |R-R_true|/sigma is order unity, so sigma neither under- nor
+    # over-states the true uncertainty (a floored sigma would blow this up; an inflated
+    # one would crush it).
+    z = np.abs(R[good] - R_true) / R_sig[good]
+    assert 0.3 < np.median(z) < 3.0
 
 def test_fit_sensing_recovers_pole_and_delay():
-    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    loop = DARMLoop.default(); loop.sensor_asd = 300.0; loop.disturbance_asd = 3e-4
     freq, band, H, H_err = _run_pcal(loop)
     C_meas = H * (1.0 + loop.G(freq))            # expose C with the known (1+G)
     p, sig_ = fit_sensing(freq, C_meas, H_err*np.abs(1+loop.G(freq)),
@@ -150,8 +160,8 @@ def test_fit_sensing_recovers_pole_and_delay():
     assert abs(p["g_c"] - 1e6)/1e6 < 0.05
 
 def test_recover_actuation_kappas():
-    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
-    nperseg, nper = 4096, 8
+    loop = DARMLoop.default(); loop.sensor_asd = 300.0; loop.disturbance_asd = 3e-4
+    nperseg, nper = 4096, 16
     fa, band, freq = _band_grid(loop, nperseg)
     # Pcal reference
     freqp, _, Hp, Hp_err = _run_pcal(loop)
@@ -169,3 +179,15 @@ def test_recover_actuation_kappas():
         k, ks = recover_actuation(freq, Hi, Hp, N, comb_err)
         assert abs(k - true_k)/true_k < 0.05
         assert ks > 0
+
+def test_pcal_uncertainty_is_genuinely_estimated():
+    """NPER=16 leaves enough full periods that the per-bin FRF variance is REAL
+    (not the 1e-9 floor) — so the page's CRB envelope is measured, not fabricated."""
+    loop = DARMLoop.default(); loop.sensor_asd = 300.0; loop.disturbance_asd = 3e-4
+    freq, band, H, H_err = _run_pcal(loop)
+    R, R_sig = recover_response(H, H_err)
+    good = np.isfinite(H_err)
+    frac = R_sig[good] / np.abs(R[good])
+    assert np.median(frac) > 5e-3        # visible, not the ~1e-8 of a too-clean twin
+    assert np.median(frac) < 5e-2        # representative, not absurd
+    assert np.mean(H_err[good] / np.abs(H[good]) < 2e-9) < 0.05   # <5% of bins at the floor
