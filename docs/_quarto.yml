@@ -30,6 +30,8 @@ website:
         menu:
           - href: tutorial/overview.qmd
             text: The method
+          - href: tutorial/why-optimal-excitation.qmd
+            text: Why optimal excitation
           - href: tutorial/model.qmd
             text: The model
           - href: tutorial/fisher.qmd
