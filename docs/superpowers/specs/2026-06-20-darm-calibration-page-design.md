@@ -40,8 +40,8 @@ R(f)  = (1 + G) / C            # the calibration deliverable (counts → displac
   - **Process disturbance** `x_free` — length/seismic noise entering the loop, so it appears at
     `d_err` shaped by the closed loop (`C/(1+G)`-colored), *not* white.
   - **Sensing noise** `n` — additive readout noise on `d_err` (flat-ish).
-  These mirror `TwinBackend.disturbance_asd` vs `sensor_asd`. The P&S Local Polynomial Method
-  estimates the **per-bin noise covariance from this real mixture** — it is not handed an assumed
+  These mirror `TwinBackend.disturbance_asd` vs `sensor_asd`. The P&S period-to-period variance
+  gives the **per-bin noise covariance from this real mixture** — it is not handed an assumed
   white floor. That is the methodological point of the page.
 
 ## 3. Measurement campaigns and recovery
@@ -61,8 +61,8 @@ Excitations are P&S periodic multisines, injected through the backend's 3 s Tuke
    - A Pcal-only measurement cannot separate `κ_U/κ_PU/κ_T` (degenerate inside `G`); the separate
      stage drives are what break the degeneracy. This is the real DARM-cal procedure.
 
-All per-bin uncertainties come from the LPM covariance on the real disturbance+sensing mixture;
-parameter CRBs come from the existing Fisher machinery.
+All per-bin uncertainties come from the period-to-period variance on the real disturbance+sensing
+mixture; parameter CRBs come from the existing Fisher machinery.
 
 ## 4. Head-to-head vs the swept sine
 

@@ -1042,7 +1042,7 @@ def fom_table(c=None):
     rows = [
         ["Frequencies per measurement", "1 (dwell)", "all band bins at once"],
         ["Leakage", "windowed / settle each point", "leakage-free (periodic)"],
-        ["Noise model", "assumed / averaged", "per-bin from period scatter (LPM)"],
+        ["Noise model", "assumed / averaged", "per-bin, from period-to-period variance"],
         ["Budget allocation", "uniform / manual", "CRB-optimal (Fisher-matched)"],
         ["Loop handling", "model out the servo", "FRF cancels it (reference-based)"],
     ]

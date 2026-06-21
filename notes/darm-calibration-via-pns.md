@@ -119,7 +119,7 @@ Steps 1–4 are the `system_ident` loop unchanged; only the channels and the pla
 | **σ(R(f)), 20 Hz–2 kHz** | ~few‑%/few‑° (O3); O4 target <1%/1° [1,2,6] | Same envelope machinery; leakage‑free shape removes a known bias term; CRB gives a principled statistical floor | P&S on *shape* bias; **must be demonstrated**, not assumed |
 | **Sweep time for that σ** | ~1 hr / ~60 pts (20 Hz–1.2 kHz); **hours/point >1 kHz** [8] | All bins measured simultaneously in one window; CRB concentrates the budget where it matters | P&S — biggest expected gain is **>1 kHz** and total wall‑clock |
 | **Line/comb contamination of the strain band** | 4–5 narrow lines, subtractable [4,5,6] | A *comb* sits in band — more lines. Mitigate: run in non‑observing time (as the broadband cross‑check already does [8]), or known‑phase ⇒ subtractable, or use only for the periodic full measurement | **Baseline** — this is P&S's real cost; quantify the footprint honestly |
-| **Non‑stationarity** (`f_cc`, optical gain, ESD charge drift within a sweep) | Mitigated by continuous TDCF lines; but a 1‑hr sweep spans real drift [5] | Whole TF in **one short stationary window**; periodic averaging + LPM give a nonparametric noise estimate and tolerate smooth drift | **P&S** — structurally the right tool |
+| **Non‑stationarity** (`f_cc`, optical gain, ESD charge drift within a sweep) | Mitigated by continuous TDCF lines; but a 1‑hr sweep spans real drift [5] | Whole TF in **one short stationary window**; periodic averaging + the period‑to‑period variance give a nonparametric noise estimate and tolerate smooth drift | **P&S** — structurally the right tool |
 | **Systematic vs statistical separation** | MCMC + GP residual (GP term dominates) [1] | Leakage‑free ⇒ smaller method bias near `f_cc`; CRB ⇒ explicit statistical envelope | P&S, *if* the model is right (same model‑error exposure as today) |
 | **Pcal absolute traceability** | Radiation‑pressure standard, 0.3–0.15% (O4) [9] | **Unchanged** — injected through the same Pcal | Tie |
 
@@ -137,7 +137,7 @@ The two things that limited O3b — *frequency‑dependent modelling of `R(f)`* 
 time‑for‑accuracy cost above 1 kHz [8] — are precisely the two things a leakage‑free,
 optimally‑excited, periodically‑averaged measurement is designed to improve, at no cost to the
 Pcal standard. The method is not exotic: broadband Pcal injection already exists [8]; P&S simply
-makes it *periodic* (leakage‑free), *optimally shaped* (CRB), and *self‑error‑barred* (LPM),
+makes it *periodic* (leakage‑free), *optimally shaped* (CRB), and *self‑error‑barred* (period‑to‑period variance),
 instead of unoptimised colored noise used only offline.
 
 ---
@@ -145,7 +145,7 @@ instead of unoptimised colored noise used only offline.
 ## 6. Gaps and what must be validated before claiming anything
 
 - **No prior art.** The literature search found **zero** applications of Pintelon–Schoukens
-  optimal multisine / LPM to GW‑detector calibration. The existing broadband Pcal injection is
+  optimal multisine / period‑variance noise estimate to GW‑detector calibration. The existing broadband Pcal injection is
   *not* this. State the novelty precisely: not "broadband injection" (old), but "optimal‑excitation
   frequency‑domain ID with quantified efficiency and a measured noise model" (absent). [8,15]
 - **The efficiency claim must be quantified, not asserted.** Spreading power across a comb lowers
