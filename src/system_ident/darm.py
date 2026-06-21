@@ -59,9 +59,9 @@ class DARMLoop:
     @classmethod
     def default(cls) -> "DARMLoop":
         stages = {
-            "UIM": (_pendulum_stage(0.43, 300.0, 4.0e-7), 1.00),
-            "PUM": (_pendulum_stage(1.00, 200.0, 8.0e-8), 0.40),
-            "TST": (_pendulum_stage(3.40, 100.0, 1.2e-8), 0.08),
+            "UIM": (_pendulum_stage(0.43, 300.0, 4.0e5), 1.00),
+            "PUM": (_pendulum_stage(1.00, 200.0, 8.0e4), 0.40),
+            "TST": (_pendulum_stage(3.40, 100.0, 1.2e4), 0.08),
         }
         return cls(stages=stages)
 
