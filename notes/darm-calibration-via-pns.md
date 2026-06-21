@@ -82,10 +82,10 @@ error bar** — injected through the *same Pcal*, so the absolute standard is un
 The four ingredients (this is the pipeline `system_ident` already implements for suspensions; the
 quad actuation stages *are* suspensions):
 
-1. **Periodic multisine, Schroeder‑phased.** A sum of harmonically related lines whose period is
-   exactly the analysis window, tiled `N` periods. Schroeder phases give a low crest factor, so
-   under the Pcal force limit the comb carries **more in‑band power than a single swept sine** at
-   the same peak force — the limiting resource for Pcal above ~1 kHz. [15]
+1. **Periodic multisine.** A sum of harmonically related lines whose period is exactly the
+   analysis window, tiled `N` periods. The win over a swept sine is **simultaneity** — every
+   frequency is measured at once in one window — not crest‑factor; Pcal force is not the binding
+   constraint here, so the phases need not be Schroeder‑optimised, a plain multisine is enough. [15]
 2. **Leakage‑free synchronous‑DFT FRF.** Because the drive is periodic over the window, an
    integer‑period DFT is leakage‑free: the sharp `f_cc` roll‑off and any resonance are measured
    **without the windowing bias** that a one‑off record incurs. This directly attacks the O3b
@@ -117,7 +117,7 @@ Steps 1–4 are the `system_ident` loop unchanged; only the channels and the pla
 | FOM | Swept‑sine baseline | P&S multisine | Who wins |
 |---|---|---|---|
 | **σ(R(f)), 20 Hz–2 kHz** | ~few‑%/few‑° (O3); O4 target <1%/1° [1,2,6] | Same envelope machinery; leakage‑free shape removes a known bias term; CRB gives a principled statistical floor | P&S on *shape* bias; **must be demonstrated**, not assumed |
-| **Sweep time for that σ** | ~1 hr / ~60 pts (20 Hz–1.2 kHz); **hours/point >1 kHz** [8] | All bins simultaneously in one window; low crest factor packs more power under the force limit; CRB concentrates it where it matters | P&S — biggest expected gain is **>1 kHz** and total wall‑clock |
+| **Sweep time for that σ** | ~1 hr / ~60 pts (20 Hz–1.2 kHz); **hours/point >1 kHz** [8] | All bins measured simultaneously in one window; CRB concentrates the budget where it matters | P&S — biggest expected gain is **>1 kHz** and total wall‑clock |
 | **Line/comb contamination of the strain band** | 4–5 narrow lines, subtractable [4,5,6] | A *comb* sits in band — more lines. Mitigate: run in non‑observing time (as the broadband cross‑check already does [8]), or known‑phase ⇒ subtractable, or use only for the periodic full measurement | **Baseline** — this is P&S's real cost; quantify the footprint honestly |
 | **Non‑stationarity** (`f_cc`, optical gain, ESD charge drift within a sweep) | Mitigated by continuous TDCF lines; but a 1‑hr sweep spans real drift [5] | Whole TF in **one short stationary window**; periodic averaging + LPM give a nonparametric noise estimate and tolerate smooth drift | **P&S** — structurally the right tool |
 | **Systematic vs statistical separation** | MCMC + GP residual (GP term dominates) [1] | Leakage‑free ⇒ smaller method bias near `f_cc`; CRB ⇒ explicit statistical envelope | P&S, *if* the model is right (same model‑error exposure as today) |
@@ -149,9 +149,9 @@ instead of unoptimised colored noise used only offline.
   *not* this. State the novelty precisely: not "broadband injection" (old), but "optimal‑excitation
   frequency‑domain ID with quantified efficiency and a measured noise model" (absent). [8,15]
 - **The efficiency claim must be quantified, not asserted.** Spreading power across a comb lowers
-  per‑bin SNR; the win comes from simultaneity + low crest factor + CRB allocation + leakage‑free
-  estimation. Whether the *net* `σ(R(f))`‑per‑hour beats the swept sweep is an empirical question
-  — run both on the same interferometer state and compare envelopes.
+  per‑bin SNR; the win comes from simultaneity + CRB allocation + leakage‑free estimation. Whether
+  the *net* `σ(R(f))`‑per‑hour beats the swept sweep is an empirical question — run both on the
+  same interferometer state and compare envelopes.
 - **Comb footprint** (number/amplitude/duty cycle of lines, subtractability during observation)
   must be specified and shown acceptable, or the method is restricted to non‑observing time.
 - **Citations to verify before circulation** (flagged by the source search): Wade O4 (arXiv:
