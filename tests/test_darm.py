@@ -86,3 +86,31 @@ def test_disturbance_and_sensing_noise_color_differently():
     shape_d = Pd[inband] / np.median(Pd[inband])
     shape_s = Ps[inband] / np.median(Ps[inband])
     assert np.max(np.abs(shape_d - shape_s)) > 0.3   # measurably distinct spectra
+
+
+from system_ident.backends.darm_adapter import DARMBackend
+
+def test_backend_recovers_pcal_frf():
+    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    nperseg, nper = 4096, 8
+    fa, band, freq = _band_grid(loop, nperseg)
+    be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=2)
+    Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))
+    x = multisine_from_psd(Pxx, loop.fs, nperseg, nper, freq, seed=np.random.default_rng(0))
+    be.inject("PCAL_EXC", x, loop.fs)
+    dur = (nperseg * nper) / loop.fs
+    seg = be.read(["PCAL_EXC", "DARM_ERR"], dur)
+    H, H_err, coh = SysIDLoop._estimate_tf_periodic(
+        seg["PCAL_EXC"], seg["DARM_ERR"], loop.fs, nperseg, band, n_transient=1)
+    good = np.isfinite(H_err)
+    rel = np.abs(H[good] - loop.frf_pcal(freq)[good]) / np.abs(loop.frf_pcal(freq)[good])
+    assert np.median(rel) < 5e-3
+
+def test_backend_inject_ramps_drive():
+    loop = DARMLoop.default()
+    be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", ramp_s=3.0)
+    drive = np.ones(int(20 * loop.fs))
+    be.inject("PCAL_EXC", drive, loop.fs)
+    mon = be.read(["PCAL_EXC"], 20.0)["PCAL_EXC"]
+    assert abs(mon[0]) < 1e-9 and abs(mon[-1]) < 1e-9
+    assert mon[len(mon)//2] == pytest.approx(1.0)
