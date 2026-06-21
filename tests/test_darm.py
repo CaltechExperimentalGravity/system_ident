@@ -114,3 +114,58 @@ def test_backend_inject_ramps_drive():
     mon = be.read(["PCAL_EXC"], 20.0)["PCAL_EXC"]
     assert abs(mon[0]) < 1e-9 and abs(mon[-1]) < 1e-9
     assert mon[len(mon)//2] == pytest.approx(1.0)
+
+
+from system_ident.darm import recover_response, fit_sensing, recover_actuation
+
+def _run_pcal(loop, seed=3):
+    nperseg, nper = 4096, 8
+    fa, band, freq = _band_grid(loop, nperseg)
+    be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
+    Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
+    x = multisine_from_psd(Pxx, loop.fs, nperseg, nper, freq, seed=np.random.default_rng(0))
+    be.inject("PCAL_EXC", x, loop.fs)
+    seg = be.read(["PCAL_EXC","DARM_ERR"], (nperseg*nper)/loop.fs)
+    H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["PCAL_EXC"], seg["DARM_ERR"],
+                                                  loop.fs, nperseg, band, n_transient=1)
+    return freq, band, H, H_err
+
+def test_recover_response_tracks_truth():
+    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    freq, band, H, H_err = _run_pcal(loop)
+    R, R_sig = recover_response(H, H_err)
+    good = np.isfinite(H_err)
+    rel = np.abs(R[good] - loop.R(freq)[good]) / np.abs(loop.R(freq)[good])
+    assert np.median(rel) < 5e-3
+    assert np.all(R_sig[good] > 0)
+
+def test_fit_sensing_recovers_pole_and_delay():
+    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    freq, band, H, H_err = _run_pcal(loop)
+    C_meas = H * (1.0 + loop.G(freq))            # expose C with the known (1+G)
+    p, sig_ = fit_sensing(freq, C_meas, H_err*np.abs(1+loop.G(freq)),
+                          p0=(0.8e6, 300.0, 50e-6))
+    assert abs(p["f_cc"] - 360.0)/360.0 < 0.05
+    assert abs(p["tau"] - 77e-6) < 15e-6
+    assert abs(p["g_c"] - 1e6)/1e6 < 0.05
+
+def test_recover_actuation_kappas():
+    loop = DARMLoop.default(); loop.sensor_asd = 1e-3
+    nperseg, nper = 4096, 8
+    fa, band, freq = _band_grid(loop, nperseg)
+    # Pcal reference
+    freqp, _, Hp, Hp_err = _run_pcal(loop)
+    Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
+    for name, true_k in (("UIM",1.00),("PUM",0.40),("TST",0.08)):
+        be = DARMBackend(loop, {"EXC": name}, "DARM_ERR", seed=5)
+        x = multisine_from_psd(Pxx, loop.fs, nperseg, nper, freq, seed=np.random.default_rng(1))
+        be.inject("EXC", x, loop.fs)
+        seg = be.read(["EXC","DARM_ERR"], (nperseg*nper)/loop.fs)
+        Hi, Hi_err, _ = SysIDLoop._estimate_tf_periodic(seg["EXC"], seg["DARM_ERR"],
+                                                        loop.fs, nperseg, band, n_transient=1)
+        tf, _ = loop.stages[name]
+        N = tf.eval(freq)
+        comb_err = np.hypot(Hi_err/np.abs(Hi), Hp_err/np.abs(Hp)) * np.abs(Hi/Hp)
+        k, ks = recover_actuation(freq, Hi, Hp, N, comb_err)
+        assert abs(k - true_k)/true_k < 0.05
+        assert ks > 0

@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.optimize import least_squares
 
 from .model import TFModel
 
@@ -153,3 +154,61 @@ class DARMLoop:
                           self.sensing_to_derr(f), 0.0)
             Y += np.fft.rfft(v) * Hs
         return np.fft.irfft(Y, n)
+
+
+def recover_response(H_pcal: np.ndarray, H_err: np.ndarray) -> tuple:
+    """Model-free DARM response R = 1/(d_err/x_pc) with its CRB envelope.
+
+    R = 1/H_pcal;  σ_R = σ_H/|H_pcal|²  (first-order propagation of the FRF error).
+    Unexcited bins (non-finite H_err) get σ_R = inf.
+    """
+    H = np.asarray(H_pcal)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        R = np.where(np.abs(H) > 0, 1.0 / H, 0.0)
+        R_sigma = np.where(np.isfinite(H_err) & (np.abs(H) > 0),
+                           np.asarray(H_err) / np.abs(H) ** 2, np.inf)
+    return R, R_sigma
+
+
+def fit_sensing(freq, C_meas, C_err, p0) -> tuple:
+    """Weighted complex least-squares fit of C(f)=g_c/(1+i f/f_cc)·e^{-i2πfτ}.
+
+    Returns (params, sigma) dicts over {g_c, f_cc, tau}; sigma from the
+    Gauss–Newton covariance (JᵀJ)⁻¹ at the solution (the CRB for white,
+    correctly-weighted residuals).
+    """
+    f = np.asarray(freq, dtype=float)
+    Cm = np.asarray(C_meas)
+    good = np.isfinite(C_err) & (np.asarray(C_err) > 0) & np.isfinite(Cm)
+    f, Cm, w = f[good], Cm[good], 1.0 / np.asarray(C_err)[good]
+
+    def resid(p):
+        g_c, f_cc, tau = p
+        r = (sensing_model(f, g_c, f_cc, tau) - Cm) * w
+        return np.concatenate([r.real, r.imag])
+
+    sol = least_squares(resid, np.asarray(p0, dtype=float), method="lm")
+    params = {"g_c": sol.x[0], "f_cc": sol.x[1], "tau": sol.x[2]}
+    try:
+        cov = np.linalg.inv(sol.jac.T @ sol.jac)
+        s = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+    except np.linalg.LinAlgError:
+        s = np.full(3, np.nan)
+    sigma = {"g_c": s[0], "f_cc": s[1], "tau": s[2]}
+    return params, sigma
+
+
+def recover_actuation(freq, H_stage, H_pcal, N_stage, comb_err) -> tuple:
+    """Stage strength κ_i = mean of (H_stage/H_pcal)/N_i, Pcal as the ruler.
+
+    H_stage/H_pcal = κ_i N_i, so dividing by the known stage shape N_i yields a
+    per-bin κ estimate; combine by inverse-variance over the excited bins.
+    """
+    ratio = np.asarray(H_stage) / np.asarray(H_pcal) / np.asarray(N_stage)
+    good = np.isfinite(comb_err) & (np.asarray(comb_err) > 0) & np.isfinite(ratio)
+    # error on κ per bin ≈ comb_err / |N_i|
+    sig_k = np.asarray(comb_err)[good] / np.abs(np.asarray(N_stage)[good])
+    w = 1.0 / sig_k ** 2
+    kappa = float(np.sum(w * np.real(ratio[good])) / np.sum(w))
+    kappa_sigma = float(1.0 / np.sqrt(np.sum(w)))
+    return kappa, kappa_sigma
