@@ -93,8 +93,10 @@ def problem_fig(*, height=520):
 def excitations_fig(*, height=620):
     """Three actuator drives that all carry the same in-band power, in the time
     domain: a swept sine (one frequency at a time), broadband random noise (every
-    frequency, random phase → big crest factor), and a periodic Schroeder multisine
-    (every frequency, deterministic phase → low crest factor, repeats exactly)."""
+    frequency, not periodic → its DFT leaks), and a periodic multisine (every
+    frequency, period == analysis window → leakage-free). The crest factors printed
+    in the titles are real but **plant-referred** (peak/RMS of the request, not at the
+    DAC after the whitening/actuation chain); phasing is treated honestly in §2.1."""
     fs = 256.0
     band = np.geomspace(2.0, 40.0, 64)
     Pxx = np.full_like(band, 1.0 / (band[-1] - band[0]))
@@ -119,11 +121,11 @@ def excitations_fig(*, height=620):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.08,
                         subplot_titles=[
                             f"<b>Swept sine</b> — one frequency at a time "
-                            f"(crest {crest(swept):.1f})",
-                            f"<b>Broadband random noise</b> — all frequencies, random "
-                            f"phase (crest {crest(rand):.1f})",
-                            f"<b>Periodic multisine</b> — all frequencies, Schroeder "
-                            f"phase, repeats exactly (crest {crest(ms):.1f})"])
+                            f"(crest {crest(swept):.1f}, plant-referred)",
+                            f"<b>Broadband random noise</b> — all frequencies, not "
+                            f"periodic → leaks (crest {crest(rand):.1f}, plant-referred)",
+                            f"<b>Periodic multisine</b> — all frequencies, period == "
+                            f"window → leakage-free (crest {crest(ms):.1f}, plant-referred)"])
     fig.add_scatter(x=t, y=swept, mode="lines", line=dict(color=sp.GRAY, width=1.2),
                     name="swept", row=1, col=1)
     fig.add_scatter(x=t, y=rand, mode="lines", line=dict(color=sp.ROSE, width=1.0),
@@ -138,6 +140,163 @@ def excitations_fig(*, height=620):
     fig.update_yaxes(title_text="drive [a.u.]", row=3, col=1)
     fig.update_xaxes(title_text="time [s]", row=3, col=1)
     return sp.style(fig, height=height, legend="h")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2.1 · Phasing — Schroeder vs random: a plant-referred crest fact, NOT a measurement
+#       advantage, and moot at the DAC (which this sim does not model)
+# ════════════════════════════════════════════════════════════════════════════
+def _crest(x):
+    return float(np.max(np.abs(x)) / np.std(x))
+
+
+def phasing_crest_campaign(n_seeds=12):
+    """Real Schroeder-vs-random crest factors (peak/RMS), **plant/force-referred**,
+    as a function of (a) number of lines on a flat broadband spectrum and (b) the
+    spectrum shape (flat vs the concentrated Fisher-optimal ASD). Random is averaged
+    over ``n_seeds`` seeds. This is the only thing multisine phase touches; it is a
+    time-domain property of the *request*, and (see ``phasing_invariance_*``) it does
+    not enter the FRF or the CRB at all."""
+    fs, nperseg, nper = 32.0, 4096, 4
+    df = fs / nperseg
+
+    # (a) flat broadband: crest vs number of lines
+    Ns = np.array([4, 8, 16, 32, 64, 128, 256, 512])
+    cs = np.zeros(Ns.size)
+    cr_mean = np.zeros(Ns.size)
+    cr_std = np.zeros(Ns.size)
+    kstart = int(round(1.0 * nperseg / fs))
+    for i, N in enumerate(Ns):
+        ks = np.arange(kstart, kstart + N)
+        freq = ks * fs / nperseg
+        Pxx = np.full(int(N), 1.0 / (freq[-1] - freq[0]))
+        cs[i] = _crest(multisine_from_psd(Pxx, fs, nperseg, nper, freq, phase="schroeder"))
+        cr = [_crest(multisine_from_psd(Pxx, fs, nperseg, nper, freq, phase="random",
+                                        seed=np.random.default_rng(s)))
+              for s in range(n_seeds)]
+        cr_mean[i], cr_std[i] = float(np.mean(cr)), float(np.std(cr))
+
+    # (b) concentrated optimal ASD vs flat, same band — the design this page actually uses
+    true = double_pendulum()
+    fa = np.fft.rfftfreq(nperseg, 1 / fs)
+    band = (fa >= 0.1) & (fa <= 5.0)
+    freq = fa[band]
+    Pyy = np.ones_like(freq)
+    Pxx_opt = optimal_excitation(freq, true, Pyy, PX_TOTAL, n_iter=6)
+    Pxx_flat = np.full_like(freq, PX_TOTAL / (freq[-1] - freq[0]))
+    n_sig = int(np.sum(Pxx_opt > 1e-6 * Pxx_opt.max()))
+    shape = {}
+    for label, Pxx in [("flat", Pxx_flat), ("optimal", Pxx_opt)]:
+        c_s = _crest(multisine_from_psd(Pxx, fs, nperseg, nper, freq, phase="schroeder"))
+        cr = [_crest(multisine_from_psd(Pxx, fs, nperseg, nper, freq, phase="random",
+                                        seed=np.random.default_rng(s)))
+              for s in range(n_seeds)]
+        shape[label] = (c_s, float(np.mean(cr)), float(np.std(cr)))
+    return SimpleNamespace(Ns=Ns, cs=cs, cr_mean=cr_mean, cr_std=cr_std,
+                           shape=shape, n_sig=n_sig, n_band=int(freq.size),
+                           n_seeds=n_seeds)
+
+
+def phasing_crest_fig(c, *, height=460):
+    """Plant-referred crest factor vs number of lines: Schroeder stays ~flat while
+    random grows ~sqrt(ln N). The gap is real but plant-referred — see the caption /
+    text for why it does not transfer to the DAC."""
+    fig = go.Figure()
+    fig.add_scatter(x=c.Ns, y=c.cs, mode="lines+markers", name="Schroeder phase",
+                    line=dict(color=sp.GOLD, width=2.6),
+                    marker=dict(color=sp.GOLD, size=sp.MK_BIG))
+    fig.add_scatter(x=c.Ns, y=c.cr_mean, mode="lines+markers",
+                    name=f"random phase (mean ± std, {c.n_seeds} seeds)",
+                    line=dict(color=sp.ROSE, width=2.6),
+                    marker=dict(color=sp.ROSE, size=sp.MK_BIG),
+                    error_y=dict(type="data", array=c.cr_std, visible=True,
+                                 color=sp._fade(sp.ROSE, 0.5), thickness=1.2, width=4))
+    span = np.concatenate([c.cs, c.cr_mean + c.cr_std, c.cr_mean - c.cr_std])
+    pad = 0.1 * (span.max() - span.min())
+    fig.update_xaxes(type="log", title_text="number of lines  N")
+    fig.update_yaxes(title_text="crest factor  peak/RMS  (plant-referred)",
+                     range=[max(0.0, span.min() - pad), span.max() + pad])
+    fig.update_layout(title="Plant-referred crest factor, flat broadband multisine — "
+                            "Schroeder vs random phase")
+    return sp.style(fig, height=height)
+
+
+def phasing_shape_md(c):
+    """Inline bullets: plant-referred crest on the flat vs concentrated-optimal ASD."""
+    from IPython.display import Markdown
+    sf, rf, rfs = c.shape["flat"]
+    so, ro, ros = c.shape["optimal"]
+    return Markdown(
+        f"- **flat spectrum** ({c.n_band} bins): Schroeder crest **{sf:.2f}**, "
+        f"random **{rf:.2f} ± {rfs:.2f}** — random is {rf/sf:.2f}× higher.\n"
+        f"- **concentrated optimal ASD** (~{c.n_sig} significant lines): Schroeder crest "
+        f"**{so:.2f}**, random **{ro:.2f} ± {ros:.2f}** — random only {ro/so:.2f}× higher.")
+
+
+def phasing_invariance_campaign(n_seeds=8):
+    """Same plant, same flat drive PSD, same noise seeds — only the multisine *phase*
+    differs (Schroeder vs random). Shows the leakage-free FRF, its per-bin σ, and the
+    seed-averaged accuracy are statistically identical, and that the Cramér–Rao bound
+    does not even take phase as an input (it is a function of the line PSD ``Pxx``).
+    Phase changes the time-domain crest; it does not change the measurement."""
+    fs, nperseg, nper = 32.0, 4096, 8
+    sensor_asd = 5.0e-4
+    true = double_pendulum()
+    fa = np.fft.rfftfreq(nperseg, 1 / fs)
+    band = (fa >= 0.2) & (fa <= 4.0)
+    freq = fa[band]
+    Pxx = np.full_like(freq, PX_TOTAL / (freq[-1] - freq[0]))
+    T = nperseg * nper / fs
+    truth = true.eval(freq)
+
+    def estimate(phase, seed):
+        be = TwinBackend(SuspensionPlant({"POS": true}, fs), {"E": "POS"}, {"R": "POS"},
+                         fs=fs, sensor_asd=sensor_asd, seed=seed, ramp_s=0.0)
+        x = multisine_from_psd(Pxx, fs, nperseg, nper, freq, phase=phase,
+                               seed=np.random.default_rng(seed))
+        be.inject("E", x, fs)
+        seg = be.read(["E", "R"], T)
+        return SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], fs, nperseg, band,
+                                               n_transient=1)
+
+    # representative single realisation (same noise seed) for the Bode overlay
+    Hs, Hes, _ = estimate("schroeder", 0)
+    Hr, Her, _ = estimate("random", 0)
+
+    out = {}
+    for phase in ["schroeder", "random"]:
+        errs, sigs = [], []
+        for s in range(n_seeds):
+            H, He, coh = estimate(phase, s)
+            g = np.isfinite(He) & (coh > 0.9)
+            errs.append(float(np.sqrt(np.mean(
+                (np.abs(H[g] - truth[g]) / np.abs(truth[g])) ** 2))))
+            sigs.append(float(np.median(He[g])))
+        out[phase] = (float(np.mean(errs)), float(np.std(errs)), float(np.mean(sigs)))
+    cov = parameter_covariance(freq, true, Pxx, np.ones_like(freq), T)
+    crb = float(np.sqrt(np.max(np.diag(cov))))
+    return SimpleNamespace(freq=freq, truth=truth, Hs=Hs, Hr=Hr, Hes=Hes, Her=Her,
+                           band_mask=np.isfinite(Hes) & np.isfinite(Her),
+                           res=out, crb=crb, n_seeds=n_seeds)
+
+
+def phasing_invariance_table(c):
+    es, ss, sigs = c.res["schroeder"]
+    er, sr, sigr = c.res["random"]
+    rows = [
+        ["RMS frac. FRF error to truth (coh>0.9)",
+         f"{es*100:.2f}% ± {ss*100:.2f}%", f"{er*100:.2f}% ± {sr*100:.2f}%"],
+        ["median per-bin σ(FRF)", f"{sigs:.3g}", f"{sigr:.3g}"],
+        ["Cramér–Rao worst-parameter σ", f"{c.crb:.3g}", f"{c.crb:.3g}"],
+    ]
+    return sp.param_table(
+        ["figure of merit (same plant, same PSD, same seeds)",
+         "Schroeder phase", "random phase"], rows,
+        caption=f"The estimate is phase-invariant: over {c.n_seeds} seeds the recovered "
+                "FRF, its per-bin σ, and the CRB are identical within scatter — the CRB "
+                "does not even take phase as an input (it is a function of the line PSD). "
+                "Phase changes only the plant-referred crest factor, which this sim cannot "
+                "refer to the DAC.")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -462,20 +621,23 @@ def headline_convergence_fig(h, *, height=440):
 
 def headline_table(h):
     rows = [
-        ["flat multisine", "P", f"{h.pk_flat:.2f}", f"{h.rms_flat:.2f}",
+        ["flat multisine", "P", f"{h.rms_flat:.2f}",
          f"{h.sigma_flat:.3f}", f"{h.ttt_flat or '—'}"],
-        ["optimal multisine", "P", f"{h.pk_opt:.2f}", f"{h.rms_opt:.2f}",
+        ["optimal multisine", "P", f"{h.rms_opt:.2f}",
          f"{h.sigma_opt:.3f}", f"{h.ttt_opt or '—'}"],
-        [f"optimal multisine", f"P/{h.F:.0f}", f"{h.pk_match:.2f}", f"{h.rms_match:.2f}",
+        [f"optimal multisine", f"P/{h.F:.0f}", f"{h.rms_match:.2f}",
          f"{h.sigma_match:.3f}", f"{_passes_to_target(h.h_match, h.target) or '—'}"],
     ]
     return sp.param_table(
-        ["excitation", "drive power", "peak drive", "RMS drive", f"final σ/θ",
+        ["excitation", "drive power", "RMS drive (plant-referred)", f"final σ/θ",
          f"passes to σ/θ≤{h.target:g}"], rows,
         caption=f"Same plant, same {_HEAD.n_passes} passes. At equal power the optimal "
-                f"drive reaches {h.sigma_flat/h.sigma_opt:.1f}× lower σ; dialled to P/F "
-                f"it MATCHES flat's σ at {h.peak_drop:.1f}× less peak and "
-                f"{h.rms_drop:.1f}× less RMS drive (F={h.F:.0f} from the CRB)")
+                f"drive reaches {h.sigma_flat/h.sigma_opt:.1f}× lower σ in fewer passes "
+                f"(the time win); dialled to P/F it MATCHES flat's σ at {h.rms_drop:.1f}× "
+                f"less in-band drive power (RMS, F={h.F:.0f} from the CRB). RMS is "
+                f"plant-referred; the binding actuator limit is DAC saturation after the "
+                f"whitening/actuation chain, which this sim does not model — so no "
+                f"peak/crest advantage is claimed.")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -559,28 +721,29 @@ def closed_loop_fig(c, *, height=560):
 def headtohead_table(head, leak, sweep, cl):
     """One table over {swept, broadband random, flat multisine, optimal multisine},
     populated from the real campaigns above."""
-    headers = ["excitation", "time to target σ", "peak drive", "RMS drive",
+    headers = ["excitation", "time to target σ", "RMS drive (plant-referred)",
                "leakage bias (high-Q peak)", "per-bin noise model?", "closed-loop safe?"]
     rows = [
         ["swept sine",
-         f"~{sweep.cover_factor:.0f}× a multisine window",
-         "high (1 line)", f"{head.rms_flat:.2f}",
+         f"~{sweep.cover_factor:.0f}× a multisine window", f"{head.rms_flat:.2f}",
          "none (1 line)", "per-line coherence", "yes, but slow"],
         ["broadband random",
-         "never (biased)", f"≈{head.pk_flat*2:.1f} (random φ)", f"{head.rms_flat:.2f}",
+         "never (biased)", f"{head.rms_flat:.2f}",
          f"{leak.w_bias*100:+.0f}% (leaks)", "no (assumed)", "no (S_yx/S_xx biased)"],
         ["flat multisine",
-         f"{head.ttt_flat or '> budget'} passes", f"{head.pk_flat:.2f}",
+         f"{head.ttt_flat or '> budget'} passes",
          f"{head.rms_flat:.2f}", f"{leak.ms_bias*100:+.0f}% (leakage-free)",
          "yes (period scatter)", "yes (reference-based)"],
         ["optimal multisine",
-         f"{head.ttt_opt} passes", f"{head.pk_match:.2f}", f"{head.rms_match:.2f}",
+         f"{head.ttt_opt} passes", f"{head.rms_match:.2f}",
          f"{leak.ms_bias*100:+.0f}% (leakage-free)", "yes (period scatter)",
          "yes (reference-based)"],
     ]
     return sp.param_table(headers, rows,
         caption="Head-to-head on the representative suspension plants of this page. "
-                "Peak/RMS for the optimal arm are at the budget that MATCHES flat's σ "
-                f"(F={head.F:.0f}); the closed-loop reference FRF recovered the "
+                "RMS for the optimal arm is at the budget that MATCHES flat's σ "
+                f"(F={head.F:.0f}); RMS is plant-referred (the binding limit is DAC "
+                "saturation after the whitening chain, not modeled here, so no peak/crest "
+                f"column is shown). The closed-loop reference FRF recovered the "
                 f"open-loop plant to {cl.rel*100:.1f}% through a {cl.suppression:.0f}× "
                 "suppressing loop.")

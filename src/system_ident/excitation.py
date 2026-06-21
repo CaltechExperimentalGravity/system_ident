@@ -94,9 +94,14 @@ def _schroeder_phases(amp: np.ndarray) -> np.ndarray:
 
     Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
     Sec. 4: ``phi_k = -2*pi * sum_{j<k} (k-j) p_j`` with ``p_j`` the relative
-    power of line ``j``.  These deterministic phases give a low crest factor (peak
-    drive / RMS), so a saturation-limited actuator can carry far more in-band power
-    for a fixed amplitude limit than the random-phase choice does.
+    power of line ``j``.  These deterministic phases minimise the crest factor
+    (peak drive / RMS) of the multisine *as defined here*, i.e. in plant/force-
+    referred units.  Note the crest factor is **not** invariant under filtering:
+    if there is a whitening/actuation chain between the digital request and the
+    actuator's hard limit (the DAC in LIGO), the optimised phases are reshaped and
+    the peak that actually binds is at the DAC, not here.  The phase choice does not
+    affect the FRF or the Cramér–Rao bound (those depend on the line *amplitudes*),
+    only the time-domain crest.
     """
     power = amp ** 2
     total = float(np.sum(power))

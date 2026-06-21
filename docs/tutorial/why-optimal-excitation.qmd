@@ -57,14 +57,16 @@ excitation on the same five figures of merit:
 
 - **Parameter / FRF uncertainty per unit time** — the Cramér–Rao σ (or σ/θ) reached for a
   given total measurement time. *Less time for the same σ is the prize.*
-- **Uncertainty per unit drive** — the same σ for a given **peak** and **RMS** drive. Drive is
-  capped by actuator saturation, so this is a hard currency too.
+- **Uncertainty per unit in-band drive power** — the same σ for a given **RMS** (in-band power)
+  budget. Drive is ultimately capped by actuator saturation, so this is a hard currency too. We
+  report RMS **plant-referred**; the *peak* that truly binds is set at the DAC, after the
+  whitening/actuation chain this simulation does not model (see §2.1 and §9).
 - **Leakage bias** — does the estimator read a sharp resonance at its true height, or smear it?
   A bias no amount of averaging removes.
 - **Per-bin noise model** — does the method *measure* its own error bar on each frequency, or
   must you assume one?
-- **Safety** — the **peak drive** the method puts on the actuator, and whether it is safe to run
-  **closed-loop**.
+- **Safety** — whether the method is safe to run **closed-loop**, and how much in-band drive
+  power it asks of the actuator.
 
 The rest of this page is those five columns, filled with real numbers.
 
@@ -82,18 +84,82 @@ md.excitations_fig()
   that line. It is leakage-free per line, trivially interpretable, and spends *all* its power
   where it is pointed — but it visits the band **serially**.
 - **Broadband random noise** drives **every frequency at once** with random phase. It is the
-  fastest way to a qualitative whole-band picture and an honest coherence — but its **random
-  phase gives a large crest factor** (so it saturates sooner for the same RMS), it is **not
-  periodic** (so its DFT leaks), and a single record gives no internal error bar.
-- **Periodic multisine** also drives every frequency at once, but with **deterministic
-  (Schroeder) phases** that minimise the crest factor and, crucially, with a period **exactly
-  equal to the analysis window**, tiled and repeated. That periodicity is what makes the
-  measurement leakage-free and self-error-barred — and it is the substrate the optimal design
-  shapes.
+  fastest way to a qualitative whole-band picture and an honest coherence — but it is **not
+  periodic**, so its DFT leaks, and a single record gives no internal error bar.
+- **Periodic multisine** also drives every frequency at once, with a period **exactly equal to
+  the analysis window**, tiled and repeated. **That periodicity — not the choice of phase — is
+  what makes the measurement leakage-free and self-error-barred**, and it is the substrate the
+  optimal design shapes. The line *phases* are a free choice (the package defaults to Schroeder);
+  as §2.1 shows, they do not affect the FRF or its error bar at all.
 
-The crest factors printed above are real: the Schroeder multisine carries the same in-band
-power as the random drive at a markedly lower peak — the first of its advantages under a hard
-actuator limit.
+The crest factors printed above are real but **plant-referred** — peak/RMS of the digital
+*request*, not of the waveform at the actuator's hard limit. Because crest factor is not
+invariant under filtering, a low plant-referred crest does **not** imply a low crest at the DAC
+once a whitening/actuation chain sits in between. This page therefore claims **no** crest- or
+peak-drive advantage from phasing; §2.1 makes that case in full.
+
+### 2.1 · Phasing: Schroeder vs random — a plant-referred fact, not a measurement advantage
+
+A multisine's line *phases* are free: they set only the **time-domain crest factor** (peak/RMS)
+of the drive, nothing else. It is worth being precise about what that does and does not buy,
+because the textbook framing — "Schroeder phases minimise the crest factor, so a saturation-
+limited actuator carries more power" — is true only in a reference frame this simulation cannot
+actually reach.
+
+**Schroeder really is lower-crest, in plant-referred units.** The package default
+(`phase="schroeder"`) minimises peak/RMS of the *requested* waveform; random phasing does not.
+The gap is real and grows with the number of lines:
+
+```{python}
+#| code-summary: "Real crest factors: Schroeder vs random, vs number of lines (flat broadband)"
+ph = md.phasing_crest_campaign()
+md.phasing_crest_fig(ph)
+```
+
+Schroeder sits near a constant ≈1.9 regardless of line count; random phasing climbs as ≈√(ln N),
+from comparable at a handful of lines to roughly **2× worse** across hundreds of flat lines. On
+the **concentrated optimal ASD** this page actually drives with — a couple dozen significant
+lines piled at the modes — the gap is **much smaller**:
+
+```{python}
+#| code-summary: "Crest on the concentrated optimal ASD vs a flat one (printed inline)"
+display(md.phasing_shape_md(ph))
+```
+
+So in plant-referred units Schroeder is lower-crest, but for the few concentrated lines the
+optimal design uses the margin over random is modest (~1.4×), not the order-of-magnitude the
+"hard actuator limit" framing implies.
+
+**But phasing does not change the measurement at all.** The leakage-free FRF and its Cramér–Rao
+bound depend on the line **amplitudes/power**, not the phases — the CRB function does not even
+take phase as an argument. Driving the *same* plant with the *same* PSD and the *same* noise
+seeds, Schroeder and random phasing recover statistically identical FRFs, identical per-bin σ,
+and an identical CRB:
+
+```{python}
+#| code-summary: "Phase-invariance of the estimate: Schroeder vs random, same plant/PSD/seeds"
+pin = md.phasing_invariance_campaign()
+display(md.phasing_invariance_table(pin))
+```
+
+**Why the crest advantage is moot here — the DAC reference frame.** In LIGO the actuator's hard
+saturation limit lives at the **DAC** (counts/volts), and there are **whitening and actuation
+filters between the digital excitation request and the DAC**. Crest factor is *not* invariant
+under filtering: the whitening filter reshapes the waveform, scrambling the carefully optimised
+Schroeder phases, so the DAC-frame crest is generally higher and unrelated to the plant-referred
+crest minimised above. **Minimising crest in plant units therefore buys nothing at the DAC — the
+limit that actually binds — and this simulation does not model the whitening chain, so it cannot
+even represent the DAC frame.**
+
+::: {.callout-important appearance="simple"}
+## The honest bottom line on phasing
+Phase touches **only** the crest factor, and crest is a **DAC-frame** quantity this plant-referred
+simulation does not model. Since the estimate is phase-invariant (table above) and the one thing
+phase affects does not transfer to the binding limit, **the phase choice is not load-bearing
+here: random phases are essentially as good as Schroeder for our purposes.** A genuine crest /
+peak-drive optimisation is a *DAC-frame, filter-aware* problem (push the optimisation through the
+whitening chain) — future work, not a claim this page makes from plant-referred numbers.
+:::
 
 ## 3 · Broadband random noise leaks, and is variance-inefficient
 
@@ -160,7 +226,7 @@ the one frequency you care about. It is also the most transparent thing to inter
 multisine wins when you need **the whole band**.
 :::
 
-## 5 · Optimal excitation wins on time *and* on drive (the headline)
+## 5 · Optimal excitation wins on time *and* on in-band drive (the headline)
 
 So far the multisine has matched the alternatives where they are weak. The headline result is
 where it is *strong*: spend the drive budget not flat across the band, but **concentrated where
@@ -193,14 +259,21 @@ Read the table honestly, both rows of the optimal arm:
 - **At equal drive power**, the optimal multisine reaches a parameter uncertainty several times
   lower than the flat drive in the same number of passes — the flat drive never even crosses the
   σ/θ target inside the budget, while the optimal drive crosses it in a couple of passes. *That
-  is the time win.* (Its **peak** is higher than flat's, because concentrating power raises the
-  crest factor — stated plainly, not hidden.)
+  is the time win,* and it is frame-robust: it is a statement about Fisher information per second,
+  independent of any actuator unit.
 - **Dialled down to power P/F**, the optimal multisine instead *matches* the flat drive's σ —
-  but now at a fraction of the **peak** and **RMS** drive. *That is the drive win:* the same
-  answer for materially less force on the actuator.
+  but now at a fraction of the **in-band drive power** (RMS). *That is the drive win:* the same
+  answer for materially less in-band power asked of the actuator.
+
+The RMS figures are **plant-referred**. We make **no peak- or crest-drive claim**: concentrating
+power does raise the plant-referred crest, but as §2.1 showed, plant-referred crest does not
+transfer to the DAC — the limit that actually binds — through the (unmodeled) whitening chain. The
+load-bearing wins here are the **time** (whole-band simultaneity) and the **CRB allocation** of
+in-band power, both frame-robust.
 
 You do not get both at once for free — `F` is one budget — but you get to **choose** which
-scarce resource (time or drive) to spend it on. Flat excitation gives you neither choice.
+scarce resource (time or in-band drive power) to spend it on. Flat excitation gives you neither
+choice.
 
 ## 6 · A closed loop is not an obstacle
 
@@ -263,7 +336,8 @@ backend = TwinBackend(plant, {"EXC": "POS"}, {"RSP": "POS"},
                       drive_channels={"DRV": "POS"})   # DRV = the loop's drive monitor
 
 # 3. the loop wires designer + estimator + watchdog and runs:
-#    measure noise → design optimal multisine → inject (Schroeder, Tukey-ramped)
+#    measure noise → design optimal multisine → inject (default phase=Schroeder, a
+#    free choice that does not affect the FRF; Tukey-ramped for a safe start)
 #    → leakage-free reference FRF → ML fit → CRB → redesign → repeat
 loop = SysIDLoop(backend, GMLEstimator(), PintelonSchoukensDesigner(),
                  Watchdog(SafetyLimits.from_config(config)))
@@ -298,6 +372,16 @@ alternatives are genuinely better in specific regimes.
   Where those lines contaminate a science band (e.g. DARM during observation), that footprint is
   a real operational price the swept sine's single line largely avoids — run in non-observing
   time, or use known phases so the lines subtract.
+- **The binding actuator limit is at the DAC, and this sim is plant-referred.** In LIGO the hard
+  saturation limit is at the **DAC** (counts/volts), with **whitening and actuation filters
+  between the digital excitation request and the DAC**. Crest factor is not invariant under
+  filtering, so a waveform optimised for low crest in plant/force units (Schroeder phasing,
+  concentrated power) is reshaped by the whitening chain and can present an unrelated — generally
+  higher — peak at the DAC. This demonstration models only the plant-referred frame and omits
+  that chain, so **it makes no crest-factor or peak-drive claim**; the in-band-power (RMS) numbers
+  it reports are plant-referred. A genuine peak/crest optimisation is a **DAC-frame, filter-aware**
+  problem — push the design through the whitening/actuation model and minimise the peak *there*.
+  That is real future work, not something these plant-referred numbers can stand in for.
 
 **When to pick the alternative instead.**
 
