@@ -46,3 +46,43 @@ def test_loop_is_stable_with_margin():
     assert 30.0 < f_ugf < 80.0
     pm = 180.0 + np.angle(G[k], deg=True)   # phase margin
     assert pm > 30.0
+
+
+from system_ident.excitation import multisine_from_psd
+from system_ident.loop import SysIDLoop
+
+def _band_grid(loop, nperseg):
+    fa = np.fft.rfftfreq(nperseg, 1/loop.fs)
+    band = (fa >= loop.fmin) & (fa <= loop.fmax)
+    return fa, band, fa[band]
+
+def test_simulate_deterministic_matches_pcal_frf():
+    loop = DARMLoop.default()
+    nperseg, nper = 4096, 8
+    fa, band, freq = _band_grid(loop, nperseg)
+    Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))   # flat, unit total power
+    x = multisine_from_psd(Pxx, loop.fs, nperseg, nper, freq, seed=np.random.default_rng(0))
+    derr = loop.simulate({"PCAL": x}, len(x), np.random.default_rng(1))
+    H, H_err, coh = SysIDLoop._estimate_tf_periodic(x, derr, loop.fs, nperseg, band, n_transient=1)
+    # recovered closed-loop FRF tracks the analytic C/(1+G) on the excited bins
+    good = np.isfinite(H_err)
+    rel = np.abs(H[good] - loop.frf_pcal(freq)[good]) / np.abs(loop.frf_pcal(freq)[good])
+    assert np.median(rel) < 1e-3
+
+def test_disturbance_and_sensing_noise_color_differently():
+    import scipy.signal as sig
+    loop = DARMLoop.default()
+    n = int(64 * loop.fs)
+    # disturbance only
+    ld = DARMLoop.default(); ld.disturbance_asd = 1e-18; ld.sensor_asd = 0.0
+    yd = ld.simulate({}, n, np.random.default_rng(0))
+    # sensing only
+    ls = DARMLoop.default(); ls.disturbance_asd = 0.0; ls.sensor_asd = 1e-2
+    ys = ls.simulate({}, n, np.random.default_rng(0))
+    f, Pd = sig.welch(yd, fs=loop.fs, nperseg=int(4*loop.fs))
+    _, Ps = sig.welch(ys, fs=loop.fs, nperseg=int(4*loop.fs))
+    inband = (f >= loop.fmin) & (f <= loop.fmax)
+    # the two noise paths have different numerators (C vs 1) -> different in-band shape
+    shape_d = Pd[inband] / np.median(Pd[inband])
+    shape_s = Ps[inband] / np.median(Ps[inband])
+    assert np.max(np.abs(shape_d - shape_s)) > 0.3   # measurably distinct spectra

@@ -114,3 +114,42 @@ class DARMLoop:
     def sensing_to_derr(self, freq) -> np.ndarray:
         """Readout noise n adds at d_err and is loop-suppressed: 1/(1+G)."""
         return 1.0 / (1.0 + self.G(freq))
+
+    # -- simulation -----------------------------------------------------------
+    def _white(self, asd: float, n: int, rng) -> np.ndarray:
+        if asd == 0.0:
+            return np.zeros(n)
+        # one-sided ASD A -> discrete white-noise std A·sqrt(fs/2)
+        return rng.standard_normal(n) * asd * np.sqrt(self.fs / 2.0)
+
+    def simulate(self, drives: dict, n: int, rng) -> np.ndarray:
+        """Synthesise d_err[n] for injected ``drives`` under process disturbance +
+        sensing noise, by frequency-domain closed-loop filtering.
+
+        Deterministic drives are periodic (P&S multisine), so rfft·H·irfft is the
+        exact periodic steady-state response; the stochastic disturbance/sensing
+        noise are coloured by their closed-loop transfer functions.
+        """
+        n = int(n)
+        f = np.fft.rfftfreq(n, d=1.0 / self.fs)
+        Y = np.zeros(len(f), dtype=complex)
+        for port, x in drives.items():
+            x = np.asarray(x, dtype=float)
+            xf = np.zeros(n)
+            xf[: min(len(x), n)] = x[: n]
+            H = self.frf_pcal(f) if port == "PCAL" else self.frf_stage(port, f)
+            H = np.where(np.isfinite(H), H, 0.0)
+            Y += np.fft.rfft(xf) * H
+        # process disturbance x_free -> d_err  (C/(1+G))
+        if self.disturbance_asd:
+            w = self._white(self.disturbance_asd, n, rng)
+            Hd = np.where(np.isfinite(self.disturbance_to_derr(f)),
+                          self.disturbance_to_derr(f), 0.0)
+            Y += np.fft.rfft(w) * Hd
+        # readout/sensing noise n -> d_err  (1/(1+G))
+        if self.sensor_asd:
+            v = self._white(self.sensor_asd, n, rng)
+            Hs = np.where(np.isfinite(self.sensing_to_derr(f)),
+                          self.sensing_to_derr(f), 0.0)
+            Y += np.fft.rfft(v) * Hs
+        return np.fft.irfft(Y, n)
