@@ -191,3 +191,25 @@ def test_pcal_uncertainty_is_genuinely_estimated():
     assert np.median(frac) > 5e-3        # visible, not the ~1e-8 of a too-clean twin
     assert np.median(frac) < 5e-2        # representative, not absurd
     assert np.mean(H_err[good] / np.abs(H[good]) < 2e-9) < 0.05   # <5% of bins at the floor
+
+
+from system_ident.darm import (multisine_response_sigma, swept_sine_response_sigma,
+                               sweep_time_to_match_coverage)
+
+def test_comparison_harness_produces_both_envelopes():
+    loop = DARMLoop.default(); loop.disturbance_asd = 3e-4; loop.sensor_asd = 300.0
+    freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=4096, n_periods=16,
+                                                 px_total=1.0, seed=0)
+    good = np.isfinite(R_sig)
+    assert np.all(R_sig[good] > 0) and T == pytest.approx(16.0, rel=1e-6)
+    # honest, visible, representative uncertainty — NOT floored to ~1e-9, not absurd
+    frac = R_sig[good] / np.abs(R[good])
+    assert 1e-3 < np.median(frac) < 5e-2
+    # equal wall-clock: 8 points × 2 periods × 1 s = the same 16 s
+    pts = np.geomspace(loop.fmin, loop.fmax, 8)
+    fp, s, T_used = swept_sine_response_sigma(loop, pts, nperseg=4096, dwell_periods=2,
+                                              px_total=1.0, seed=0)
+    assert s.shape == pts.shape and np.all(np.isfinite(s) & (s > 0))
+    assert T_used == pytest.approx(16.0, rel=1e-6)
+    # covering the whole band by sweep costs far more than the one multisine window
+    assert sweep_time_to_match_coverage(loop, nperseg=4096, dwell_periods=2) > 20 * T

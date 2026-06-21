@@ -212,3 +212,80 @@ def recover_actuation(freq, H_stage, H_pcal, N_stage, comb_err) -> tuple:
     kappa = float(np.sum(w * np.real(ratio[good])) / np.sum(w))
     kappa_sigma = float(1.0 / np.sqrt(np.sum(w)))
     return kappa, kappa_sigma
+
+
+# ---------------------------------------------------------------------------
+# Swept-sine vs multisine comparison harness
+# Imports at the bottom: darm_adapter imports DARMLoop (defined above), so the
+# cycle is safe — Python's module system resolves DARMLoop before these lines run.
+# ---------------------------------------------------------------------------
+from .backends.darm_adapter import DARMBackend   # noqa: E402 — cycle-safe bottom import
+from .excitation import multisine_from_psd
+from .loop import SysIDLoop
+
+
+def _band_grid(loop, nperseg):
+    fa = np.fft.rfftfreq(int(nperseg), d=1.0 / loop.fs)
+    band = (fa >= loop.fmin) & (fa <= loop.fmax)
+    return fa, band, fa[band]
+
+
+def multisine_response_sigma(loop, *, nperseg=4096, n_periods=16, px_total=1.0, seed=0):
+    """One Pcal multisine over the whole band → R(f) and its per-bin σ (CRB envelope).
+
+    n_periods=16: with the 3 s actuator ramp this leaves ~10 full-energy periods
+    (P_eff≈9), so the per-bin variance is genuinely estimated — not the floored,
+    fabricated uncertainty that n_periods=8 (only 2 full periods → P_eff=1) produces.
+    """
+    fa, band, freq = _band_grid(loop, nperseg)
+    Pxx = np.full_like(freq, px_total / (freq[-1] - freq[0]))
+    be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
+    x = multisine_from_psd(Pxx, loop.fs, nperseg, n_periods, freq, seed=np.random.default_rng(seed))
+    be.inject("PCAL_EXC", x, loop.fs)
+    T_total = (nperseg * n_periods) / loop.fs
+    seg = be.read(["PCAL_EXC", "DARM_ERR"], T_total)
+    H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["PCAL_EXC"], seg["DARM_ERR"],
+                                                  loop.fs, nperseg, band, n_transient=1)
+    R, R_sigma = recover_response(H, H_err)
+    return freq, R, R_sigma, T_total
+
+
+def swept_sine_response_sigma(loop, freq_points, *, nperseg=4096, dwell_periods=2,
+                              px_total=1.0, seed=0):
+    """Idealised swept sine on the same twin: each frequency a single-line, full-power,
+    **ramp-free** dwell of ``dwell_periods`` periods (≥2, so a per-bin variance can be
+    formed; ramp-free so the baseline is not handicapped by the 3 s actuator ramp).
+
+    Returns ``(freq_points, R_sigma, T_used)`` — absolute σ(R) per point and the honest
+    wall-clock ``T_used = len·dwell_periods·nperseg/fs`` the sweep spends.
+    """
+    freq_points = np.asarray(freq_points, dtype=float)
+    nperseg = int(nperseg)
+    n_per = max(2, int(dwell_periods))
+    fa = np.fft.rfftfreq(nperseg, d=1.0 / loop.fs)
+    out = np.full(len(freq_points), np.inf)
+    rng = np.random.default_rng(seed)
+    for i, fpt in enumerate(freq_points):
+        k = int(np.argmin(np.abs(fa - fpt)))
+        Pxx = np.array([px_total / (fa[1] - fa[0])])   # all power on the one line
+        band = (fa >= fa[k] - 1e-9) & (fa <= fa[k] + 1e-9)
+        be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=rng, ramp_s=0.0)
+        x = multisine_from_psd(Pxx, loop.fs, nperseg, n_per, np.array([fa[k]]), seed=rng)
+        be.inject("PCAL_EXC", x, loop.fs)
+        seg = be.read(["PCAL_EXC", "DARM_ERR"], (nperseg * n_per) / loop.fs)
+        # ramp-free single tone → no transient → keep all periods (n_transient=0)
+        H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg["PCAL_EXC"], seg["DARM_ERR"],
+                                                      loop.fs, nperseg, band, n_transient=0)
+        sel = np.isfinite(H_err) & (np.abs(H) > 0)
+        if np.any(sel):
+            R, R_sigma = recover_response(H, H_err)
+            out[i] = float(np.min(R_sigma[sel]))      # absolute σ(R) at the driven line
+    T_used = len(freq_points) * n_per * nperseg / loop.fs
+    return freq_points, out, T_used
+
+
+def sweep_time_to_match_coverage(loop, *, nperseg=4096, dwell_periods=2):
+    """Wall-clock for a swept sine to visit EVERY band bin for ``dwell_periods`` each —
+    the full-band coverage the single multisine window gets in n_periods·nperseg/fs s."""
+    _, _, freq = _band_grid(loop, nperseg)
+    return len(freq) * max(2, int(dwell_periods)) * nperseg / loop.fs
