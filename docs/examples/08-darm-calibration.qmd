@@ -1,0 +1,124 @@
+---
+title: "08 — DARM calibration via Pintelon–Schoukens"
+description: "The same multisine pipeline applied to the gravitational-wave readout: one Pcal multisine recovers the DARM response R(f) and the sensing function C leakage-free, per-stage drives recover the actuation strengths, and a swept sine is run head-to-head on the same twin."
+image: thumbnails/08.svg
+categories: [calibration, closed-loop, DARM]
+freeze: true
+---
+
+The earlier examples identify suspensions. This one identifies the **gravitational-wave
+readout itself** — the DARM loop a LIGO calibration group characterises every run. The
+method does not change: a periodic multisine, a leakage-free reference FRF, a measured
+per-bin noise model, and a Cramér–Rao envelope. Only the plant is new: a closed loop with
+a sensing function `C`, three-stage actuation `A`, and a digital servo `D`, under **both**
+process disturbance and readout noise.
+
+::: {.callout-note appearance="simple"}
+## Representative, not a specific interferometer
+The twin uses representative Advanced-LIGO numbers — a coupled-cavity pole near 360 Hz, a
+~77 µs delay, three pendulum-stage actuators, and a UGF≈50 Hz loop. It is a *demonstration*
+of the measurement, not a calibration of any real instrument. The page is rendered with
+`freeze: true`.
+:::
+
+```{python}
+#| code-summary: "Setup — import the presentation glue"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    if (_c / "docs" / "darm_demo.py").exists() and str(_c / "docs") not in sys.path:
+        sys.path.insert(0, str(_c / "docs"))
+    if (_c / "darm_demo.py").exists() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+import numpy as np
+import darm_demo as dd
+```
+
+## The loop and what calibration delivers
+
+DARM strain is `h = R·d_err/L` with response `R = (1+G)/C` and open-loop gain `G = A·D·C`.
+The calibration job is to know `R(f)` — and, underneath it, the sensing `C` and the three
+actuation strengths — to ~1 % in magnitude and ~1° in phase across the band.
+
+```{python}
+#| code-summary: "The twin's truth — C, A, G, R"
+dd.truth_fig()
+```
+
+## One Pcal multisine — what you'd watch
+
+A single periodic multisine injected at Pcal, ramped on and off over 3 s, with the DARM
+error read out under the loop's real disturbance and readout noise.
+
+```{python}
+#| code-summary: "Raw Pcal measurement — drive in, d_err out"
+a = dd.pcal_audit(seed=1)
+dd.pcal_timeseries_fig(a)
+```
+
+The leakage-free FRF `d_err/x_pc = C/(1+G)` with its per-line coherence, on the analytic truth:
+
+```{python}
+#| code-summary: "Leakage-free FRF + coherence"
+dd.pcal_bode_fig(a)
+```
+
+## The deliverable: R(f), model-free
+
+Because `d_err/x_pc = C/(1+G)`, the response is simply its reciprocal — `R(f) = 1/FRF`, with
+no model in the loop. Its CRB envelope falls straight out of the FRF's per-bin error.
+
+```{python}
+#| code-summary: "Recovered R(f) ± CRB vs truth"
+dd.response_envelope_fig(a)
+```
+
+## Underneath: the sensing function C
+
+Multiplying the FRF by the (known, designed) loop factor `(1+G)` exposes the optical sensing
+`C`; a weighted complex fit returns the optical gain, the coupled-cavity pole, and the delay.
+
+```{python}
+#| code-summary: "Sensing fit — g_C, f_cc, τ"
+from IPython.display import display
+display(dd.sensing_table(a))
+```
+
+## The actuation strengths, Pcal as the ruler
+
+A Pcal-only measurement cannot separate the three stages (they live inside `G` as a product).
+Driving each stage in turn and dividing by the Pcal FRF removes `C/(1+G)`, leaving `κ_i N_i`
+referenced to the absolute Pcal meter — so each `κ` comes back on its own.
+
+```{python}
+#| code-summary: "Recover κ_U / κ_PU / κ_T"
+d = dd.actuation_campaign(seed=2)
+display(dd.actuation_table(d))
+```
+
+## Head-to-head with the swept sine
+
+Same twin, same disturbance + readout noise, same total wall-clock. The multisine measures
+every bin at once; the swept sine spends the clock one frequency at a time, so in equal time
+it reaches only a handful of frequencies (each tight, because it spends full power there) —
+and covering the whole band to the same uncertainty costs it ~100× longer. Shown on the same
+twin, not asserted.
+
+```{python}
+#| code-summary: "σ(R)/|R| — multisine (whole band) vs swept sine (few points), equal wall-clock"
+c = dd.comparison(seed=0)
+dd.comparison_fig(c)
+```
+
+```{python}
+#| code-summary: "Where the methods differ"
+display(dd.fom_table(c))
+```
+
+## Honest gaps
+
+This twin is a single DARM loop with a one-pole sensing function and static strengths. It
+omits the optical spring / SRC detuning, time-dependent coefficients (TDCF tracking lines),
+and the cross-couplings of a real interferometer. The efficiency claim above is a
+*demonstration on a twin*; the real test is to run both injections on the same instrument
+state and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
