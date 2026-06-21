@@ -213,3 +213,13 @@ def test_comparison_harness_produces_both_envelopes():
     assert T_used == pytest.approx(16.0, rel=1e-6)
     # covering the whole band by sweep costs far more than the one multisine window
     assert sweep_time_to_match_coverage(loop, nperseg=4096, dwell_periods=2) > 20 * T
+
+
+def test_glue_imports_and_builds_a_figure():
+    import importlib, sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "docs"))
+    dd = importlib.import_module("darm_demo")
+    fig = dd.truth_fig()
+    assert fig.data            # at least one trace
+    a = dd.pcal_audit(seed=1)
+    assert np.isfinite(a.fit["f_cc"])
