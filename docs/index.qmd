@@ -76,14 +76,24 @@ fig.show()
 
 ```{=html}
 <div style="max-width:860px; margin:0 auto; padding:0 1.5rem;">
+```
 
+```{python}
+#| echo: false
+#| output: true
+# Emit the stat row, populating the headline pill with the SAME computed `ratio`
+# used in the figure title above (single source of truth — no hardcoded number,
+# no dead placeholder). display(HTML(...)) passes through as raw HTML, so the
+# rendered page carries the real number statically (no markdown reprocessing).
+from IPython.display import display, HTML
+display(HTML(f"""
 <div class="stat-row">
   <div class="stat-pill">
-    <div class="stat-value" id="stat-ratio">—×</div>
+    <div class="stat-value" id="stat-ratio">{ratio:.0f}&times;</div>
     <span class="stat-label">Variance reduction<br>vs flat sweep</span>
   </div>
   <div class="stat-pill">
-    <div class="stat-value">O(n²)</div>
+    <div class="stat-value">O(n&sup2;)</div>
     <span class="stat-label">Fisher matrix cost<br>per frequency</span>
   </div>
   <div class="stat-pill">
@@ -95,7 +105,10 @@ fig.show()
     <span class="stat-label">Typical wall-clock<br>on twin</span>
   </div>
 </div>
+"""))
+```
 
+```{=html}
 <div class="page-section">
   <p class="section-label">Why it works</p>
   <div class="feature-grid">
@@ -134,11 +147,14 @@ fig.show()
 
     <div class="feature-card">
       <span class="feature-icon">&#9881;</span>
-      <h3>Same API — twin or hardware</h3>
+      <h3>Same API — twin today, hardware next</h3>
       <p>The loop code never sees actuator channels or frame data directly — it speaks
-         a backend abstraction. <code>TwinBackend</code> runs the full campaign on a
-         digital plant model at development time; swapping in the CDS backend is a
-         single config line, no code changes.</p>
+         the <code>ChannelBackend</code> abstraction. <code>TwinBackend</code> runs the
+         full campaign on a digital plant model today; a CDS hardware backend
+         (<code>awg</code> inject + <code>nds2</code> readback) drops in behind the same
+         interface, selected by one config line. That <code>CDSBackend</code> is
+         currently a <strong>stub</strong> — the interface exists, the control-room
+         implementation is in progress.</p>
     </div>
 
   </div>
@@ -147,18 +163,23 @@ fig.show()
 <div class="page-section">
   <p class="section-label">Get started</p>
   <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
-    Run a full campaign in 60 seconds
+    Run a campaign in 60 seconds
   </h2>
-  <p>Install into your environment, then run the digital-twin demo that exercises the
-     full POS/PIT/YAW suspension campaign:</p>
+  <p>Install into your environment, then run the digital-twin demo — a fast 2-DoF
+     (POS/PIT) campaign that runs end to end in well under a second, no hardware
+     required. For the full 3-DoF POS/PIT/YAW campaign, see
+     <a href="examples/04-suspension-multidof.html">example 04</a>.</p>
 
   <div class="quickstart-block">
     <span class="qs-comment"># install (from the repo root)</span><br>
-    <span class="qs-prompt">$ </span>pip install -e ".[dev]"<br>
+    <span class="qs-prompt">$ </span>pip install -e .<br>
     <br>
     <span class="qs-comment"># run the twin demo — no hardware required</span><br>
     <span class="qs-prompt">$ </span>system_ident run src/system_ident/configs/twin_demo.yml --twin --yes<br>
-    <span class="qs-output">DONE (target reached); per-DoF fractional uncertainty ~1e-9</span><br>
+    <span class="qs-output">running twin campaign: 2 DoF(s) ['POS', 'PIT']</span><br>
+    <span class="qs-output">DONE (target reached)</span><br>
+    <span class="qs-output">&nbsp;&nbsp;POS: max fractional uncertainty = 0.000351</span><br>
+    <span class="qs-output">&nbsp;&nbsp;PIT: max fractional uncertainty = 0.000672</span><br>
     <br>
     <span class="qs-comment"># or drive it from Python</span><br>
     <span class="qs-prompt">$ </span>python<br>
