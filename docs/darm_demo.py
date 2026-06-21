@@ -107,13 +107,15 @@ def comparison(seed=0):
     loop = _twin()
     freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=NPERSEG, n_periods=NPER,
                                                  px_total=1.0, seed=seed)
-    # equal wall-clock sweep: in the SAME T, a 2-period dwell resolves only ~T*fs/(2*nperseg)
-    # frequencies (= NPER//2 = 8 points here), vs the multisine's whole-band coverage.
-    n_pts = NPER // 2
+    # equal wall-clock sweep: in the SAME T, a 4-period dwell resolves only ~T*fs/(4*nperseg)
+    # frequencies (= NPER//4 = 4 points here), vs the multisine's whole-band coverage.
+    # 4 periods are the minimum for a genuine per-bin variance (P_eff≥3); 2 periods give
+    # P_eff=2 which underflows to the estimator's 1e-9 floor and produces a fabricated σ.
+    n_pts = NPER // 4
     pts = np.geomspace(loop.fmin, loop.fmax, n_pts)
     fp, ssweep, T_used = swept_sine_response_sigma(loop, pts, nperseg=NPERSEG,
-                                                   dwell_periods=2, px_total=1.0, seed=seed)
-    t_cover = sweep_time_to_match_coverage(loop, nperseg=NPERSEG, dwell_periods=2)
+                                                   dwell_periods=4, px_total=1.0, seed=seed)
+    t_cover = sweep_time_to_match_coverage(loop, nperseg=NPERSEG, dwell_periods=4)
     return SimpleNamespace(loop=loop, freq=freq, frac_ms=R_sig / np.abs(loop.R(freq)),
                            excited=np.isfinite(R_sig), pts=fp,
                            frac_sweep=ssweep / np.abs(loop.R(fp)),
@@ -132,7 +134,7 @@ def truth_fig(height=560):
               ("|R| response", np.abs(loop.R(ff)), sp.ROSE)]
     for name, y, c in series:
         fig.add_scatter(x=ff, y=y, mode="lines", name=name, line=dict(color=c, width=2.4))
-    yr = sp._logy_range([y for _, y, _ in series], decades=8)
+    yr = sp._logy_range([y for _, y, _ in series], decades=13)
     fig.update_xaxes(type="log", title_text="frequency [Hz]")
     fig.update_yaxes(type="log", range=yr, title_text="magnitude")
     fig.update_layout(title="DARM twin — sensing C, actuation A, open-loop G, response R")

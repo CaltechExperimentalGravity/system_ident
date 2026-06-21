@@ -205,14 +205,18 @@ def test_comparison_harness_produces_both_envelopes():
     # honest, visible, representative uncertainty — NOT floored to ~1e-9, not absurd
     frac = R_sig[good] / np.abs(R[good])
     assert 1e-3 < np.median(frac) < 5e-2
-    # equal wall-clock: 8 points × 2 periods × 1 s = the same 16 s
-    pts = np.geomspace(loop.fmin, loop.fmax, 8)
-    fp, s, T_used = swept_sine_response_sigma(loop, pts, nperseg=4096, dwell_periods=2,
+    # equal wall-clock: 4 points × 4 periods × 1 s = the same 16 s
+    pts = np.geomspace(loop.fmin, loop.fmax, 4)
+    fp, s, T_used = swept_sine_response_sigma(loop, pts, nperseg=4096, dwell_periods=4,
                                               px_total=1.0, seed=0)
     assert s.shape == pts.shape and np.all(np.isfinite(s) & (s > 0))
     assert T_used == pytest.approx(16.0, rel=1e-6)
+    # honesty guard: swept σ must NOT be at the 1e-9 estimator floor
+    frac_sw = s / np.abs(loop.R(fp))
+    assert np.median(frac_sw) > 1e-6    # floored σ gives ~1e-9; genuine variance >> floor
+    assert np.median(frac_sw) < 1e-1    # not absurdly large either
     # covering the whole band by sweep costs far more than the one multisine window
-    assert sweep_time_to_match_coverage(loop, nperseg=4096, dwell_periods=2) > 20 * T
+    assert sweep_time_to_match_coverage(loop, nperseg=4096, dwell_periods=4) > 20 * T
 
 
 def test_glue_imports_and_builds_a_figure():

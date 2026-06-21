@@ -250,11 +250,13 @@ def multisine_response_sigma(loop, *, nperseg=4096, n_periods=16, px_total=1.0, 
     return freq, R, R_sigma, T_total
 
 
-def swept_sine_response_sigma(loop, freq_points, *, nperseg=4096, dwell_periods=2,
+def swept_sine_response_sigma(loop, freq_points, *, nperseg=4096, dwell_periods=4,
                               px_total=1.0, seed=0):
     """Idealised swept sine on the same twin: each frequency a single-line, full-power,
-    **ramp-free** dwell of ``dwell_periods`` periods (≥2, so a per-bin variance can be
-    formed; ramp-free so the baseline is not handicapped by the 3 s actuator ramp).
+    **ramp-free** dwell of ``dwell_periods`` periods (≥4 required so P_eff≥3 and the
+    per-bin variance is genuinely estimated — 2 periods give P_eff=2 which underflows
+    to the 1e-9 estimator floor, producing a fabricated σ; ramp-free so the baseline
+    is not handicapped by the 3 s actuator ramp).
 
     Returns ``(freq_points, R_sigma, T_used)`` — absolute σ(R) per point and the honest
     wall-clock ``T_used = len·dwell_periods·nperseg/fs`` the sweep spends.
