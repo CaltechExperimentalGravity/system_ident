@@ -42,3 +42,6 @@ docs/objects.json
 # Generated demo figures (local quick-look artifacts; SVG per the graphics rule)
 experiments/rtsfreerun/*.png
 experiments/rtsfreerun/*.svg
+
+# Copyrighted reference textbook — local-only, never publish (scraped into .llm/)
+docs/SysID-Pintelon.pdf
