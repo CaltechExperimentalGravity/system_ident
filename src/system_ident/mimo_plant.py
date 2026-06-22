@@ -58,6 +58,8 @@ def output_matrix(plant_ss, n_act, n_dof, *, basis="euler"):
     constant orthogonal-ish mixing with a gentle 1-pole roll shaping (so it is genuinely
     frequency-dependent), standing in for a real decoupling-filter design.
     """
+    if basis not in ("euler", "eigenmode"):
+        raise ValueError(f"unknown basis {basis!r}")
     if basis == "euler":
         return control.ss([], [], [], np.eye(n_act, n_dof))
     # eigenmode: constant mix * a shared 1-pole shaping per channel (frequency-dependent).

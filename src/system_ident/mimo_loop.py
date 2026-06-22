@@ -55,6 +55,8 @@ class CoupledLoop:
 def recover_open_loop(Xmat, Ymat):
     """Per-bin G = Y_mat · X_mat^-1 (the closed-loop MIMO reference-FRF recovery)."""
     X = np.asarray(Xmat); Y = np.asarray(Ymat)
+    assert X.shape[1] == X.shape[2], \
+        "recover_open_loop needs square X (n_act drive monitors per actuator)"
     out = np.empty((X.shape[0], Y.shape[1], X.shape[2]), dtype=complex)
     for k in range(X.shape[0]):
         out[k] = Y[k] @ np.linalg.inv(X[k])

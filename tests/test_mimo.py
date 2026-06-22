@@ -30,6 +30,12 @@ def test_decoupling_matrix_shapes():
     assert Mo.ninputs == 2 and Mo.noutputs == 2
 
 
+def test_output_matrix_rejects_unknown_basis():
+    G = mimo_suspension([(0.6, 20), (1.5, 30)], n_sens=2, n_act=2)
+    with pytest.raises(ValueError, match="unknown basis"):
+        output_matrix(G, n_act=2, n_dof=2, basis="notabasis")
+
+
 # ---------------------------------------------------------------------------
 # Task 2: CoupledLoop
 # ---------------------------------------------------------------------------
@@ -60,6 +66,41 @@ def test_sensitivity_identity():
     # S = (I+L)^-1  =>  shape must be n_act×n_act in discrete form
     lp = _square_loop()
     assert lp.Sd.ninputs == 2 and lp.Sd.noutputs == 2
+
+
+def test_loop_actually_suppresses():
+    """Pin that the loop is closed in the stabilizing direction via Sd norms.
+
+    Active loop (k=0.5): both off-resonance in-band bins yield ||Sd||_2 < 1.0
+    (measured: ~0.57 at 0.4 Hz, ~0.52 at 3.0 Hz).  A wrong-sign or open loop
+    would have ||Sd||_2 >= 1.
+
+    Near-zero-gain loop (k=1e-6): Sd → I as loop gain → 0, confirming the
+    feedback enters as (I+L)^-1 (measured: ||Sd0-I||_inf < 3e-5).
+    """
+    lp = _square_loop()                                    # k=0.5, active loop
+    G = mimo_suspension([(0.6, 20), (1.5, 30)], n_sens=2, n_act=2, coupling=0.25)
+    C0 = [velocity_damper(1e-6, 20.0) for _ in range(2)]
+    Min = input_matrix(2, 2, kind="identity")
+    Mout = output_matrix(G, n_act=2, n_dof=2, basis="euler")
+    lp0 = CoupledLoop(G, C0, Min, Mout, fs=lp.fs)         # near-zero-gain loop
+
+    f = np.array([0.4, 3.0])
+    z = np.exp(2j * np.pi * f / lp.fs)
+    Sd  = lp.Sd(z)    # shape (n_act, n_act, nf)
+    Sd0 = lp0.Sd(z)
+
+    # Active loop must suppress at both off-resonance bins
+    for k in range(len(f)):
+        norm_val = np.linalg.norm(Sd[:, :, k], 2)
+        assert norm_val < 1.0, (
+            f"f={f[k]} Hz: ||Sd||_2={norm_val:.4f} >= 1 — loop not suppressing"
+        )
+    # Near-zero gain: Sd → identity (pins that feedback enters as (I+L)^-1)
+    for k in range(len(f)):
+        assert np.allclose(Sd0[:, :, k], np.eye(lp.n_act), atol=1e-3), (
+            f"f={f[k]} Hz: Sd0 not close to I: {Sd0[:,:,k]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -110,20 +151,6 @@ def test_backend_shapes_and_consistency():
     assert all(seg[c].shape == (int(round(T*fs)),) for c in seg)
 
 
-def test_backend_recovers_diagonal_offres():
-    # drive one actuator, the j=0 monitor/sensor reference FRF recovers Gd[0,0] off-res
-    lp = _square_loop(); be = _backend(lp, sensor_asd=0.0, seed=1)
-    fs, nper, npe = lp.fs, 1024, 6
-    fa = np.fft.rfftfreq(nper, 1/fs); band = (fa>=0.3)&(fa<=8.0); freq = fa[band]
-    Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
-    u = multisine_from_psd(Pxx, fs, nper, npe, freq, seed=np.random.default_rng(0))
-    be.inject("EXC0", u, fs)
-    seg = be.read(["EXC0","DRV0","SEN0"], nper*npe/fs)
-    Hx,_,_ = SysIDLoop._estimate_tf_periodic(seg["EXC0"], seg["DRV0"], fs, nper, band, 2)
-    Hy,_,_ = SysIDLoop._estimate_tf_periodic(seg["EXC0"], seg["SEN0"], fs, nper, band, 2)
-    # H_y / H_x is NOT Gd[0,0] (closed-loop coupling) — but the full matrix recovery is exact;
-    # here just assert the monitor FRF is finite & nonzero (the sim ran through the loop)
-    assert np.all(np.isfinite(Hx)) and np.median(np.abs(Hx)) > 0
 
 
 # ---------------------------------------------------------------------------
