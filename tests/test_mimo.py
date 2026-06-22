@@ -28,3 +28,35 @@ def test_decoupling_matrix_shapes():
     G = mimo_suspension([(0.6, 20), (1.5, 30)], n_sens=2, n_act=2)
     Mo = output_matrix(G, n_act=2, n_dof=2, basis="eigenmode")
     assert Mo.ninputs == 2 and Mo.noutputs == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 2: CoupledLoop
+# ---------------------------------------------------------------------------
+from system_ident.mimo_loop import CoupledLoop, velocity_damper
+
+
+def _square_loop(fs=64.0, basis="euler"):
+    G = mimo_suspension([(0.6, 20), (1.5, 30)], n_sens=2, n_act=2, coupling=0.25)
+    C = [velocity_damper(0.5, 20.0) for _ in range(2)]
+    Min = input_matrix(2, 2, kind="identity")
+    Mout = output_matrix(G, n_act=2, n_dof=2, basis=basis)
+    return CoupledLoop(G, C, Min, Mout, fs=fs)
+
+
+def test_loop_is_stable():
+    assert _square_loop().is_stable()
+
+
+def test_loop_oracle_is_discrete_plant():
+    lp = _square_loop()
+    f = np.array([0.4, 3.0])
+    z = np.exp(2j * np.pi * f / lp.fs)
+    expect = lp.Gd(z)  # (2,2,2)
+    np.testing.assert_allclose(lp.oracle(f), expect, rtol=1e-9)
+
+
+def test_sensitivity_identity():
+    # S = (I+L)^-1  =>  shape must be n_act×n_act in discrete form
+    lp = _square_loop()
+    assert lp.Sd.ninputs == 2 and lp.Sd.noutputs == 2
