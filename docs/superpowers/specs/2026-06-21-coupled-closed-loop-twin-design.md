@@ -19,8 +19,8 @@ Phase 1 (RTSfreerun) only — real hardware is Phase 2, explicitly out of scope.
 
 Build a **dimension-generic, coupled, closed-loop suspension twin**, and verify that the existing
 leakage-free **reference-based FRF recovers the open-loop coupled plant `G` through the live diagonal
-control loops** (including the input/output decoupling matrices), **nonparametrically** (per matrix
-element), matched to the known analytic plant.
+control loops** (including the input/output decoupling matrices), **nonparametrically** via a per-bin
+matrix inverse (`G = Y_mat · X_mat⁻¹`, §4), matched to the known analytic plant.
 
 This is the testbed the joint parametric MIMO fit (step 2) will run on — proven before we trust a fit
 on its data. It serves SUS, SEI, ASC, and LSC: diagonal per-DoF control of a cross-coupled plant is
@@ -76,16 +76,34 @@ retrofitting the SISO polynomial closed-loop into MIMO.
 
 ## 4. Recovery (the step-1 deliverable)
 
-Drive each actuator `j` with the multisine; read the response tensor `Y_i` (`i` over `n_sens`) and the
-plant-input monitors `X_j` (`j` over `n_act`). Form the **leakage-free reference-based FRF tensor**
-per pair, `H_ij = mean_p(Y_i)/mean_p(X_j)`, reusing `SysIDLoop._estimate_tf_periodic` (no new
-estimation method). `H_ij` recovers the **open-loop** `G_ij` despite `M_in`, `C_d`, and `M_out` —
-controller + decoupling cancelled — including the residual in-loop coupling. Verify `H_ij` matches the
-analytic `G_ij` to tolerance.
+Drive each actuator `j` (sequentially, v1) with the multisine; per driven actuator read the full
+**drive-monitor vector** (`n_act` plant-input monitors) and the **response vector** (`n_sens`
+sensors). Using the leakage-free periodic-DFT FRF (`SysIDLoop._estimate_tf_periodic`, no new
+estimation method), assemble — **per frequency bin** — the matrices `X_mat(f)` (`n_act × n_act`,
+injected reference → drive monitors) and `Y_mat(f)` (`n_sens × n_act`, injected reference →
+responses). Recover the open-loop coupled plant by the **matrix ratio**:
+
+```
+G(f) = Y_mat(f) · X_mat(f)⁻¹        (per bin)
+```
+
+This cancels the controller + decoupling (`M_in`, `C_d`, `M_out`) and returns `G`.
+**The matrix inverse is essential:** driving one actuator excites *all* drive monitors through the
+loop coupling (the input sensitivity `S=(I+L)⁻¹` is non-diagonal), so the naive per-pair ratio
+`Y_i/X_j` is **~100 % biased on the off-diagonals** (verified in a 2×2 python-control prototype:
+matrix recovery 1e-11 off-resonance, per-pair off-diagonal error ~1.0). `X_mat` is always
+`n_act × n_act` (one monitor per driven actuator), so this handles rectangular `G` (`n_sens × n_act`)
+directly. Verify `G(f)` against the analytic plant.
+
+**Known v1 limitation → step 2.** `X_mat` is ill-conditioned at the resonances (high loop gain → `S`
+near-singular), so the nonparametric inverse degrades exactly at the peaks/notches — the closed-loop
+off-diagonal bias the HSTS A4 run saw. **v1 verifies recovery off-resonance** to tolerance and treats
+the resonance conditioning as a known limitation; **regularizing the resonances via shared modal poles
+is step 2's job**, not v1's.
 
 **Drive sequencing:** **v1 drives one actuator at a time** (sequential — the cleanest input
-separation, `n_act` campaigns). Simultaneous **uncorrelated** multisines across actuators (faster,
-MIMO-orthogonal in one pass) is deferred to **v3**.
+separation, `n_act` campaigns; the matrix recovery combines them). Simultaneous **uncorrelated**
+multisines across actuators (faster, MIMO-orthogonal in one pass) is deferred to **v3**.
 
 ## 5. Dependencies
 
@@ -97,7 +115,8 @@ MIMO-orthogonal in one pass) is deferred to **v3**.
 ## 6. Testing
 
 Run everything via `conda run -n sysid python -m pytest`. CI runs the small cases; the 6-DoF is a
-heavier/marked check.
+heavier/marked check. **Recovery is scored off-resonance** (the excited bins excluding a neighbourhood
+of each mode), since `X_mat⁻¹` is ill-conditioned at the resonances (§4) — that regime is step 2's.
 
 - **Construction / stability:** the assembled closed loop is stable (discrete poles inside the unit
   circle), `minreal` yields a clean realization.
