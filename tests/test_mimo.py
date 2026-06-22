@@ -60,3 +60,26 @@ def test_sensitivity_identity():
     # S = (I+L)^-1  =>  shape must be n_act×n_act in discrete form
     lp = _square_loop()
     assert lp.Sd.ninputs == 2 and lp.Sd.noutputs == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 3: matrix-inverse recovery + off-resonance mask
+# ---------------------------------------------------------------------------
+from system_ident.mimo_loop import recover_open_loop, off_resonance_mask
+
+
+def test_matrix_recovery_exact_offres_and_per_pair_biased():
+    lp = _square_loop()
+    f = np.geomspace(0.3, 8, 80); z = np.exp(2j*np.pi*f/lp.fs)
+    Sd = lp.Sd(z).transpose(2,0,1)            # (nbin, n_act, n_act)
+    Gd = lp.Gd(z).transpose(2,0,1)            # (nbin, n_sens, n_act)
+    Xmat = Sd                                  # injected-ref -> drive monitors
+    Ymat = Gd @ Sd                             # injected-ref -> responses
+    Grec = recover_open_loop(Xmat, Ymat)
+    mask = off_resonance_mask(f, [0.6, 1.5])
+    rel = np.array([np.max(np.abs(Grec[k]-Gd[k]))/np.max(np.abs(Gd[k])) for k in range(len(f))])
+    assert np.median(rel[mask]) < 1e-6        # matrix recovery exact off-resonance
+    # per-pair ratio Y_ij/X_jj is badly biased off-diagonal (sanity: why we need the inverse)
+    pair = np.array([Ymat[k] / np.diag(Xmat[k])[None,:] for k in range(len(f))])
+    od = np.array([abs(pair[k,0,1]-Gd[k,0,1])/abs(Gd[k,0,1]) for k in range(len(f))])
+    assert np.median(od[mask]) > 0.3

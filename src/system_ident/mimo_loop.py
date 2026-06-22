@@ -50,3 +50,20 @@ class CoupledLoop:
         """
         z = np.exp(2j * np.pi * np.asarray(freq, float) / self.fs)
         return self.Gd(z)
+
+
+def recover_open_loop(Xmat, Ymat):
+    """Per-bin G = Y_mat · X_mat^-1 (the closed-loop MIMO reference-FRF recovery)."""
+    X = np.asarray(Xmat); Y = np.asarray(Ymat)
+    out = np.empty((X.shape[0], Y.shape[1], X.shape[2]), dtype=complex)
+    for k in range(X.shape[0]):
+        out[k] = Y[k] @ np.linalg.inv(X[k])
+    return out
+
+
+def off_resonance_mask(freq, modes_hz, frac=0.12):
+    freq = np.asarray(freq, float)
+    keep = np.ones(freq.shape, bool)
+    for f0 in modes_hz:
+        keep &= np.abs(freq/f0 - 1.0) > frac
+    return keep
