@@ -25,6 +25,8 @@ jobs:
         with:
           python-version: "3.12"
       - uses: quarto-dev/quarto-actions/setup@v2
+      - name: Install slycot (Fortran-backed; needed by python-control MIMO)
+        run: pip install slycot
       - name: Install package + docs deps
         run: |
           python -m pip install --upgrade pip
