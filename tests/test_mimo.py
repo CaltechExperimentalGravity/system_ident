@@ -131,7 +131,7 @@ def test_backend_recovers_diagonal_offres():
 # ---------------------------------------------------------------------------
 
 
-def _campaign(lp, *, sensor_asd=0.0, process_asd=0.0, nper=1024, npe=6, seed=0):
+def _campaign(lp, *, sensor_asd=0.0, process_asd=0.0, nper=1024, npe=6, seed=0, modes_hz=(0.6, 1.5)):
     fs = lp.fs
     fa = np.fft.rfftfreq(nper, 1/fs); band = (fa>=0.3)&(fa<=8.0); freq = fa[band]
     Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
@@ -150,7 +150,7 @@ def _campaign(lp, *, sensor_asd=0.0, process_asd=0.0, nper=1024, npe=6, seed=0):
     Ymat = np.array(Ycols).transpose(2,1,0)        # (nbin, n_sens, n_drive)
     Grec = recover_open_loop(Xmat, Ymat)
     Gd = lp.oracle(freq).transpose(2,0,1)
-    mask = off_resonance_mask(freq, [0.6, 1.5])
+    mask = off_resonance_mask(freq, list(modes_hz))
     rel = np.array([np.max(np.abs(Grec[k]-Gd[k]))/np.max(np.abs(Gd[k])) for k in range(len(freq))])
     return rel, mask
 
@@ -197,7 +197,8 @@ def test_six_dof_recovery():
     Mout = output_matrix(G, n_act=6, n_dof=6, basis="eigenmode")
     lp = CoupledLoop(G, C, Min, Mout, fs=128.0)
     assert lp.is_stable()
-    rel, mask = _campaign(lp, sensor_asd=1e-3, nper=2048, npe=6, seed=8)
+    rel, mask = _campaign(lp, sensor_asd=1e-3, nper=2048, npe=6, seed=8,
+                          modes_hz=[0.43, 0.56, 0.9, 1.0, 2.0, 3.4])
     assert np.median(rel[mask]) < 1e-1
 
 
