@@ -180,3 +180,29 @@ def test_recover_non_square():
     rel, mask = _campaign(lp, seed=5)
     assert lp.n_sens == 3 and lp.n_act == 2
     assert np.median(rel[mask]) < 5e-2           # rectangular G (3×2) recovered off-res
+
+
+# ---------------------------------------------------------------------------
+# Task 6: 6-DoF (L/P/Y/R/V/T) recovery + Euler/eigenmode basis selectable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_six_dof_recovery():
+    # L/P/Y/R/V/T — six shared modes; square 6/6/6; representative eigenmode decoupler
+    modes = [(0.43,100),(0.56,100),(0.9,80),(1.0,80),(2.0,60),(3.4,60)]
+    G = mimo_suspension(modes, n_sens=6, n_act=6, coupling=0.2)
+    C = [velocity_damper(0.4, 20.0) for _ in range(6)]
+    Min = input_matrix(6, 6, kind="perturbed", seed=7)
+    Mout = output_matrix(G, n_act=6, n_dof=6, basis="eigenmode")
+    lp = CoupledLoop(G, C, Min, Mout, fs=128.0)
+    assert lp.is_stable()
+    rel, mask = _campaign(lp, sensor_asd=1e-3, nper=2048, npe=6, seed=8)
+    assert np.median(rel[mask]) < 1e-1
+
+
+def test_basis_selectable():
+    G = mimo_suspension([(0.6,20),(1.5,30)], n_sens=2, n_act=2)
+    e = output_matrix(G, 2, 2, basis="euler"); m = output_matrix(G, 2, 2, basis="eigenmode")
+    # euler is static (no states), eigenmode is dynamic (has states) — genuinely different
+    assert control.tf2ss(e).nstates == 0 and control.tf2ss(m).nstates > 0

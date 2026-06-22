@@ -45,3 +45,6 @@ system_ident = ["py.typed", "configs/*.yml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --import-mode=importlib"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
