@@ -3,9 +3,17 @@
 **Status:** approved design, pre-implementation
 **Date:** 2026-06-21
 **Arc:** Step 1 of "joint MIMO identification of closed-loop systems" — the headline SEI/ISC
-commissioning need (see `.llm/roadmap.md` audit, 2026-06-21). Step 2 (the joint parametric fit:
-shared modal poles + MIMO Cramér–Rao bound) is a **separate next spec**. Phase 1 (RTSfreerun) only —
-real hardware is Phase 2, explicitly out of scope.
+commissioning need (see `.llm/roadmap.md` audit, 2026-06-21).
+- **Step 1 (this spec):** the generic coupled+closed-loop Python twin + nonparametric recovery.
+- **Step 2 (next spec):** the joint parametric fit — shared modal poles across elements + MIMO
+  Cramér–Rao bound.
+- **Step 3 (final, named follow-on):** demonstrate the same recovery + joint fit on the **RTSfreerun
+  compiled twin** (`x1hsts6dof`, real L1-MC2 loops). Because recovery runs through the
+  `ChannelBackend` API, the generic twin and the existing `backends/rtsfreerun_adapter` feed the
+  *same* code — the design below keeps recovery **backend-agnostic** so step 3 is a demonstration, not
+  a rewrite.
+
+Phase 1 (RTSfreerun) only — real hardware is Phase 2, explicitly out of scope.
 
 ## 1. Goal
 
@@ -75,14 +83,16 @@ estimation method). `H_ij` recovers the **open-loop** `G_ij` despite `M_in`, `C_
 controller + decoupling cancelled — including the residual in-loop coupling. Verify `H_ij` matches the
 analytic `G_ij` to tolerance.
 
+**Drive sequencing:** **v1 drives one actuator at a time** (sequential — the cleanest input
+separation, `n_act` campaigns). Simultaneous **uncorrelated** multisines across actuators (faster,
+MIMO-orthogonal in one pass) is deferred to **v3**.
+
 ## 5. Dependencies
 
 - **python-control** — already a declared dependency (`pyproject.toml`), present (0.10.2).
-- **slycot** — present in the `sysid` env (0.6.1) but **not** declared. Building the MIMO
-  interconnection / `minreal` may use it. **Add `slycot` to the declared deps** and confirm CI can
-  install it (conda-forge has wheels; if the pip-based CI can't build it, add a conda step or gate the
-  slycot-backed ops behind a pure-python fallback). This is a plan-time detail to resolve, not a
-  blocker for the method.
+- **slycot — required.** Present in the `sysid` env (0.6.1); **add it to the declared deps**
+  (`pyproject.toml`). CI must install it (conda-forge wheel / PyPI wheel) — the build uses slycot-backed
+  python-control ops (interconnection, `minreal`). No pure-Python fallback; slycot is a hard dependency.
 
 ## 6. Testing
 
@@ -108,6 +118,9 @@ heavier/marked check.
 
 - The **joint parametric fit** — one model with shared modal poles across all elements + MIMO CRB.
   That is step 2, its own spec.
+- The **RTSfreerun demonstration** — running the recovery + joint fit on the compiled `x1hsts6dof`
+  twin. That is step 3 (its own follow-on); this spec only ensures recovery stays backend-agnostic so
+  it transfers.
 - The **damping-paradigm study** (Euler vs eigenmode optimum) — the twin *supports* the basis knob;
   running the study is later work.
 - **Real hardware / CDS** (pyepics/pyawg/cdsutils) — Phase 2, not to be touched until the user says so
