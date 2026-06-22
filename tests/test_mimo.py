@@ -124,3 +124,59 @@ def test_backend_recovers_diagonal_offres():
     # H_y / H_x is NOT Gd[0,0] (closed-loop coupling) — but the full matrix recovery is exact;
     # here just assert the monitor FRF is finite & nonzero (the sim ran through the loop)
     assert np.all(np.isfinite(Hx)) and np.median(np.abs(Hx)) > 0
+
+
+# ---------------------------------------------------------------------------
+# Task 5: end-to-end recovery — square sanity, realistic (M_in/M_out+noise), non-square
+# ---------------------------------------------------------------------------
+
+
+def _campaign(lp, *, sensor_asd=0.0, process_asd=0.0, nper=1024, npe=6, seed=0):
+    fs = lp.fs
+    fa = np.fft.rfftfreq(nper, 1/fs); band = (fa>=0.3)&(fa<=8.0); freq = fa[band]
+    Pxx = np.full_like(freq, 1.0/(freq[-1]-freq[0]))
+    Xcols, Ycols = [], []
+    for j in range(lp.n_act):
+        be = _backend(lp, sensor_asd=sensor_asd, process_asd=process_asd, seed=seed*10+j)
+        u = multisine_from_psd(Pxx, fs, nper, npe, freq, seed=np.random.default_rng(j))
+        be.inject(f"EXC{j}", u, fs)
+        ch = [f"EXC{j}"] + [f"DRV{a}" for a in range(lp.n_act)] + [f"SEN{i}" for i in range(lp.n_sens)]
+        seg = be.read(ch, nper*npe/fs)
+        Xcols.append([SysIDLoop._estimate_tf_periodic(seg[f"EXC{j}"], seg[f"DRV{a}"], fs, nper, band, 2)[0]
+                      for a in range(lp.n_act)])
+        Ycols.append([SysIDLoop._estimate_tf_periodic(seg[f"EXC{j}"], seg[f"SEN{i}"], fs, nper, band, 2)[0]
+                      for i in range(lp.n_sens)])
+    Xmat = np.array(Xcols).transpose(2,1,0)        # (nbin, n_act, n_drive)
+    Ymat = np.array(Ycols).transpose(2,1,0)        # (nbin, n_sens, n_drive)
+    Grec = recover_open_loop(Xmat, Ymat)
+    Gd = lp.oracle(freq).transpose(2,0,1)
+    mask = off_resonance_mask(freq, [0.6, 1.5])
+    rel = np.array([np.max(np.abs(Grec[k]-Gd[k]))/np.max(np.abs(Gd[k])) for k in range(len(freq))])
+    return rel, mask
+
+
+def test_recover_square_sanity():
+    lp = _square_loop(basis="euler")              # M_in=I, M_out=I
+    rel, mask = _campaign(lp)
+    assert np.median(rel[mask]) < 5e-3
+
+
+def test_recover_square_realistic_with_noise():
+    G = mimo_suspension([(0.6,20),(1.5,30)], n_sens=2, n_act=2, coupling=0.25)
+    C = [velocity_damper(0.5, 20.0) for _ in range(2)]
+    Min = input_matrix(2, 2, kind="perturbed", seed=3)
+    Mout = output_matrix(G, n_act=2, n_dof=2, basis="eigenmode")
+    lp = CoupledLoop(G, C, Min, Mout, fs=64.0)
+    rel, mask = _campaign(lp, sensor_asd=1e-3, seed=2)
+    assert np.median(rel[mask]) < 5e-2           # off-res recovery under nontrivial M_in/M_out + noise
+
+
+def test_recover_non_square():
+    G = mimo_suspension([(0.6,20),(1.5,30)], n_sens=3, n_act=2, coupling=0.25)
+    C = [velocity_damper(0.5, 20.0) for _ in range(2)]
+    Min = input_matrix(2, 3, kind="perturbed", seed=4)   # n_dof=2, n_sens=3
+    Mout = output_matrix(G, n_act=2, n_dof=2, basis="euler")
+    lp = CoupledLoop(G, C, Min, Mout, fs=64.0)
+    rel, mask = _campaign(lp, seed=5)
+    assert lp.n_sens == 3 and lp.n_act == 2
+    assert np.median(rel[mask]) < 5e-2           # rectangular G (3×2) recovered off-res
