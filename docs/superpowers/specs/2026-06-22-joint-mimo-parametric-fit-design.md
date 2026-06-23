@@ -1,214 +1,199 @@
-# Joint MIMO parametric fit — common-denominator SML + Cramér–Rao bound
+# Joint MIMO parametric fit — rank-1 modal SML + Cramér–Rao bound
 
-**Status:** approved design, pre-implementation
+**Status:** approved design (v2 — rank-1 modal), pre-implementation
 **Date:** 2026-06-22
 **Arc:** Step 2 of "joint MIMO identification of closed-loop systems" — the headline
 SEI/ISC commissioning need (see `.llm/roadmap.md`).
 - **Step 1 (done, on `main`):** generic coupled+closed-loop twin + nonparametric per-bin
   matrix-inverse recovery `G(f) = Y_mat·X_mat⁻¹`.
-- **Step 2 (this spec):** the joint *parametric* fit — one common-denominator MIMO model
-  with **shared modal poles** across all elements, fit by Pintelon–Schoukens **sample-ML
-  (SML)**, with the **Cramér–Rao bound** on the modal parameters and the FRF.
+- **Step 2 (this spec):** the joint *parametric* fit — one **rank-1 modal** MIMO model with
+  **shared modal poles**, fit by Pintelon–Schoukens **sample-ML (SML)**, with the
+  **Cramér–Rao bound** on the modal parameters and the FRF.
 - **Step 3 (named follow-on):** demonstrate the same fit on the RTSfreerun compiled twin
   (`x1hsts6dof`). The fit is backend-agnostic so step 3 is a demonstration, not a rewrite.
 
-Phase 1 (RTSfreerun) only — real hardware is Phase 2, explicitly out of scope
-([[two-phase-cds-plan]]).
+Phase 1 (RTSfreerun) only — real hardware is Phase 2, out of scope ([[two-phase-cds-plan]]).
 
-**This spec implements P&S's *literal* method.** The procedure, equations, and page
-citations are scraped into **`.llm/pintelon-schoukens-mimo-fit.md`** (from
-`docs/SysID-Pintelon.pdf`, 2nd ed.) — read it alongside this spec; it is the authoritative
-derivation and this spec cites it throughout. Earlier (pre-book) framings of step 2 (a
-"recover G then fit G" two-stage, modal/vector-fitting parameterization, variable
-projection) are **superseded** — see §9. [[stay-on-pintelon-schoukens]].
+## 0. Why rank-1 modal (the design evolution — read this first)
+
+This spec **started** as P&S's literal common-denominator model `G=B/A` (free per-element
+numerators), per [[stay-on-pintelon-schoukens]] ("use their method first; modify if it
+fails or is slow"). **It failed — and the failure was measured, not guessed:**
+
+- On the **real `mimo_suspension` plant** at 6-DoF, the common-denominator SML **does not
+  identify the poles.** Even starting *exactly* at the right poles (or 10% off), the fit
+  drifts to wrong poles; `cost@fit < cost@true`.
+- **Root cause:** 36 elements × degree-11 free numerators = **432 numerator coefficients**
+  vs the shared **12-coefficient** denominator — a **33:1 ratio**. The numerators absorb any
+  pole error, so the poles are *weakly identifiable*. (At 2-DoF the ratio is 3:1 → it works;
+  it's the MIMO size that breaks it.) Confirmed noise-independent (identical at 0.3% and 1%
+  noise) ⇒ structural, not statistical.
+
+**The fix is P&S's own Remark (iii) (§6.6, p.194):** "if the residue matrices have rank one
+(e.g. in modal analysis), the … state-space / matrix-fraction descriptions are preferred
+[fewer parameters]." A reciprocal, proportionally-damped suspension has **rank-1 residues per
+mode** (mode shape ⊗ mode shape). The twin is **exactly rank-1 by construction**
+(`mimo_plant.py:34`: `term = gain·φ[i,k]·ψ[j,k]`). So rank-1 is **zero-undermodeling here**,
+physically correct, and **P&S-sanctioned** — not a divergence.
+
+**Verified before writing this spec** (on the real plant, with the rank-1 model + the
+data-driven peak-pick init of §4): poles recovered **exactly** (`maxerr 0.0000`) from priors
+10%, 50%, and effectively arbitrary; ~1 s per fit (84 params, not 445). The full derivation +
+the scraped P&S text live in `.llm/pintelon-schoukens-mimo-fit.md` and
+`.llm/ps-book/` (full-text + marker).
 
 ## 1. Goal
 
-Fit a **single common-denominator MIMO transfer-function model** `G(Ω,θ) = B(Ω,θ)/A(Ω,θ)`
-— a **scalar denominator `A`** carrying the **shared modal poles** and a **polynomial-matrix
-numerator `B`** with **free per-element numerators** — **directly to the measured
-input/output DFT spectra** (`X_mat`, `Y_mat`) and their period-to-period sample covariances,
-by minimizing the P&S **sample-ML equation-error cost** (12-15). Report the **Cramér–Rao
-bound**: the parameter covariance `(2 Re(JᴴJ))⁻¹` with the SML finite-sample inflation,
-propagated to **per-mode `f0`/`Q`** (roots of `A`) and to a **per-bin FRF uncertainty band**
-on each `G_ij(f)`.
+Fit a **single rank-1 modal MIMO model** to the step-1 coupled-loop campaign — shared modal
+poles `(a_k,b_k)` with per-mode **rank-1 residues** `R_k = φ_k ψ_kᵀ` (sensor shape `φ_k`,
+actuator shape `ψ_k`) — by the P&S **sample-ML equation-error cost**, initialized from a
+**data-driven peak-pick** so it is robust to arbitrary prior error. Report the **Cramér–Rao
+bound**: parameter covariance `(2 Re(JᴴJ))⁻¹` with the SML finite-sample inflation, propagated
+to **per-mode `f0`/`Q`**, the **mode shapes**, and a **per-bin FRF band** on each `G_ij(f)`.
 
-The shared denominator is constrained by **all excited bins across all elements jointly**,
-so the parametric model **predicts through the resonances** — where step-1's per-bin matrix
-inverse is ill-conditioned. This is the regularization step 1 deferred. It serves SUS, SEI,
-ASC, LSC: it turns the nonparametric coupled FRF into a modal model with calibrated
-uncertainty — `f0`, `Q`, mode shapes, and confidence bands — which SISO-per-DoF tooling
-cannot give a commissioner.
+The shared modal poles, constrained jointly by all elements through the rank-1 shapes, make
+the model **predict through the resonances** where step-1's per-bin inverse is
+ill-conditioned. It serves SUS/SEI/ASC/LSC: it turns the nonparametric coupled FRF into a
+**modal model with calibrated uncertainty** — `f0`, `Q`, mode shapes, confidence bands —
+which SISO-per-DoF tooling cannot give a commissioner.
 
-## 2. The model — common-denominator MIMO (wiki §1; P&S §6.6, eq. 6-53)
+## 2. The model — rank-1 modal (wiki §1; P&S §6.6 Remark (iii))
 
 ```
-G(Ω,θ) = B(Ω,θ) / A(Ω,θ) = ( Σ_{r=0}^{n_b} B_r Ω^r ) / ( Σ_{r=0}^{n_a} a_r Ω^r )
+                M
+G_ij(s)  =     Σ    φ_k,i · ψ_k,j  /  ( sₙ² + b_k·sₙ + a_k ) ,     sₙ = s / s_ref
+              k=1   └── rank-1 ──┘     └──── shared pole ────┘
+                     residue R_k          (mode k)
 ```
 
-- **`A`** — scalar common-denominator polynomial, real coeffs `a_r` (the shared poles).
-- **`B_r ∈ ℝ^{n_sens × n_act}`** — polynomial-matrix numerator (one free numerator per I/O
-  element).
-- **`Ω = s`** (continuous-time, the suspension is a lumped CT mechanical plant). A discrete
-  `Ω = z⁻¹` variant is allowed but not required for v1 (§7 notes the tustin twin).
-- **Parameter vector:** `θ = [vecᵀ(A_0)…vecᵀ(A_{n_a})  vecᵀ(B_0)…vecᵀ(B_{n_b})]ᵀ`, `A_r`
-  scalar.
-- **Identifiability constraint:** `‖θ‖₂ = 1` (one-dimensional, sufficient for the
-  common-denominator model; P&S §12.3.5).
+- **Shared poles** `(a_k, b_k)`, 2 per mode (`a_k = ωₖ²/s_ref²`, `b_k = (ωₖ/Qₖ)/s_ref`).
+- **Per-mode shapes** `φ_k ∈ ℝ^{n_sens}`, `ψ_k ∈ ℝ^{n_act}` — the residue `R_k = φ_k ψ_kᵀ`
+  is real rank-1.
+- **Parameters:** `θ = {(a_k, b_k, φ_k, ψ_k)}`, total `M·(2 + n_sens + n_act)` (6-DoF: 84).
+- **Frequency normalization (P&S §12.3.3) — required:** `s_ref = 2π·median(freq)`; coeffs in
+  normalized `sₙ`; `poles()` un-normalizes roots. Without it the high-order evaluation
+  overflows.
+- **Gauge:** per-mode scale `φ_k→cφ_k, ψ_k→ψ_k/c` (M flat directions) — handled by the LM
+  damping / pseudo-inverse in §5; CRB reports gauge-invariant quantities (`f0`, `Q`, `R_k`).
 
-**Why common-denominator and not rank-1 / modal-residue (P&S Remark (iii) p.194 + App
-6.N):** partial-fraction/matrix-fraction/state-space residue matrices are rank-1 **only**
-for proportionally-damped reciprocal structures; the common-denominator model carries
-**full-rank** residues. Our plant has deliberate cross-coupling + frequency-dependent
-`M_out`, so rank-1 is not guaranteed — P&S's rule is then to **use the common-denominator
-model**. We also do **not** use the modal partial-fraction parameterization (6-22): P&S note
-it has poor starting values and "gets stuck in local minima."
-
-**Model order** `(n_a, n_b)`: `n_a = 2·M_modes` (a conjugate pole pair per mode);
-`n_b ≤ n_a` per element. The order is a user input; §6 validates it (under/over-modeling
-tests). For the twin, `M_modes` is known (it is built from a known modal expansion).
+**Coupling is fully captured** — it lives in the *shapes* `φ_k`, `ψ_k` (non-trivial,
+cross-coupled), not in the residue rank. Rank-1 ≠ uncoupled. **Dimensions** are generic
+(`n_sens`, `n_act` independent — square for SUS/SEI, rectangular for ISC/LSC).
+**Rank-r extension** (sum of r outer products per mode) is the documented path if a real
+system's residues are not rank-1; v1 is rank-1 (exact for reciprocal suspensions).
 
 ## 3. The data — periodic multisine, sample means + covariances (wiki §2; P&S §12.3.1)
 
-Reuses step-1's measurement campaign verbatim — **no new excitation or estimation method**
-([[stay-on-pintelon-schoukens]]):
+Reuses step-1's campaign verbatim — no new excitation or estimation method:
 
-- **Robust method, `n_exp = n_act`:** drive **each actuator separately** with the periodic
-  multisine (step-1 already does exactly this — sequential per-actuator campaigns).
-- Per experiment `l` (driven actuator), over `M` steady-state periods at each excited bin
-  `k ∈ 𝕂`: the **sample-mean** input spectrum `Û^[l](k)` (the `n_act` drive monitors =
-  one column of `X_mat`), the **sample-mean** output spectrum `Ŷ^[l](k)` (the `n_sens`
-  sensors = one column of `Y_mat`), and the **stacked `(n_sens+n_act)` sample covariance**
-  `Ĉ_Z^[l](k)` of `Z=[Y;U]` — computed from period-to-period scatter (the existing
-  period-variance machinery; **not** floored).
-- **Closed loop is valid because the reference is available** (the injected multisine is
-  the reference): periodic averaging puts the noise-free reference-driven response in the
-  sample **mean** and the noise in the sample **covariance**, so the EIV fit is unbiased in
-  closed loop (P&S Remark (iv) p.474, indirect method §7.2.7).
-- **`dof ≥ n_sens + 8`** periods/blocks are required for a trustworthy CRB (P&S Thm 12.7);
-  6-DoF ⇒ `dof ≥ 14`. The campaign must collect enough periods; the fit asserts it and the
-  CRB applies the finite-sample inflation either way.
+- **Robust method, `n_exp = n_act`:** drive each actuator separately with the periodic
+  multisine (step-1 already does this). Per experiment `l`, over `M` periods at each excited
+  bin: sample-mean input spectrum `Û^[l]` (drive monitors = `X_mat` column), sample-mean
+  output `Ŷ^[l]` (sensors = `Y_mat` column), and the stacked `(n_sens+n_act)` sample
+  covariance `Ĉ_Z^[l]` (period-to-period scatter; not floored).
+- **Closed loop is valid** because the reference (the injected multisine) is available:
+  periodic averaging puts the noise-free response in the mean, noise in the covariance
+  (P&S Remark (iv) p.474).
+- **`dof ≥ n_sens + 8`** periods for a trustworthy CRB (P&S Thm 12.7); 6-DoF ⇒ `dof ≥ 14`.
 
-## 4. The estimator — SML equation-error fit (wiki §3–§5; P&S §12.3)
+## 4. Initialization — data-driven peak-pick (the robustness key)
 
-**Cost (12-15):** `V_SML(θ) = Σ_{l} Σ_{k∈𝕂} eᴴ(Ω_k,θ) · Ĉ_ε^[l](Ω_k,θ)⁻¹ · e(Ω_k,θ)`
+The init makes the fit robust to **arbitrary** prior error by reading the modes off the data,
+not the prior:
 
-**Equation error (12-16), `n_sens × 1`:** `e = Ŷ^[l](k) − G(Ω_k,θ)·Û^[l](k) =
-[I_{n_sens}, −G(Ω_k,θ)]·Ẑ^[l](k)` — fit to the **measured** spectra (no matrix inverse).
+1. **Peak-pick the resonances** from the **step-1 nonparametric recovered `G(f)=Y·X⁻¹`** —
+   the *open-loop* plant FRF, where the resonances appear as full peaks (the closed-loop
+   sensor spectrum has them suppressed by the damping loops, so peak-pick uses the recovered
+   `G`, not raw `Y`). Sum `|G_ij(f)|²` over elements → `find_peaks` → the `M` strongest →
+   initial `f0_k`; a default `Q` (e.g. 20) seeds `b_k`.
+2. **Residues by linear LS:** with the poles fixed, `G_ij = Σ_k R_k,ij/D_k(sₙ)` is **linear**
+   in the full residue matrices `R_k` — solve a weighted linear LS from `Ŷ = G·Û`.
+3. **Rank-1 projection:** SVD each `R_k`; take the leading singular triple →
+   `φ_k = √σ₁·u₁`, `ψ_k = √σ₁·v₁`.
+4. **Prior as fallback only** — used to seed a mode that peak-pick cannot detect (too weak /
+   overlapping), and to order/label modes. **Verified:** peak-pick alone recovers all 6 poles
+   exactly regardless of a 10%/50% prior error. Multi-start was tried and is *not* reliable
+   (lands in mode-collision basins); peak-pick is the chosen strategy.
 
-**Residual covariance (12-17):** `Ĉ_ε^[l] = [I,−G]·Ĉ_Z^[l](k)·[I,−G]ᴴ` — the input/output
-sample covariance (with cross-covariance) projected through `[I,−G]`; `θ`-dependent through
-`G`, hence iterative. This EIV weighting is what makes the cost valid in closed loop and
-**handles the resonances without any inverse blow-up** — the regularization mechanism.
+## 5. The estimator — IQML / iteratively-reweighted SML (wiki §3; P&S §9.12.2, §12.3)
 
-**Starting values (12-31/32/33):** multiply (12-16) by `A` → an error **linear** in the
-coefficients, `A·Ŷ − B·Û ≈ 0`; stack `J_LS·θ ≈ 0`; solve by **iterative weighted linear LS
-(Sanathanan–Koerken)** under `‖θ‖₂=1`. Generalize the existing
-`estimators/gml.py:_sanathanan_koerner` to the common-denominator MIMO case.
+**Cost (SML, 12-15):** `V = Σ_l Σ_k eᴴ Ĉ_ε^[l](θ)⁻¹ e`, with **equation error (12-16)**
+`e = Ŷ^[l] − G(θ)·Û^[l]` and **residual covariance (12-17)**
+`Ĉ_ε = [I,−G]·Ĉ_Z·[I,−G]ᴴ`. Fit to the **raw `X_mat`/`Y_mat` spectra** — never `Y·X⁻¹`.
 
-**Iteration (12-24/25/27):** Gauss–Newton on the **pseudo-Jacobian** (12-25),
-`J₊ = (Ĉ_ε)^{-1/2}(∂e/∂θ_r − ½(∂Ĉ_ε/∂θ_r)Ĉ_ε⁻¹ e)` (keep the `½` weighting-derivative
-term); update `J₊re·Δθ = −ε_re` solved by **SVD** on the real-stacked system; **over-
-parameterize then constrain** (all coeffs free → pseudo-inverse for the rank-deficient
-solve → impose `‖θ‖₂=1` on `θ+Δθ`); **normalize angular frequencies by their median** and
-**scale Jacobian columns by their 2-norm** for conditioning.
+**Solver:** **Levenberg–Marquardt with cost-based step acceptance** on the analytic
+Jacobian, **freezing the weighting `Ĉ_ε` within each iteration** (P&S's Iterative Quadratic
+ML, §9.12.2) — this drops P&S's per-parameter `−½ ∂Ĉ_ε/∂θ` term (12-25), making each step
+~10× faster (no per-parameter loop) and, with LM damping, robust at high order. Verified: ~1 s
+per 6-DoF fit vs ~200 s for the full-Jacobian fixed-step GN, and it converges where the
+fixed-step GN diverged. The frozen-weighting choice is a P&S-sanctioned approximate ML, taken
+under the "modify if slow" rule; the full SML weighting can be reinstated as a final polishing
+iteration if a residual demands it.
 
-## 5. Uncertainty & CRB (wiki §6; P&S §12.3.4, §11.2, §16.12)
+## 6. Uncertainty & CRB (wiki §6; P&S §12.3.4, §11.2, §16.12)
 
-- **Parameter covariance / CRB (12-29, 12-30):** `Cov(θ̂) ≈ (2 Re(JᴴJ))⁻¹` (inverse Fisher),
-  with the SML finite-sample inflation `λ(dof)`; the same analytic `∂G/∂θ` Jacobian from §4
-  builds it (one Jacobian, two consumers).
-- **Per-mode `f0`/`Q` (P&S §11.2.3):** propagate `C_θ` to the **roots of `A(Ω,θ)`** by
-  linearization; map roots → `f0 = |λ|/2π`, `Q = |λ|/(−2 Re λ)`. **Caveat (P&S):** the
-  linearized pole ellipses can under-cover at high SNR / sharp resonances — flag it, and use
-  the **App 11.D improved bounds** when the linearization is inadequate.
-- **Per-bin FRF band (11-2):** `var(G(Ω,θ̂)) ≈ (∂G/∂θ)·C_θ·(∂G/∂θ)ᴴ` → an uncertainty band
-  on each `G_ij(f)`.
+- **Parameter covariance / CRB (12-29/30):** `Cov(θ̂) ≈ (2 Re(JᴴJ))⁻¹` (pseudo-inverse; drops
+  the per-mode gauge directions) × the SML inflation `λ₂(dof) = dof²/((dof−n_sens+1)
+  (dof−n_sens−1))`. Same analytic Jacobian as §5.
+- **Per-mode `f0`/`Q`** by propagating the pole-block covariance to the roots of
+  `sₙ²+b_k sₙ+a_k` (§11.2.3; App 11.D bounds if the linearization is inadequate at high SNR).
+- **Mode shapes** `φ_k`, `ψ_k` std (gauge-fixed, e.g. `‖φ_k‖=1`).
+- **Per-bin FRF band (11-2):** `var(G) ≈ (∂G/∂θ)·C_θ·(∂G/∂θ)ᴴ`.
 
-## 6. Validation (wiki §7; P&S §12.3.6)
+## 7. Validation (wiki §7; P&S §12.3.6)
 
-Mirror P&S's own model-validation suite (tolerances from real runs, never loosened to pass):
+Tolerances from real runs, never loosened to pass:
 
-- **Recovers truth:** on the twin, the fitted `f0`/`Q` match the known modal poles within
-  the CRB; the fitted `G(Ω,θ̂)` matches the analytic oracle across the band **including the
-  resonances** (the headline result step 1 could not deliver off-resonance-only).
-- **Beats the nonparametric inverse at resonances:** quantitatively, `|G(θ̂) − G_oracle|` at
-  the resonance bins is far below step-1's per-bin `Y·X⁻¹` error there.
-- **Per-entry FRF comparison (12-34):** `|G_{ij}(θ̂) − Ĝ_{ij}(Ω_k)| ≤ √(F_p(2,2dof))·σ̂_Ĝ`
-  holds for ~`p%` of bins; multivariate form (12-35).
-- **Cost sanity:** the SML cost minimum ≈ its expected value `dof/(dof−n_sens)·(…)`
-  (P&S 12-19) — a too-large minimum flags under-modeling.
-- **Whiteness** of the FRM residuals `Ĝ(Ω_k) − G(Ω_k,θ̂)`.
+- **Recovers truth incl. resonances:** fitted `f0`/`Q` match the known modes within CRB;
+  fitted `G(θ̂)` matches the analytic oracle across the band **including the peaks**.
+- **Beats the nonparametric inverse at resonances:** `|G(θ̂) − G_oracle|` at resonance bins
+  far below step-1's per-bin `Y·X⁻¹` error there.
+- **Prior-robustness:** exact pole recovery from peak-pick under 10% **and** 50% prior error
+  (the headline robustness result).
+- **Off-resonance agreement** with the nonparametric inverse + **SML cost ≈ expected**
+  (P&S 12-19); whiteness of the FRM residuals. (The rigorous per-bin 12-34 F-test needs the
+  delta-method `Ĉ_vecĜ` — documented follow-on, not faked.)
 - **Honest uncertainty:** sample covariances genuinely estimated (period-to-period, not
-  floored); `dof` sufficiency asserted; the negative-residual-variance caveat (P&S 11-5)
-  documented for sharp resonances.
-- **Scale:** proven at **2-DoF**, run at **6-DoF** (L/P/Y/R/V/T) — a marked/slower test, the
-  same convention as step 1.
+  floored); `dof` sufficiency asserted.
+- **Scale:** proven at **2-DoF**, run at **6-DoF** (L/P/Y/R/V/T) — marked/slower test.
 
-## 7. Components (each independently testable)
+## 8. Components (each independently testable)
 
-1. **`MIMOCommonDenomModel`** — `G(Ω,θ)=B/A` (scalar `A`, polynomial-matrix `B`);
-   `eval(freq) → (n_sens, n_act, F)` complex tensor (same shape as the step-1 oracle);
-   analytic `∂G/∂θ` (feeds the Jacobian **and** the CRB); order `(n_a,n_b)` and the
-   `‖θ‖=1` constraint. Continuous-time (`Ω=s`).
-2. **`starting_values`** — SK/Levy linear-LS init (12-31/32/33), generalizing
-   `_sanathanan_koerner`.
-3. **`MIMOSampleMLEstimator`** — assembles `Ẑ^[l]`, `Ĉ_Z^[l]` from the per-actuator
-   campaigns; Gauss–Newton SML fit (12-15/16/17, 12-24/25/27); returns `θ̂`, the fitted
-   model, the cost, and the per-`(l,k)` residuals.
-4. **`parameter_covariance` / CRB** — `(2 Re(JᴴJ))⁻¹` + SML inflation (12-29/30); reuse the
-   §3 Jacobian. Generalize/extend `fisher.py` patterns; **leave the SISO `fisher.py`
-   functions intact** (new code path, same as step-1's boundary discipline).
-5. **`modal_uncertainty`** — roots of `A` → `f0`/`Q` with propagated covariance (§11.2.3 /
-   App 11.D); FRF band (11-2).
-6. **`validation`** — the §6 suite.
+1. **`Rank1ModalModel(n_sens, n_act, n_modes)`** — `eval`, analytic `jacobian` (FD-verified),
+   `poles → f0/Q`, `pack/unpack`, `set_reference`. (`src/system_ident/mimo_modal.py`.)
+2. **`peak_pick_init` + `init_residues`** — peak-pick on recovered `G`; linear residue LS +
+   rank-1 SVD; prior fallback. (`src/system_ident/mimo_fit.py`.)
+3. **`MIMOModalEstimator`** — IQML-LM SML fit; returns `θ̂`, Jacobian, cost.
+4. **`parameter_covariance` / `modal_uncertainty` / `frf_band`** — CRB + propagation.
+5. **`mimo_campaign.assemble_campaign`** — `(Ẑ^[l], Ĉ_Z^[l])` from any `ChannelBackend`.
+6. **`validate_fit`** — the §7 suite.
 
-**Boundaries:** new module(s) (`mimo_fit.py` + a `MIMOCommonDenomModel`), consuming the
-step-1 `MIMOTwinBackend`/campaign outputs. The SISO `model.py:TFModel`,
-`estimators/gml.py:GMLEstimator`, and `fisher.py` are reused/extended, **not disturbed**.
-Backend-agnostic: the fit consumes `(Ẑ, Ĉ_Z)` from any `ChannelBackend` campaign, so step 3
-(RTSfreerun) feeds it unchanged.
+**Boundaries:** new modules; the SISO `model.py`/`estimators/gml.py`/`fisher.py` and the
+common-denominator code are **not** used (the latter is abandoned — see §10). Backend-agnostic
+so step 3 (RTSfreerun) feeds it unchanged.
 
-## 8. Dependencies
+## 9. Dependencies
 
-- **numpy / scipy** — already present (SVD, polynomial roots, least squares).
-- **python-control** — present (step-1 plant/loop construction, used by the twin that
-  generates the data and the oracle to score against).
-- **No new third-party dependency.** The estimator is numpy/scipy (the §4 Gauss–Newton +
-  SVD + the SK init). slycot stays a step-1 dependency (loop construction), not needed by
-  the fit itself.
+numpy / scipy (SVD, roots, `find_peaks`, lstsq, eigh). python-control only via the step-1 twin
+that generates data + the oracle. **No new third-party dependency.**
 
-## 9. Out of scope (this spec)
+## 10. Out of scope / superseded
 
-- The **RTSfreerun demonstration** on `x1hsts6dof` — step 3, its own follow-on; this spec
-  only keeps the fit backend-agnostic so it transfers.
-- The **discrete-time (`Ω=z⁻¹`) variant** and tustin pre-warping — v1 fits continuous-time
-  at the physical bin frequencies; warping is negligible in-band (modes ≲2 Hz ≪ fs) and is
-  documented, revisited only if a 6-DoF residual shows it (P&S supports both domains).
-- **Simultaneous uncorrelated multisines** across actuators (the "fast"/single-experiment
-  method, `n_exp=1`) — v1 uses the robust per-actuator method; deferred.
-- The **damping-paradigm study** (Euler vs eigenmode optimum) — the twin supports the knob;
-  running the study is later work.
+- **Common-denominator `B/A` free-numerator model** — **abandoned**: empirically unidentifiable
+  at 6-DoF MIMO (§0). Replaced by rank-1 modal.
+- **Multi-start init** — tried, unreliable (§4); peak-pick is the chosen strategy.
+- **Rank-r residues** (non-reciprocal systems), the **rigorous 12-34 F-test** (needs
+  `Ĉ_vecĜ`), the **RTSfreerun demo** (step 3), and **simultaneous multisines** — all
+  documented follow-ons.
 - **Real hardware / CDS** (pyepics/pyawg/cdsutils) — Phase 2 ([[two-phase-cds-plan]]).
 
-**Superseded pre-book assumptions** (recorded so the plan does not reintroduce them):
-- ❌ "recover `G = Y·X⁻¹` then fit the model to `G(f)` weighted by a delta-method
-  covariance" → ✅ fit the **raw `X_mat`/`Y_mat` spectra** via the EIV equation-error SML
-  (12-16/17); step-1's `G(f)` is a **validation overlay + starting-value aid** only. (The
-  fit-Ĝ route is P&S's sanctioned *fallback*, Remark (iv), not the primary path.)
-- ❌ modal / vector-fitting pole-residue parameterization, rank-1 residues → ✅
-  **common-denominator `B/A`, free per-element numerators**.
-- ❌ variable projection → ✅ **full Gauss–Newton** over all coefficients, over-parameterize
-  then constrain.
-- ❌ "down-weight the ill-conditioned `G(f)` at resonances" → ✅ resonances handled
-  intrinsically by the **equation-error weighting** (no inverse).
+## 11. Hard rules honored
 
-## 10. Hard rules honored
-
-- One P&S pipeline; reuse the periodic multisine + sample-mean/covariance machinery; **no
-  new estimation method** — the fit is P&S's literal SML ([[stay-on-pintelon-schoukens]]).
+- One P&S pipeline; reuse the periodic multisine + sample-mean/covariance machinery; the fit
+  is P&S SML with the rank-1 modal model that P&S Remark (iii) prescribes for rank-1 residues
+  — **modify-if-it-fails was earned by measurement, not preference** ([[stay-on-pintelon-schoukens]]).
 - `conda run -n sysid` for all execution ([[use-conda-run-sysid-env]]).
 - Any plot SVG + Git LFS; data-driven y-limits ([[graphics-svg-lfs-only]]).
 - Trunk-based, push to main ([[trunk-based-push-to-main]]); don't silently reverse user
-  changes ([[never-silently-reverse-user-commands]]); this spec is book-grounded, not
-  guessed ([[dont-guess-ask]]). Phase 1 only ([[two-phase-cds-plan]]).
+  changes ([[never-silently-reverse-user-commands]]); design is evidence-driven, not guessed
+  ([[dont-guess-ask]]). Phase 1 only ([[two-phase-cds-plan]]).
