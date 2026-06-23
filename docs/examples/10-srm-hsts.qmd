@@ -1,0 +1,152 @@
+---
+title: "10 — SRM modal identification (RTSfreerun)"
+description: "The L1-SRM HSTS suspension identified through its real production damping loops on the compiled RTSfreerun twin: one Pintelon–Schoukens multisine per DoF recovers the open-loop coupled plant, and a rank-1 joint MIMO modal fit returns the shared modal table with a Cramér–Rao bound. The campaign resolution is sized by the prior's ringdown, not guessed."
+image: thumbnails/10.svg
+categories: [twin, closed-loop, MIMO, modal]
+freeze: true
+---
+
+Example [09](09-rank1-modal-mimo.qmd) demonstrates the joint-MIMO modal fit on a teaching
+plant. This page runs the same step on the **real thing**: the SRM is an HSTS suspension, and
+it is identified here through its **real production L1-SRM top-mass dampers** — the foton
+`SRM_M1_DAMP_<dof>` banks (from `L1SUSSRM.txt`, engaged FMs from the archived L1 SDF) — closed
+around the shared bare-M1 6×6 HSTS plant on the compiled [`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun)
+twin. No hardware; no method change. One Pintelon–Schoukens multisine is driven through each
+closed loop, the open-loop coupled plant is recovered through the loops, and the package's
+rank-1 modal fit returns the shared modal table.
+
+::: {.callout-note appearance="simple"}
+## What makes this page different from 09
+The plant is the compiled `x1hsts6dof` CDS composite, not a Python lumped model, and the loops
+are the **real** L1-SRM damping banks — not idealized velocity dampers. Because the compiled
+model is not installed in CI, this page is `freeze: true`: the slow MIMO campaign (one multisine
+per DoF through the closed loops, ~13 min on the twin) runs **once** and is cached locally; the
+figures below re-run only the fast offline fit against that cache and are scored against an
+analytic state-space oracle derived from the twin's own filter definitions.
+:::
+
+```{python}
+#| code-summary: "Setup — import the presentation glue (loads the cached campaign)"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    if (_c / "docs" / "srm_modal_demo.py").exists() and str(_c / "docs") not in sys.path:
+        sys.path.insert(0, str(_c / "docs"))
+    if (_c / "srm_modal_demo.py").exists() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+import numpy as np
+from IPython.display import display, Markdown
+import srm_modal_demo as srm
+h = srm.headline()
+```
+
+## The measurement design — resolution is set by the ringdown
+
+The method point of this page comes **before** any fitting: the campaign's frequency
+resolution was not guessed, it was derived from the prior. A mode `(f₀, Q)` has FWHM
+`Δf = f₀/Q` and a ringdown time constant `τ = Q/(π f₀)`. To resolve `Q` — not just `f₀` — the
+parametric fit needs several frequency bins **across** each resonance, i.e.
+`df ≤ Δf / (a few bins)`. Since `df = 1/T`, that demands a period `T ≳ (bins)·Q/f₀`. This is
+just the Pintelon–Schoukens rule that the segment length must exceed the plant time constant
+for a leakage-free FRF, read through the prior's slowest-ringing mode.
+
+`system_ident.design.resolution.recommend_resolution` formalizes this. Calling it on the prior
+HSTS modes (the resolvable design set, Q≈50) turns the physics into the concrete campaign knobs:
+
+```{python}
+#| code-summary: "What resolution does the prior demand to resolve Q?"
+display(Markdown(
+    f"For these HSTS modes (`Q≈50`), `recommend_resolution` returns "
+    f"**df = {h.reco_df:.4f} Hz** — a **{h.reco_period:.0f} s** period. The campaign run here "
+    f"used **df = {h.used_df:.4f} Hz** ({h.used_period:.0f} s/period), the **finest feasible** "
+    f"grid (~13 min total twin time across the six DoFs). Frequencies recover in a short record; "
+    f"**Q is gated by the ringdown** — high-Q suspension modes ring for a long time, so resolving "
+    f"Q is a long record. The narrowest peak (the 0.67 Hz / Q≈50 mode) has FWHM ≈ 13 mHz, which is "
+    f"what makes 0.004 Hz the practical resolution knee here."))
+```
+
+```{python}
+#| code-summary: "Δf and ringdown τ per prior mode, with the achieved and recommended df"
+srm.resolution_design_fig()
+```
+
+Each blue marker is a prior mode's FWHM; the gold line is the achieved `df`, the rose dotted line
+is what `recommend_resolution` asks for. The green diamonds are the ringdowns — the lowest modes
+ring for hundreds of seconds, which is exactly why a fine `df` (a long period) is unavoidable to
+pin their `Q`.
+
+## Open-loop recovery through the real damping loops
+
+The campaign drives each `DRIVE_EXC_<dof>` with a P&S multisine and reads all six reconstructed
+plant inputs (`X = drive − damper feedback`) and all six readouts (`Y`) through the live loops.
+Because the simulation is consistent, the per-bin matrix recovery `G = Y·X⁻¹` returns the
+**open-loop** coupled plant even though the data were taken closed — the controller is cancelled,
+not fit. The diagonal FRF lands on the analytic oracle to a part in a thousand:
+
+```{python}
+#| code-summary: "Recovered diagonal FRF (L→L) — fit vs nonparametric vs analytic oracle"
+srm.diag_recovery_fig("L")
+```
+
+```{python}
+#| code-summary: "Median diagonal recovery error vs the oracle"
+display(Markdown(
+    f"Median diagonal open-loop FRF error vs the analytic state-space oracle: "
+    f"**{h.diag_rel:.4f}** (controller cancelled through the real L1-SRM loops)."))
+```
+
+The nonparametric `Y·X⁻¹` (grey markers) scatters near the resonances where the drive monitors
+are small; the rank-1 joint fit (gold) threads cleanly through, sitting on the oracle (blue
+dashed) through every mode and anti-resonance.
+
+## The rank-1 joint MIMO modal fit
+
+The parametric model shares one set of modal poles `(aₖ, bₖ)` across all 6×6 elements and gives
+each mode a rank-1 residue `Rₖ = φₖ ψₖᵀ`. The fit is the package's sample-ML estimator with a
+per-bin weighting, and its Cramér–Rao bound propagates to a per-mode `(f₀, Q)` uncertainty.
+
+```{python}
+#| code-summary: "Recovered shared modal table — f0/Q ± CRB vs oracle"
+display(srm.modal_table())
+```
+
+```{python}
+#| code-summary: "Modal frequency recovery — fit − oracle with the CRB"
+srm.modal_recovery_fig()
+```
+
+```{python}
+#| code-summary: "Headline numbers"
+display(Markdown(
+    f"**{h.n_modes}** shared modal poles recovered at `df = {h.used_df:.4f} Hz`; median |Δf₀| vs "
+    f"the oracle = **{h.df_med:.2f}%**, with a trustworthy CRB (dof = {h.dof} ≥ 14). "
+    f"**{h.n_good} of {h.n_modes}** modes recover well in BOTH f₀ (|Δf|<1%) and Q (ΔQ<25%); "
+    f"median Q-error = **{h.q_med:.1f}%** across the {h.n_wellsep} well-separated modes. "
+    f"The well-separated modes (e.g. 0.848 Hz → Q=50.5, 2.038 Hz → Q=50.2) pin f₀ to <0.4% and Q "
+    f"within a few % of the oracle's ~50."))
+```
+
+## What this shows, and two honest limits
+
+Through the **real** production L1-SRM damping loops on the compiled twin, the open-loop coupled
+plant comes back to 0.11% median diagonal error, and the joint fit returns 13 shared modal poles
+with most Qs recovered to a few percent against a CRB. Two limits are documented plainly:
+
+1. **The tightest doublets collapse.** The HSTS has a 0.672/0.676 Hz pair (0.6% apart) and a
+   1.512/1.516/1.527 Hz triplet (<1% spread). Their members sit within a FWHM (≈2% of f₀) of each
+   other — below both the achieved `df` and the shared-pole model's splitting power — so each
+   cluster collapses to a single mode (flagged in the table). The collapse still gives a good `f₀`
+   (the 0.67 cluster lands at 0.671 Hz, the 1.51 cluster at 1.484 Hz) but a **blended Q** (≈43 and
+   ≈32 vs 50). We do not force a spurious split: these two are the only modes whose Q misses, and
+   they are exactly the unresolvable clusters. This is a resolution / identifiability limit, not a
+   fitting failure.
+
+2. **The CRB is a process-disturbance bound.** The compiled 6-DoF model exposes only
+   `DRIVE_EXC_<dof>` injection ports — there is **no per-sensor readout-noise port** like the
+   single-DoF `x1hsts`. A noise-free twin gives identical periods, so the P&S sample covariance
+   collapses to the floating-point floor and the bound is meaningless. To define a real CRB a small
+   broadband ground/actuator disturbance is injected on the non-driven drive ports; it propagates
+   through the real plant and dampers, making the spectra genuinely stochastic. The bound is
+   therefore self-consistent for the **injected** statistics — a process-disturbance CRB, not a
+   physical sensor-noise floor. The disturbance is small enough that the diagonal FRF still recovers
+   to 0.11%.

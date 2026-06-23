@@ -138,6 +138,24 @@ def thumb_09():
     return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
 
 
+def thumb_10():
+    # SRM modal identification through the real L1-SRM loops: the recovered HSTS
+    # magnitude (the 13 resolvable Q≈50 modes, 0.67–3.78 Hz) over the band-limited
+    # drive, with a faint cross-coupling curve — the signature of the rank-1 joint
+    # modal recovery through the real production damping loops.
+    f = np.linspace(0.3, 8, 800)
+    m = TFModel.from_resonances([(0.674, 50), (0.848, 50), (1.005, 50), (1.092, 50),
+                                 (1.484, 50), (2.038, 50), (2.184, 50), (2.762, 50),
+                                 (2.807, 50), (2.982, 50), (3.209, 50), (3.424, 50),
+                                 (3.781, 50)], 100.0)
+    mag = np.abs(m.eval(f))
+    Pxx = optimal_excitation(f, m, np.ones_like(f), 1.0, n_iter=6)
+    coup = TFModel.from_resonances([(0.674, 50), (2.038, 50)], 18.0)
+    extra = [go.Scatter(x=f, y=np.abs(coup.eval(f)), mode="lines",
+             line=dict(color=sp.ROSE, width=2.5))]
+    return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
+
+
 def og_card():
     f = np.linspace(0.2, 8, 800)
     m = TFModel.from_resonances([(1.0, 20.0)], 100.0)
@@ -167,7 +185,7 @@ def og_card():
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
               "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07,
-              "09": thumb_09}
+              "09": thumb_09, "10": thumb_10}
 
 if __name__ == "__main__":
     # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.

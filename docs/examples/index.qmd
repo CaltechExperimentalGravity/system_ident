@@ -3,7 +3,7 @@ title: "Worked examples"
 listing:
   id: examples-gallery
   contents:
-    - "0*.qmd"
+    - "[0-9]*.qmd"
   type: grid
   grid-columns: 3
   sort: false
