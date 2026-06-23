@@ -85,3 +85,22 @@ def test_validate_fit_metrics():
     rep = validate_fit(m, res.theta, exps, freq, dof=20, modes_hz=[mm[0] for mm in modes])
     assert rep["frf_rel_median_offres"] < 0.1
     assert 0.3 < rep["cost_ratio"] < 3.0
+
+def test_nonsquare_recovery():
+    m = Rank1ModalModel(n_sens=4, n_act=2, n_modes=2)   # rectangular
+    phi = np.array([[1.,.3,.2,.1],[.2,1.,.4,.3]]); psi = np.array([[1.,.2],[.1,1.]])
+    exps, freq, theta_true, G = synth_openloop(m, [(0.6,30),(1.6,40)], phi, psi, sigZ=5e-3, M=20, seed=4)
+    res = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G))
+    fit = sorted(p[0] for p in m.poles(res.theta))
+    assert abs(fit[0]-0.6) < 1e-2 and abs(fit[1]-1.6) < 1e-2
+
+def test_prior_independent_recovery():
+    # peak-pick is data-driven: recovery does not depend on the prior at all
+    m = Rank1ModalModel(3, 3, 2)
+    phi = np.array([[1.,.3,.2],[.2,1.,.4]]); psi = np.array([[1.,.2,.1],[.1,1.,.3]])
+    exps, freq, theta_true, G = synth_openloop(m, [(0.6,30),(1.6,40)], phi, psi, sigZ=5e-3, M=20, seed=5)
+    # wildly wrong prior (50% off) is ignored because peak-pick reads modes from G
+    th0 = initial_theta(m, exps, freq, G, prior_modes=[(0.3, 20), (2.4, 20)])
+    res = MIMOModalEstimator(m).fit(exps, freq, th0)
+    fit = sorted(p[0] for p in m.poles(res.theta))
+    assert abs(fit[0]-0.6) < 1e-2 and abs(fit[1]-1.6) < 1e-2
