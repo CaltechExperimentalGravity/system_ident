@@ -34,7 +34,7 @@ from system_ident.mimo_fit import (  # noqa: E402
 )
 
 # Truth (f0 [Hz], Q) of the six shared coupled modes; deterministic seeds throughout.
-FS, NPERSEG, NPER = 128.0, 4096, 12
+FS, NPERSEG, NPER = 128.0, 4096, 17     # dof = NPER - n_transient(3) = 14 = n_sens + 8
 MODES = [(0.45, 20), (0.6, 25), (0.8, 18), (1.0, 30), (1.5, 35), (2.2, 28)]
 N = 6
 
