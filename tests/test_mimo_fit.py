@@ -3,7 +3,7 @@ import pytest
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (peak_pick_modes, init_residues, initial_theta,
                                     MIMOModalEstimator, parameter_covariance,
-                                    modal_uncertainty, frf_band)
+                                    modal_uncertainty, frf_band, validate_fit)
 
 def synth_openloop(model, modes, phi, psi, *, sigZ=0.0, M=20, seed=0, freq=None):
     """Robust-method campaign on G = model truth (open loop). Returns (exps, freq, theta_true, G)."""
@@ -75,3 +75,13 @@ def test_crb_matches_monte_carlo():
     assert 0.4 < pred/mc < 2.5                         # CRB brackets the Monte-Carlo spread
     band = frf_band(m, r0.theta, Ct, freq)
     assert band.shape == (len(freq), 2, 2) and np.all(np.isfinite(band)) and np.all(band >= 0)
+
+def test_validate_fit_metrics():
+    m = Rank1ModalModel(3, 3, 2)
+    phi = np.array([[1.,.3,.2],[.2,1.,.4]]); psi = np.array([[1.,.2,.1],[.1,1.,.3]])
+    modes = [(0.6,30),(1.6,40)]
+    exps, freq, theta_true, G = synth_openloop(m, modes, phi, psi, sigZ=5e-3, M=20, seed=3)
+    res = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G))
+    rep = validate_fit(m, res.theta, exps, freq, dof=20, modes_hz=[mm[0] for mm in modes])
+    assert rep["frf_rel_median_offres"] < 0.1
+    assert 0.3 < rep["cost_ratio"] < 3.0

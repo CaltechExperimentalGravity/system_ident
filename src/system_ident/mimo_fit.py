@@ -17,6 +17,7 @@ method, n_exp = n_act): Ybar (F,n_sens), Ubar (F,n_act) sample-mean spectra, Cz
 from __future__ import annotations
 import numpy as np
 from scipy.signal import find_peaks
+from .mimo_loop import recover_open_loop, off_resonance_mask
 
 
 # --------------------------------------------------------------------------- init
@@ -193,3 +194,25 @@ def frf_band(model, theta, Ctheta, freq):
     dG = model.jacobian(theta, freq)
     var = np.einsum('fijp,pq,fijq->fij', dG, Ctheta, dG.conj()).real
     return np.sqrt(np.clip(var, 0.0, None))
+
+
+def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
+    """Fit validation: off-resonance FRF agreement + cost vs. expected (P&S 12-19).
+
+    Returns dict with frf_rel_median_offres (median |G_fit-G_inv|/|G_inv| off-res),
+    cost, cost_expected, cost_ratio.
+    """
+    n_sens, n_act = model.n_sens, model.n_act
+    G_fit = model.eval(theta, freq)
+    Xmat = np.stack([exps[l][1] for l in range(n_act)], axis=-1)   # (F,n_act,n_exp)
+    Ymat = np.stack([exps[l][0] for l in range(n_act)], axis=-1)   # (F,n_sens,n_exp)
+    G_inv = recover_open_loop(Xmat, Ymat)                          # nonparametric overlay
+    keep = (np.ones(len(freq), bool) if modes_hz is None
+            else off_resonance_mask(freq, modes_hz, frac=0.08))
+    rel = np.abs(G_fit - G_inv) / np.maximum(np.abs(G_inv), 1e-30)
+    frf_rel_median_offres = float(np.median(rel[keep]))
+    cost = MIMOModalEstimator(model)._assemble(theta, exps, freq)[2]
+    cost_expected = dof / (dof - n_sens) * n_sens * len(freq)
+    return {"frf_rel_median_offres": frf_rel_median_offres,
+            "cost": float(cost), "cost_expected": float(cost_expected),
+            "cost_ratio": float(cost / cost_expected)}
