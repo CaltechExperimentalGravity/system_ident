@@ -45,7 +45,7 @@ def test_init_residues_recovers_rank1_shapes():
     # residue matrices match up to per-mode sign/scale gauge -> compare R_k = phi psi^T
     for k in range(2):
         R = np.outer(phi[k], psi[k]); Rh = np.outer(phi_hat[k], psi_hat[k])
-        assert np.allclose(R, Rh, atol=1e-2)
+        assert np.allclose(R, Rh, atol=1e-3)
 
 def test_estimator_recovers_poles_from_perturbed_init():
     m = Rank1ModalModel(3, 3, 2)
@@ -104,3 +104,12 @@ def test_prior_independent_recovery():
     res = MIMOModalEstimator(m).fit(exps, freq, th0)
     fit = sorted(p[0] for p in m.poles(res.theta))
     assert abs(fit[0]-0.6) < 1e-2 and abs(fit[1]-1.6) < 1e-2
+
+
+def test_parameter_covariance_rejects_insufficient_dof():
+    m = Rank1ModalModel(3, 3, 2)
+    phi = np.array([[1., .3, .2], [.2, 1., .4]]); psi = np.array([[1., .2, .1], [.1, 1., .3]])
+    exps, freq, _, G = synth_openloop(m, [(0.6, 30), (1.6, 40)], phi, psi, sigZ=5e-3, M=20, seed=6)
+    res = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G))
+    with pytest.raises(ValueError):
+        parameter_covariance(res, dof=m.n_sens + 1, n_sens=m.n_sens)   # d=1 < 2

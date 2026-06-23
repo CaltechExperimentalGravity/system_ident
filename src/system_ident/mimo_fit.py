@@ -159,11 +159,16 @@ class MIMOModalEstimator:
 # --------------------------------------------------------------------------- CRB
 def parameter_covariance(fit_result, dof, n_sens):
     """CRB parameter covariance (2 Re(J^H J))^-1 with the SML inflation lambda_2 (P&S 12-30)."""
+    d = dof - n_sens
+    if d < 2:
+        raise ValueError(
+            f"dof - n_sens = {d} < 2: the SML inflation lambda_2 is undefined/negative. "
+            f"Need dof >= n_sens + 2 (spec recommends dof >= n_sens + 8 for a trustworthy CRB)."
+        )
     J = fit_result.jac
     fisher = 2.0 * (J.conj().T @ J).real
     cov = np.linalg.pinv(fisher, rcond=1e-10)     # drops the per-mode gauge directions
-    d = dof - n_sens
-    lam = dof * dof / ((d + 1) * (d - 1))
+    lam = dof * dof / ((d + 1) * (d - 1))         # SML inflation lambda_2 (P&S 12-30)
     return cov * lam
 
 

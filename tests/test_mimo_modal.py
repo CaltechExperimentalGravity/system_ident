@@ -92,11 +92,12 @@ def test_peak_pick_finds_modes():
 @pytest.mark.slow
 def test_closed_loop_modal_recovery_6dof():
     from system_ident.mimo_plant import mimo_suspension, input_matrix, output_matrix
-    from system_ident.mimo_loop import CoupledLoop, velocity_damper, recover_open_loop
+    from system_ident.mimo_loop import (CoupledLoop, velocity_damper, recover_open_loop,
+                                         off_resonance_mask)
     from system_ident.backends.mimo_twin import MIMOTwinBackend
     from system_ident.mimo_campaign import assemble_campaign
 
-    fs, nperseg, nper = 128.0, 4096, 12
+    fs, nperseg, nper = 128.0, 4096, 17           # dof = nper - n_transient = 14 = n_sens + 8
     modes = [(0.45, 20), (0.6, 25), (0.8, 18), (1.0, 30), (1.5, 35), (2.2, 28)]
     truth = sorted(mm[0] for mm in modes)
     plant = mimo_suspension(modes, n_sens=6, n_act=6, coupling=0.15, gain=100.0, seed=0)
@@ -121,6 +122,11 @@ def test_closed_loop_modal_recovery_6dof():
     assert len(fit) == 6
     for ff, tt in zip(fit, truth):
         assert abs(ff - tt) / tt < 0.01          # all 6 modal f0 within 1% through the loop
+    # the parametric fit predicts THROUGH the resonances, where the per-bin inverse is noisy
+    Gtruth = np.transpose(plant(2j * np.pi * freq), (2, 0, 1))
+    Gfit = m.eval(res.theta, freq)
+    onres = ~off_resonance_mask(freq, truth, frac=0.04)
+    assert np.median(np.abs(Gfit - Gtruth)[onres]) < np.median(np.abs(Gnp - Gtruth)[onres])
     Ct = parameter_covariance(res, dof=nper - 3, n_sens=6)
     band = frf_band(m, res.theta, Ct, freq)
     assert band.shape == (len(freq), 6, 6) and np.all(np.isfinite(band))
