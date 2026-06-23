@@ -153,3 +153,135 @@ class SRM6DOF(h6.HSTS6DOF):
         be.inject(self.exc(dof), drive, fs)
         seg = be.read([self.readout(dof)], dur)
         return seg[self.readout(dof)]
+
+
+# ── realistic seismic + OSEM noise referencing ──────────────────────────────────
+# The compiled ``x1hsts6dof`` model has only a bare-M1 6×6 ``drive→disp`` plant: there
+# is no separate ground/ISI input port and no in-loop readout-noise cdsFilt chain like
+# the single-DOF ``x1hstsdamped`` model used by the twin's
+# ``analyze_hsts_damped_6dof.py``. So the physically-complete HSTS noise recipe
+# (ligo-india seismic through ``HSTS_GND_TF``+ISI, bosem 1e-10/1 Hz, 16-bit ±1 mm ADC)
+# is reproduced here by *referring* each disturbance to a port the model DOES expose:
+#
+#   * SEISMIC  → an in-loop displacement disturbance at M1. Ground motion (ligo-india
+#     ASD) propagates ground→M1 via ``HSTS_GND_TF`` = ``load_plant_residues(gnd→m1)``
+#     and the ISI platform ``ham_isi_transmissibility()`` — the SAME paths the
+#     single-DOF recipe wires. The resulting M1-displacement ASD is then divided by the
+#     plant ``|drive→disp|`` so that, injected at ``DRIVE_EXC_<dof>`` (the coil-drive
+#     node) and pushed through the plant, it reproduces the correct M1 motion. The
+#     damper fights it (in-loop), exactly as ``HSTS_GND_TF`` is in-loop in the twin.
+#   * OSEM/BOSEM readout noise → injected at the sensor node ``MC2_M1_DAMP_<dof>_EXC``
+#     (the cdsFilt damper input = the displacement signal the controller reads), with
+#     the repo bosem ASD (floor 1e-10 m/√Hz, 1 Hz knee). In-loop: the damper acts on
+#     readout+noise, the established place OSEM noise enters a damping loop.
+#   * 16-bit ±1 mm ADC → ``quantize_readout`` digitises the recorded readout (LSB =
+#     1e-3/2^16 ≈ 1.5e-8 m). This is a MEASUREMENT-side quantizer (out-of-loop): the
+#     compiled model can't splice a quantizer into the loop, so the in-loop readout
+#     noise is carried by the bosem injection at DAMP_EXC and the ADC digitisation is
+#     applied to the recorded Y. Documented compromise (see srm_modal_report.md).
+#
+# These are the repo's established "reasonable" levels, not invented ones — they are the
+# exact presets/floors of ``analyze_hsts_damped_6dof.py``'s ``scenario_for_dof``.
+
+SEISMIC_PRESET = "ligo-india"
+BOSEM_FLOOR = 1.0e-10            # m/√Hz   (twin scenario_for_dof bosem floor)
+BOSEM_KNEE_HZ = 1.0             # Hz       (twin scenario_for_dof bosem knee)
+ADC_BITS = 16                  # 16-bit ADC (twin probe quantize)
+ADC_RANGE_M = 1.0e-3           # ±0.5 mm full-scale → 1 mm range (twin probe quantize)
+# The ±1 mm range is a DISPLACEMENT full-scale: physical for the translational readouts
+# (L/T/V, metres) but NOT for the rotational R/P/Y readouts (radians), whose angular OSEM
+# full-scale is not specified on this raw-displacement compiled model. Quantising R/P/Y with
+# a metre range mis-scales and biases them; so the documented-physical ADC is applied only to
+# the DoFs where its range is calibrated. (Real finding — see srm_modal_report.md.)
+ADC_DOFS = ("L", "T", "V")
+
+
+def _seismic_at_m1_asd(dof: str, freq: np.ndarray) -> np.ndarray:
+    """ligo-india ground ASD propagated to M1 displacement [m/√Hz] for ``dof``.
+
+    ground(ligo-india) × |HSTS_GND_TF (gnd→M1)| × |ham_isi_transmissibility|, the same
+    in-loop seismic path the single-DOF ``analyze_hsts_damped_6dof.py`` wires through
+    ``HSTS_GND_TF`` + ``ISI_RESIDUAL``. Returns zeros where the .mat carries no gnd→M1
+    coupling for that DoF (e.g. P pitch has no ground-tilt path in ``hsts_full.mat``).
+    """
+    import sys as _sys
+    for p in (str(TWIN / "twin" / "src"),):
+        if p not in _sys.path:
+            _sys.path.insert(0, p)
+    from twin.plant_loader import (load_plant_residues, filter_by_residue,
+                                   residues_to_zpk, evaluate_zpk)
+    from twin.isi import ham_isi_transmissibility
+    from system_ident.backends.rtsfreerun_adapter import _seismic_asd
+
+    ground = _seismic_asd(freq, SEISMIC_PRESET)                 # m/√Hz at the ground
+    ev, R, D = load_plant_residues("hsts_full.mat", "hsts",
+                                   ("gnd", "disp", dof), ("m1", "disp", dof))
+    ek, Rk, info = filter_by_residue(ev, R, threshold=1e-3)
+    gnd_m1 = np.abs(evaluate_zpk(residues_to_zpk(ek, Rk, D, info=info), freq))
+    isi = np.abs(evaluate_zpk(ham_isi_transmissibility(), freq))
+    return ground * gnd_m1 * isi
+
+
+def _drive_ref_seismic_asd_fn(self, dof: str):
+    """A fast interpolating ASD function ``f→[drive/√Hz]`` for ``dof``'s drive-referred
+    seismic, cached per DoF.
+
+    ``seismic_at_M1 / |drive→disp|`` is smooth, so it is tabulated once on a dense
+    log grid (the .mat residue load + the SS FRF eval are the costly parts and must NOT
+    run on the full ~10^7-point IFFT frequency grid) and log-interpolated. Below the grid
+    floor the ASD is held flat; the band of interest (0.3–8 Hz) is well inside the grid.
+    """
+    cache = getattr(self, "_seis_asd_cache", None)
+    if cache is None:
+        cache = self._seis_asd_cache = {}
+    if dof not in cache:
+        j = self.dofs.index(dof)
+        fg = np.geomspace(1e-3, float(self.fs_model) / 2.0, 3000)
+        seis_m1 = _seismic_at_m1_asd(dof, fg)
+        G = np.abs(self.oracle_tensor(fg)[:, j, j])            # |drive→disp|
+        with np.errstate(divide="ignore", invalid="ignore"):
+            a = np.where(G > 0, seis_m1 / G, 0.0)
+        cache[dof] = (fg, np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0))
+    fg, a = cache[dof]
+
+    def asd(f):
+        f = np.maximum(np.asarray(f, float), fg[0])
+        return np.interp(np.clip(f, fg[0], fg[-1]), fg, a)
+    return asd
+
+
+def seismic_drive_series(self, dof: str, n: int, fs: float,
+                          rng: np.random.Generator) -> np.ndarray:
+    """A time series to inject at ``DRIVE_EXC_<dof>`` that reproduces, after the plant,
+    the realistic in-loop seismic M1 displacement for ``dof``.
+
+    The drive-referred ASD is ``seismic_at_M1 / |drive→disp|`` (plant-inverse), so the
+    plant maps it back to ``seismic_at_M1``. Built with the adapter's own
+    coloured-Gaussian recipe (IFFT of a shaped, interpolated ASD) at the model rate.
+    """
+    from system_ident.backends.rtsfreerun_adapter import _colored_noise
+    asd = self._drive_ref_seismic_asd_fn(dof)
+    return _colored_noise(asd, n, float(self.fs_model), rng)
+
+
+def bosem_noise_spec(self, dof: str) -> dict:
+    """A ``RTSfreerunBackend`` noise entry: bosem readout noise at the sensor node
+    (the ``MC2_M1_DAMP_<dof>_EXC`` cdsFilt input), repo floor 1e-10 / 1 Hz knee."""
+    return {"channel": f"{self.bank(dof)}_EXC", "kind": "bosem",
+            "params": {"floor": BOSEM_FLOOR, "knee_hz": BOSEM_KNEE_HZ}}
+
+
+def quantize_readout(y: np.ndarray, *, bits: int = ADC_BITS,
+                     range_m: float = ADC_RANGE_M) -> np.ndarray:
+    """16-bit ±range/2 ADC quantiser, matching the twin's probe ``quantize`` spec
+    (LSB = range/2^bits, symmetric two-sided, clamp-then-round)."""
+    n_levels = 1 << int(bits)
+    lsb = float(range_m) / n_levels
+    half = float(range_m) / 2.0
+    return np.round(np.clip(y, -half, half) / lsb) * lsb
+
+
+# Bind the methods onto SRM6DOF (kept as module functions above for readability).
+SRM6DOF._drive_ref_seismic_asd_fn = _drive_ref_seismic_asd_fn
+SRM6DOF.seismic_drive_series = seismic_drive_series
+SRM6DOF.bosem_noise_spec = bosem_noise_spec

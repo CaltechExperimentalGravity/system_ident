@@ -50,10 +50,10 @@ def run():
     single deterministic fit under ``freeze: true``.
     """
     m6 = s6.SRM6DOF()                       # cheap: builds the compiled model, no campaign
-    exps, freq = R.load_campaign()
+    exps, freq, _snr = R.load_campaign()
     if exps is None:                        # cache missing -> run the full experiment once
         cal, taus, stable, _mu, ora, rows = R.main()
-        exps, freq = R.load_campaign()
+        exps, freq, _snr = R.load_campaign()
         m6.set_cal({d: cal[d] for d in m6.dofs})
     else:
         # re-apply the tuned CAL so the live model (used here only for the analytic
