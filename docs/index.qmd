@@ -6,25 +6,25 @@ toc: false
 
 ```{=html}
 <div class="hero-banner">
-  <div class="hero-eyebrow">LIGO Interferometer Precision Instrumentation</div>
+  <div class="hero-eyebrow">System identification for LIGO suspensions</div>
   <h1 class="hero-title">
-    Your sweep is wasting<br>
-    <span class="hero-accent">90% of its measurement time.</span>
+    Spend the measurement budget<br>
+    <span class="hero-accent">where the model is least certain.</span>
   </h1>
   <p class="hero-subtitle">
-    A flat broadband injection spends drive power uniformly — the vast majority
-    on frequencies where the model is already well-constrained.
+    A flat broadband injection spends drive power uniformly, including on
+    frequencies where the model is already well constrained.
     <strong style="color:rgba(255,255,255,0.92);">system_ident</strong>
-    runs the Pintelon–Schoukens method end to end: given a prior model and a fixed
-    drive-power budget, it computes <em>exactly</em> where each Hz of bandwidth
-    buys the most Fisher information, lays a low-crest periodic multisine there,
-    measures the response <em>leakage-free</em>, fits the plant by
-    <em>maximum likelihood</em> at the Cramér–Rao bound, and repeats — all with
-    hardware-safe Tukey ramps and an operator STOP.
+    implements the Pintelon–Schoukens method end to end: given a prior model and a
+    fixed drive-power budget, it estimates where each Hz of bandwidth contributes
+    the most Fisher information, lays a low-crest periodic multisine there,
+    measures the response leakage-free, fits the plant by maximum likelihood
+    toward the Cramér–Rao bound, and repeats — with Tukey ramps and an operator
+    STOP for safe injection.
   </p>
   <div class="hero-ctas">
-    <a href="tutorial/overview.html" class="btn btn-primary btn-lg">Understand the method</a>
-    <a href="examples/01-single-resonance.html" class="btn btn-outline-light btn-lg">See it in action</a>
+    <a href="tutorial/overview.html" class="btn btn-primary btn-lg">Read the method</a>
+    <a href="examples/01-single-resonance.html" class="btn btn-outline-light btn-lg">Worked examples</a>
   </div>
 </div>
 ```
@@ -32,8 +32,8 @@ toc: false
 ::: {.column-screen-inset style="max-width:980px; margin:1.5rem auto 0;"}
 
 Press **Play** to watch the Pintelon–Schoukens fixed-point iteration reshape a flat drive
-into the Fisher-optimal excitation — pouring power into the resonance where each Hz buys
-the most information.
+into the Fisher-optimal excitation, concentrating power near the resonance where each Hz
+contributes the most information.
 
 ```{python}
 #| echo: false
@@ -136,13 +136,13 @@ display(HTML(f"""
 
     <div class="feature-card">
       <span class="feature-icon">&#9741;</span>
-      <h3>Hardware-safe injection</h3>
+      <h3>Safe injection</h3>
       <p>The multisine carries low-crest <strong>Schroeder phases</strong>, so a
-         saturation-limited actuator delivers the most in-band power for a fixed peak.
+         saturation-limited actuator delivers more in-band power for a fixed peak.
          Every waveform is Tukey-windowed (configurable ramp), keeping the actuation
          envelope within budget at startup and teardown. The watchdog monitors actuator
-         and RMS levels every read segment; a breach or operator STOP triggers an
-         immediate safe handoff.</p>
+         and RMS levels every read segment; a breach or operator STOP triggers a
+         safe handoff.</p>
     </div>
 
     <div class="feature-card">
@@ -163,11 +163,11 @@ display(HTML(f"""
 <div class="page-section">
   <p class="section-label">Get started</p>
   <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
-    Run a campaign in 60 seconds
+    Run the twin demo
   </h2>
-  <p>Install into your environment, then run the digital-twin demo — a fast 2-DoF
-     (POS/PIT) campaign that runs end to end in well under a second, no hardware
-     required. For the full 3-DoF POS/PIT/YAW campaign, see
+  <p>Install into your environment, then run the digital-twin demo — a small 2-DoF
+     (POS/PIT) campaign that runs end to end in under a second, no hardware
+     required. For the 3-DoF POS/PIT/YAW campaign, see
      <a href="examples/04-suspension-multidof.html">example 04</a>.</p>
 
   <div class="quickstart-block">
