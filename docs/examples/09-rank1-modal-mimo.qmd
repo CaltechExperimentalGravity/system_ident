@@ -1,0 +1,106 @@
+---
+title: "09 — Joint MIMO modal identification"
+description: "A coupled 6-DoF suspension under closed-loop damping, identified jointly through the live loops: one Pintelon–Schoukens multisine per actuator recovers the open-loop coupled FRF, and a rank-1 modal fit (shared poles, per-mode rank-1 mode shapes) returns every modal frequency and Q with a Cramér–Rao envelope. The init is data-driven, so it needs no accurate prior."
+image: thumbnails/09.svg
+categories: [MIMO, closed-loop, modal]
+freeze: true
+---
+
+The earlier MIMO example identifies a 2×2 plant element by element. This one fits the whole
+coupled plant **jointly**: a six-degree-of-freedom suspension running in a closed damping
+loop, where every transfer-function element shares the same modal poles. The measurement is
+the same Pintelon–Schoukens recipe — one periodic multisine per actuator, a leakage-free
+reference FRF, a per-bin noise model — and the new piece is a parametric step on top of it
+that ties all the elements to a common set of modes.
+
+::: {.callout-note appearance="simple"}
+## A six-mode demonstration
+The twin is a coupled normal-mode plant with six shared modes (representative low-frequency
+suspension values), driven through six diagonal velocity dampers. It is a *demonstration* of
+the joint-fit measurement, not a validated suspension model, and six modes are not a proof
+that the method scales without limit. The page is rendered with `freeze: true`.
+:::
+
+```{python}
+#| code-summary: "Setup — import the presentation glue"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    if (_c / "docs" / "rank1_modal_demo.py").exists() and str(_c / "docs") not in sys.path:
+        sys.path.insert(0, str(_c / "docs"))
+    if (_c / "rank1_modal_demo.py").exists() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+import numpy as np
+import rank1_modal_demo as rm
+```
+
+## The plant and the loop
+
+The coupled plant `G(s)` has six shared modal poles; coupling lives in the mode shapes, so
+the diagonal elements carry anti-resonance notches and the off-diagonal elements carry
+notch-free cross terms. It runs closed: six diagonal velocity dampers act through the input
+and output decoupling matrices, so the suspension never sits open while it is measured. The
+campaign drives each actuator in turn with a band-limited multisine and reads all drive
+monitors and sensors through the live loops.
+
+## Step 1 — the open-loop coupled FRF
+
+Because the twin simulates consistently (`u_drive = S·u_exc`, then `y_sens = G·u_drive`), the
+per-bin matrix recovery `G = Y·X⁻¹` returns the **open-loop** coupled FRF even though the data
+were taken closed. That inverse is exact off-resonance but noisy near the resonances, where
+the drive monitors are small.
+
+## Step 2 — the rank-1 modal fit
+
+The parametric model shares one set of modal poles `(a_k, b_k)` across all elements and gives
+each mode a rank-1 residue `R_k = φ_k ψ_kᵀ` — a sensor mode shape `φ_k` times an actuator mode
+shape `ψ_k`. The fit is a sample-ML (IQML) minimization on the raw spectra with a per-bin
+weighting, and its Cramér–Rao bound propagates to both a per-bin FRF envelope and a
+per-mode `(f0, Q)` uncertainty.
+
+The figure below shows one diagonal element `G[0,0]` and one off-diagonal `G[0,3]`: the
+nonparametric `|Gnp|` (markers, noisy near the peaks), the rank-1 `|Gfit|` with its ±1σ band,
+and the analytic truth. The parametric fit predicts cleanly **through** the resonances where
+the per-bin inverse scatters.
+
+```{python}
+#| code-summary: "Through-resonance recovery — G[0,0] and G[0,3]"
+rm.through_resonance_fig()
+```
+
+## Modal recovery
+
+All six modal frequencies come back through the loops to ~0.15 %, and the deviations sit
+inside the Cramér–Rao bars — the recovered `(fit − truth)` residual and its ±1σ envelope:
+
+```{python}
+#| code-summary: "Modal frequency residual ± CRB, per mode"
+rm.modal_recovery_fig()
+```
+
+```{python}
+#| code-summary: "Recovered modes — truth vs fit ± σ"
+from IPython.display import display
+display(rm.modal_table())
+```
+
+## The init is data-driven
+
+The fit is started from a peak-pick on the recovered FRF: the summed power
+`Σᵢⱼ|Gnp(f)|²` is searched for its six strongest peaks, and those seed the pole frequencies.
+No accurate prior is used — the modes are found from the data — which is why the recovery is
+the same whether the design model was right or badly wrong.
+
+```{python}
+#| code-summary: "Peak-pick on the recovered FRF power"
+rm.peak_pick_fig()
+```
+
+## What this shows, and what it does not
+
+On this twin the joint fit recovers all six modal frequencies to ~0.15 % through the live
+damping loops, with Q to a few percent and a Cramér–Rao envelope consistent with the
+deviations. It is a six-mode demonstration of the rank-1 modal step on a representative
+coupled plant — not a validated suspension model, and not a claim that the method scales
+without limit. The honest next test is a higher-order, measured plant under a real decoupling
+design.

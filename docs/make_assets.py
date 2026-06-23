@@ -123,6 +123,21 @@ def thumb_07():
     return _curve_thumb(f, np.abs(m.eval(f)), np.sqrt(Pxx), extra=extra)
 
 
+def thumb_09():
+    # Joint-MIMO modal fit: the recovered open-loop magnitude (six shared modes) with
+    # its ±σ envelope, a faint cross-coupling curve, over the band-limited drive — the
+    # signature of the rank-1 modal recovery through the live damping loops.
+    f = np.linspace(0.3, 2.6, 700)
+    m = TFModel.from_resonances([(0.45, 20), (0.6, 25), (0.8, 18),
+                                 (1.0, 30), (1.5, 35), (2.2, 28)], 100.0)
+    mag = np.abs(m.eval(f))
+    Pxx = optimal_excitation(f, m, np.ones_like(f), 1.0, n_iter=6)
+    coup = TFModel.from_resonances([(0.6, 25), (1.5, 35)], 20.0)
+    extra = [go.Scatter(x=f, y=np.abs(coup.eval(f)), mode="lines",
+             line=dict(color=sp.ROSE, width=2.5))]
+    return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
+
+
 def og_card():
     f = np.linspace(0.2, 8, 800)
     m = TFModel.from_resonances([(1.0, 20.0)], 100.0)
@@ -151,7 +166,8 @@ def og_card():
 
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
-              "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07}
+              "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07,
+              "09": thumb_09}
 
 if __name__ == "__main__":
     # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.

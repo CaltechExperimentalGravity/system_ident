@@ -14,11 +14,14 @@ listing:
 page-layout: full
 ---
 
-Six end-to-end **Pintelon–Schoukens** campaigns, ordered from the simplest single
-resonance to a fully coupled 2×2 MIMO suspension. Every example runs the *same* full
-diagnostic set — excitation design, measurement time series, magnitude/phase/coherence
-Bode, residuals, Cramér–Rao parameter recovery, drive-safety margins, convergence, and
-the pass-by-pass overlay — so you can read any one and know your way around all of them.
+A set of end-to-end **Pintelon–Schoukens** campaigns, ordered from the simplest single
+resonance through a coupled 2×2 MIMO suspension, a DARM calibration loop, and a joint
+6-DoF modal identification through live damping loops. The single-plant examples run the
+*same* full diagnostic set — excitation design, measurement time series,
+magnitude/phase/coherence Bode, residuals, Cramér–Rao parameter recovery, drive-safety
+margins, convergence, and the pass-by-pass overlay — so you can read any one and know your
+way around all of them; the closed-loop MIMO and calibration pages reuse the same
+leakage-free FRF and Cramér–Rao machinery on their own plants.
 
 ::: {.callout-note appearance="simple"}
 ## A note on the plant models
