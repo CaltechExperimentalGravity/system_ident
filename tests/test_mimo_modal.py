@@ -30,6 +30,46 @@ def test_jacobian_matches_finite_difference():
     assert np.abs(J - Jfd).max() / np.abs(Jfd).max() < 1e-4
 
 
+def test_eval_value_single_mode():
+    m = Rank1ModalModel(2, 2, 1).set_reference(np.linspace(0.5, 2.0, 10))
+    ab = m.ab_from_modes([(1.0, 10.0)])
+    phi = np.array([[2.0, 0.5]]); psi = np.array([[1.0, 0.3]])
+    theta = m.pack(ab, phi, psi)
+    G = m.eval(theta, np.array([0.8]))
+    sn = 2j * np.pi * 0.8 / m.s_ref
+    D = sn * sn + ab[0][1] * sn + ab[0][0]
+    assert np.isclose(G[0, 0, 0], 2.0 * 1.0 / D)
+    assert np.isclose(G[0, 1, 1], 0.5 * 0.3 / D)
+
+
+def test_pack_unpack_roundtrip():
+    m = Rank1ModalModel(3, 2, 2)
+    rng = np.random.default_rng(0)
+    ab = [(rng.random()+0.5, rng.random()+0.1) for _ in range(2)]
+    phi = rng.standard_normal((2, 3)); psi = rng.standard_normal((2, 2))
+    theta = m.pack(ab, phi, psi)
+    assert theta.shape == (m.n_theta,)
+    got = m.unpack(theta)
+    for k in range(2):
+        assert np.isclose(got[k][0], ab[k][0]) and np.isclose(got[k][1], ab[k][1])
+        assert np.allclose(got[k][2], phi[k]) and np.allclose(got[k][3], psi[k])
+
+
+def test_set_reference_default_is_noop():
+    m = Rank1ModalModel(2, 2, 1)
+    assert m.s_ref == 1.0                      # default before set_reference
+
+
+def test_rectangular_shapes():
+    m = Rank1ModalModel(n_sens=3, n_act=2, n_modes=2).set_reference(np.linspace(0.3, 3.0, 20))
+    assert m.n_theta == 2 * (2 + 3 + 2)
+    theta = np.ones(m.n_theta)
+    G = m.eval(theta, np.linspace(0.3, 3.0, 20))
+    assert G.shape == (20, 3, 2)
+    J = m.jacobian(theta, np.linspace(0.3, 3.0, 20))
+    assert J.shape == (20, 3, 2, m.n_theta)
+
+
 def test_poles_roundtrip_with_normalization():
     m = Rank1ModalModel(2, 2, 2).set_reference(np.linspace(0.2, 3.0, 50))
     ab = m.ab_from_modes([(0.6, 20.0), (1.5, 35.0)])
