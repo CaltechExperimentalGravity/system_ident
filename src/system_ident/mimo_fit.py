@@ -212,7 +212,8 @@ def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
     rel = np.abs(G_fit - G_inv) / np.maximum(np.abs(G_inv), 1e-30)
     frf_rel_median_offres = float(np.median(rel[keep]))
     cost = MIMOModalEstimator(model)._assemble(theta, exps, freq)[2]
-    cost_expected = dof / (dof - n_sens) * n_sens * len(freq)
+    # cost sums over n_act experiments AND len(freq) bins (P&S 12-19 generalized)
+    cost_expected = dof / (dof - n_sens) * n_sens * len(freq) * n_act
     return {"frf_rel_median_offres": frf_rel_median_offres,
             "cost": float(cost), "cost_expected": float(cost_expected),
             "cost_ratio": float(cost / cost_expected)}
