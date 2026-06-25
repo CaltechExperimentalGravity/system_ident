@@ -118,15 +118,55 @@ class MIMOModalEstimator:
                 er.append(Wh @ e)
         return np.vstack(Jr), np.concatenate(er), cost
 
-    def fit(self, exps, freq, theta0, *, max_iter=200, tol=1e-9):
+    def fit(self, exps, freq, theta0, *, max_iter=200, tol=1e-9,
+            pole_prior_hz=None, prior_weight=0.0):
+        """Fit the rank-1 modal model by IQML Levenberg-Marquardt.
+
+        Optional frequency anchoring: with ``pole_prior_hz`` (one design f0 per mode)
+        and ``prior_weight > 0``, a soft penalty ``prior_weight * sum_k (f0_k/prior_k - 1)^2``
+        is added so a weakly-determined mode cannot drift to a non-physical frequency
+        (legitimate where strong design priors exist, e.g. LIGO suspensions). The penalty
+        only regularizes the fit; ``FitResult.jac`` (the CRB) carries the DATA information
+        alone, so a poorly-measured anchored mode still gets honestly-large CRB bars.
+        """
+        m = self.model
         theta = np.asarray(theta0, float).copy()
+        use_prior = pole_prior_hz is not None and prior_weight > 0.0
+        if use_prior:
+            fp = np.asarray(pole_prior_hz, float)
+            if len(fp) != m.n_modes:
+                raise ValueError(f"pole_prior_hz needs {m.n_modes} entries, got {len(fp)}")
+            wpr = np.sqrt(float(prior_weight))
+
+        def _prior_terms(th):
+            # f0_k = sqrt(a_k)*s_ref/(2pi), a_k = th[k*per]; residual_k = wpr*(f0_k/fp_k - 1)
+            Jp = np.zeros((m.n_modes, m.n_theta))
+            ep = np.zeros(m.n_modes)
+            for k in range(m.n_modes):
+                ak = max(float(th[k * m.per]), 1e-12)
+                f0 = np.sqrt(ak) * m.s_ref / (2 * np.pi)
+                ep[k] = wpr * (f0 / fp[k] - 1.0)
+                Jp[k, k * m.per] = wpr * (m.s_ref / (2 * np.pi * fp[k])) / (2 * np.sqrt(ak))
+            return Jp, ep
+
+        def _prior_cost(th):
+            if not use_prior:
+                return 0.0
+            _, ep = _prior_terms(th)
+            return float(ep @ ep)
+
         J, e, cost = self._assemble(theta, exps, freq)
+        cost += _prior_cost(theta)
         mu = 1e-3
         n_done = 0
         dth = np.zeros_like(theta)
         for it in range(max_iter):
             Jre = np.vstack([J.real, J.imag])
             ere = np.concatenate([e.real, e.imag])
+            if use_prior:
+                Jp, ep = _prior_terms(theta)
+                Jre = np.vstack([Jre, Jp])
+                ere = np.concatenate([ere, ep])
             sc = np.linalg.norm(Jre, axis=0)
             sc[sc == 0] = 1.0
             Js = Jre / sc
@@ -142,6 +182,7 @@ class MIMOModalEstimator:
                 dth = d / sc
                 tnew = theta + dth
                 Jn, en, cn = self._assemble(tnew, exps, freq)
+                cn += _prior_cost(tnew)
                 if cn < cost:
                     theta, J, e, cost = tnew, Jn, en, cn
                     mu = max(mu * 0.5, 1e-12)

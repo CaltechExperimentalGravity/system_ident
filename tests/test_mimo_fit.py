@@ -113,3 +113,20 @@ def test_parameter_covariance_rejects_insufficient_dof():
     res = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G))
     with pytest.raises(ValueError):
         parameter_covariance(res, dof=m.n_sens + 1, n_sens=m.n_sens)   # d=1 < 2
+
+
+def test_pole_prior_anchors_to_design_frequency():
+    # A mode seeded at the WRONG frequency is pulled to its design prior (anchoring on).
+    m = Rank1ModalModel(2, 2, 2)
+    phi = np.array([[1., .3], [.2, 1.]]); psi = np.array([[1., .2], [.1, 1.]])
+    exps, freq, theta_true, G = synth_openloop(m, [(0.6, 40), (1.6, 40)], phi, psi,
+                                               sigZ=2e-3, M=20, seed=2)
+    th0 = initial_theta(m, exps, freq, G, prior_modes=[(0.6, 40), (1.20, 40)])  # mode 1 seeded wrong
+    res = MIMOModalEstimator(m).fit(exps, freq, th0,
+                                    pole_prior_hz=[0.6, 1.6], prior_weight=1e2)
+    f0 = sorted(p[0] for p in m.poles(res.theta))
+    assert abs(f0[1] - 1.6) < 0.05            # anchored + data agree -> reaches 1.6, not the 1.2 seed
+
+    import pytest
+    with pytest.raises(ValueError):
+        MIMOModalEstimator(m).fit(exps, freq, th0, pole_prior_hz=[0.6], prior_weight=1.0)  # wrong count

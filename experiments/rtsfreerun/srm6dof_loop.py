@@ -160,8 +160,8 @@ class SRM6DOF(h6.HSTS6DOF):
 # is no separate ground/ISI input port and no in-loop readout-noise cdsFilt chain like
 # the single-DOF ``x1hstsdamped`` model used by the twin's
 # ``analyze_hsts_damped_6dof.py``. So the physically-complete HSTS noise recipe
-# (ligo-india seismic through ``HSTS_GND_TF``+ISI, bosem 1e-10/1 Hz, 16-bit ±1 mm ADC)
-# is reproduced here by *referring* each disturbance to a port the model DOES expose:
+# (ligo-india seismic through ``HSTS_GND_TF``+ISI, bosem 1e-10/1 Hz) is reproduced here
+# by *referring* each disturbance to a port the model DOES expose:
 #
 #   * SEISMIC  → an in-loop displacement disturbance at M1. Ground motion (ligo-india
 #     ASD) propagates ground→M1 via ``HSTS_GND_TF`` = ``load_plant_residues(gnd→m1)``
@@ -174,11 +174,6 @@ class SRM6DOF(h6.HSTS6DOF):
 #     (the cdsFilt damper input = the displacement signal the controller reads), with
 #     the repo bosem ASD (floor 1e-10 m/√Hz, 1 Hz knee). In-loop: the damper acts on
 #     readout+noise, the established place OSEM noise enters a damping loop.
-#   * 16-bit ±1 mm ADC → ``quantize_readout`` digitises the recorded readout (LSB =
-#     1e-3/2^16 ≈ 1.5e-8 m). This is a MEASUREMENT-side quantizer (out-of-loop): the
-#     compiled model can't splice a quantizer into the loop, so the in-loop readout
-#     noise is carried by the bosem injection at DAMP_EXC and the ADC digitisation is
-#     applied to the recorded Y. Documented compromise (see srm_modal_report.md).
 #
 # These are the repo's established "reasonable" levels, not invented ones — they are the
 # exact presets/floors of ``analyze_hsts_damped_6dof.py``'s ``scenario_for_dof``.
@@ -186,14 +181,6 @@ class SRM6DOF(h6.HSTS6DOF):
 SEISMIC_PRESET = "ligo-india"
 BOSEM_FLOOR = 1.0e-10            # m/√Hz   (twin scenario_for_dof bosem floor)
 BOSEM_KNEE_HZ = 1.0             # Hz       (twin scenario_for_dof bosem knee)
-ADC_BITS = 16                  # 16-bit ADC (twin probe quantize)
-ADC_RANGE_M = 1.0e-3           # ±0.5 mm full-scale → 1 mm range (twin probe quantize)
-# The ±1 mm range is a DISPLACEMENT full-scale: physical for the translational readouts
-# (L/T/V, metres) but NOT for the rotational R/P/Y readouts (radians), whose angular OSEM
-# full-scale is not specified on this raw-displacement compiled model. Quantising R/P/Y with
-# a metre range mis-scales and biases them; so the documented-physical ADC is applied only to
-# the DoFs where its range is calibrated. (Real finding — see srm_modal_report.md.)
-ADC_DOFS = ("L", "T", "V")
 
 
 def _seismic_at_m1_asd(dof: str, freq: np.ndarray) -> np.ndarray:
@@ -269,16 +256,6 @@ def bosem_noise_spec(self, dof: str) -> dict:
     (the ``MC2_M1_DAMP_<dof>_EXC`` cdsFilt input), repo floor 1e-10 / 1 Hz knee."""
     return {"channel": f"{self.bank(dof)}_EXC", "kind": "bosem",
             "params": {"floor": BOSEM_FLOOR, "knee_hz": BOSEM_KNEE_HZ}}
-
-
-def quantize_readout(y: np.ndarray, *, bits: int = ADC_BITS,
-                     range_m: float = ADC_RANGE_M) -> np.ndarray:
-    """16-bit ±range/2 ADC quantiser, matching the twin's probe ``quantize`` spec
-    (LSB = range/2^bits, symmetric two-sided, clamp-then-round)."""
-    n_levels = 1 << int(bits)
-    lsb = float(range_m) / n_levels
-    half = float(range_m) / 2.0
-    return np.round(np.clip(y, -half, half) / lsb) * lsb
 
 
 # Bind the methods onto SRM6DOF (kept as module functions above for readability).

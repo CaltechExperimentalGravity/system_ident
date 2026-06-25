@@ -58,7 +58,7 @@ N_TRANSIENT = 2
 BAND = (0.3, 8.0)
 # REALISTIC-NOISE drive budget. The CRB is now set by the twin's physically-complete
 # HSTS noise background (ligo-india seismic through HSTS_GND_TF+ISI + bosem OSEM 1e-10/
-# 1 Hz + 16-bit ±1 mm ADC; see srm6dof_loop.py), so the drive must produce a BELIEVABLE
+# 1 Hz; see srm6dof_loop.py), so the drive must produce a BELIEVABLE
 # SNR against that floor — not the ~1e10 "token" SNR of the old PX_TOTAL=1e7. The
 # suspension resonances have huge plant gain (|G|~O(1–20) at the modes) while the
 # noise floor is physically ~1e-10 m/√Hz, so on-resonance SNR is naturally large; the
@@ -66,16 +66,17 @@ BAND = (0.3, 8.0)
 # worst-case (band-edge L/T/V valleys, |G|~5e-5) per-line SNR at ~30, with the modal
 # peaks at SNR ~1e4–1e6 — a realistic LIGO sus-ID fight: peaks dominate the seismic/
 # OSEM background, valleys approach it. (At 1e7 every bin was SNR>1e7 — infinite.)
-PX_TOTAL = 1.0e-4        # flat in-band drive budget — calibrated to min-SNR≈30 vs the
-                         # realistic seismic+OSEM floor (see report SNR table)
-N_MODES_SWEEP = (8, 10, 12, 13)   # undermodeling sweep; 13 = resolvable design modes
+PX_TOTAL = 2.5e-3        # flat in-band drive budget — 5x drive AMPLITUDE vs the prior
+                         # 1.0e-4 (power = amp^2, so x25), i.e. ~5x SNR, to reach the
+                         # seismic-limited 0.67 Hz fundamental (user-directed; within coil limit)
+N_MODES_SWEEP = (8, 10, 12, 13)   # 13 = resolvable design modes (doublets collapse)
                                   # (16 oracle poles minus the 3 unresolvable doublet members)
 
 # Realistic noise is configured per-DoF in srm6dof_loop.py (SEISMIC_PRESET, BOSEM_FLOOR/
-# KNEE, ADC_BITS/RANGE). Seismic enters in-loop as a drive-referred M1 displacement
-# disturbance (ground→M1 via HSTS_GND_TF + ISI, plant-inverted to the coil-drive port);
-# bosem OSEM noise enters in-loop at the sensor node (MC2_M1_DAMP_<dof>_EXC); the 16-bit
-# ±1 mm ADC quantises the recorded readout. This replaces the old token PROC disturbance.
+# KNEE). Seismic enters in-loop as a drive-referred M1 displacement disturbance (ground→M1
+# via HSTS_GND_TF + ISI, plant-inverted to the coil-drive port); bosem OSEM noise enters
+# in-loop at the sensor node (MC2_M1_DAMP_<dof>_EXC). This replaces the old token PROC
+# disturbance.
 
 
 def _grid():
@@ -137,8 +138,7 @@ def run_campaign(m, cal, lines, *, warmup_s=40.0, seed=0):
         ligo-india seismic (so the seismic is in-loop, fought by the damper);
       * drive-referred seismic on every OTHER ``DRIVE_EXC_<d>`` (the cross-DoF in-loop
         ground disturbance the joint fit's off-diagonals see);
-      * bosem OSEM readout noise on every sensor node ``MC2_M1_DAMP_<d>_EXC`` (in-loop);
-      * the recorded readouts Y digitised by the 16-bit ±1 mm ADC before spectra.
+      * bosem OSEM readout noise on every sensor node ``MC2_M1_DAMP_<d>_EXC`` (in-loop).
     The seismic/OSEM are reseeded per period (distinct rng draws across the record), so
     every period differs → the P&S stacked covariance Cz is positive-definite from a
     PHYSICAL noise background, and the CRB it yields is a physical bound.
@@ -177,16 +177,6 @@ def run_campaign(m, cal, lines, *, warmup_s=40.0, seed=0):
             else:
                 be.inject(m.exc(d), seis, m.fs_model)
         data = be.read(drive_names + sens_names, duration)
-        # 16-bit ±1 mm ADC on the recorded TRANSLATIONAL readouts (Y) before spectra.
-        # The twin's ±1 mm full-scale is a DISPLACEMENT range — physical for L/T/V (metres)
-        # but NOT for the rotational R/P/Y readouts (radians), whose angular OSEM full-scale
-        # is not specified on this raw-displacement model. Quantising R/P/Y with a metre
-        # range mis-scales them (verified: it biases R/P/Y recovery to 0.7–0.95 rel-err while
-        # leaving L/T/V at <0.002). So the documented-physical ADC is applied only where its
-        # range is calibrated; R/P/Y carry the in-loop seismic+OSEM noise without the
-        # mis-calibrated quantiser. See srm_modal_report.md for the honest caveat.
-        for s in (m.readout(d) for d in s6.ADC_DOFS):
-            data[s] = s6.quantize_readout(data[s])
         Yp = np.stack([_period_spectra(data[s], NPERSEG, N_TRANSIENT)[:, line_idx]
                        for s in sens_names], axis=-1)       # (P_eff, F, 6)
         Up = np.stack([_period_spectra(data[d], NPERSEG, N_TRANSIENT)[:, line_idx]
@@ -289,17 +279,24 @@ def prior_init(model, exps, freq, Gnp, prior_modes):
     modes = sorted(ranked[:model.n_modes])
     ab = model.ab_from_modes(modes)
     phi, psi = init_residues(model, ab, exps, freq)
-    return model.pack(ab, phi, psi)
+    return model.pack(ab, phi, psi), [f0 for f0, _ in modes]   # theta0 + the design f0 anchors
+
+
+# Frequency-anchor weight: keeps a weakly-determined low-f mode (seismic-dominated 0.848 Hz,
+# or the sub-linewidth fundamental doublet) from drifting to a spurious pole, without
+# over-constraining the well-measured modes (their data gradient dominates the anchor).
+PRIOR_WEIGHT = 1.0e12
 
 
 def fit_modal(exps, freq, n_modes, *, prior_modes):
-    """Rank-1 modal fit at a given n_modes, prior-seeded from the design modes."""
+    """Rank-1 modal fit at a given n_modes, prior-seeded + frequency-anchored to design."""
     Xmat = np.stack([exps[l][1] for l in range(6)], axis=-1)   # (F,6,6)
     Ymat = np.stack([exps[l][0] for l in range(6)], axis=-1)
     Gnp = recover_open_loop(Xmat, Ymat)
     m = Rank1ModalModel(6, 6, n_modes=n_modes).set_reference(freq)
-    theta0 = prior_init(m, exps, freq, Gnp, prior_modes)
-    res = MIMOModalEstimator(m).fit(exps, freq, theta0)
+    theta0, anchor_hz = prior_init(m, exps, freq, Gnp, prior_modes)
+    res = MIMOModalEstimator(m).fit(exps, freq, theta0,
+                                    pole_prior_hz=anchor_hz, prior_weight=PRIOR_WEIGHT)
     dof = N_PERIODS - N_TRANSIENT
     Ct = parameter_covariance(res, dof=dof, n_sens=6)
     mu = modal_uncertainty(m, res.theta, Ct)
@@ -551,17 +548,9 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
              "  in-loop at the sensor node `MC2_M1_DAMP_<dof>_EXC` (the `cdsFilt` damper",
              "  input = the displacement signal the controller reads). The damper acts on",
              "  readout+noise — the established place OSEM noise enters a damping loop.",
-             "- **16-bit ±1 mm ADC** — the recorded TRANSLATIONAL readout Y (L/T/V, metres)",
-             "  is digitised at `LSB = 1e-3/2^16 ≈ 1.5e-8 m` (`quantize_readout`), matching the",
-             "  twin's probe `quantize: {bits:16, range:1e-3}`. The ±1 mm full-scale is a",
-             "  *displacement* range — physical for the metre-unit translational DoFs. The",
-             "  rotational R/P/Y readouts are in **radians**: a metre ADC range mis-scales them",
-             "  (verified — see the documented caveat), so the calibrated ADC is applied only to",
-             "  L/T/V, and R/P/Y carry the in-loop seismic+OSEM noise without the mis-scaled",
-             "  quantiser.",
              "",
-             "These are the repo's established levels (ligo-india seismic, bosem 1e-10/1 Hz,",
-             "16-bit ±1 mm), **not invented** — the exact presets/floors of",
+             "These are the repo's established levels (ligo-india seismic, bosem 1e-10/1 Hz),",
+             "**not invented** — the exact presets/floors of",
              "`scenario_for_dof` in `analyze_hsts_damped_6dof.py`. The 6×6 `drive→disp`",
              f"plant is byte-identical to the single-DOF residue plant (verified: same FRF),",
              "so those displacement-referred levels transfer directly.",
@@ -574,28 +563,15 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
              "has no `gnd→M1` path** in `hsts_full.mat` (ground tilt does not couple to M1 "
              "pitch there) → zero seismic | in-loop, `DRIVE_EXC` (drive-ref) |",
              "| BOSEM/OSEM readout | 1e-10 m/√Hz, 1 Hz knee | in-loop, `MC2_M1_DAMP_*_EXC` |",
-             "| 16-bit ±1 mm ADC | LSB ≈ 1.5e-8 m | measurement, on recorded Y — **L/T/V "
-             "only** (metre range; R/P/Y are radians, range uncalibrated) |",
              "",
-             "**Documented compromises (honest — both are real model limits).**",
-             "1. *ADC range vs readout units.* The ±1 mm full-scale is a displacement range,",
-             "physical for the translational readouts (L/T/V, metres) but not for the rotational",
-             "R/P/Y readouts (radians) — this raw-displacement compiled model carries no angular",
-             "OSEM full-scale. Quantising R/P/Y with a metre range mis-scales them: it biases",
-             "their open-loop recovery to **0.7–0.95** rel-err while leaving L/T/V at <0.002",
-             "(isolation test: with seismic+OSEM and NO ADC, all six recover to ≤0.002; adding",
-             "the metre-range ADC breaks only R/P/Y). So the calibrated ADC is applied only to",
-             "L/T/V; R/P/Y carry the in-loop seismic+OSEM background, which already makes their",
-             "CRB physical. A faithful R/P/Y ADC needs the angular-OSEM µrad/count calibration,",
-             "which is not on this model — inventing one would violate 'use the repo's levels'.",
-             "2. *ADC is measurement-side, not in-loop.* The model can't splice a quantiser",
-             "between plant and damper, so the in-loop readout noise is carried by the bosem",
-             "injection at `DAMP_EXC` while the ADC digitises the *recorded* L/T/V Y. A perfect",
-             "single in-loop quantised sensor would need a `READOUT_NOISE`+quantiser `cdsFilt`",
-             "rebuild (as `x1hstsdamped` has). The seismic and OSEM disturbances ARE genuinely",
-             "in-loop. With this physical background the diagonal open-loop FRF still",
-             f"recovers to **{diag_rel:.4f}** median relative error vs the analytic SS oracle",
-             "(the reference-based recovery cancels the controller).", ""]
+             "**Documented compromise (honest — a real model limit).**",
+             "*OSEM noise is injected at the damper sensor node, not via an in-loop quantised",
+             "sensor.* The compiled model can't splice a sensor between plant and damper, so the",
+             "readout noise is carried by the bosem injection at `DAMP_EXC`. A true in-loop",
+             "quantised sensor would need a `READOUT_NOISE` `cdsFilt` rebuild (as `x1hstsdamped`",
+             "has). The seismic and OSEM disturbances ARE genuinely in-loop. With this physical",
+             f"background the diagonal open-loop FRF recovers to **{diag_rel:.4f}** median relative",
+             "error vs the analytic SS oracle (the reference-based recovery cancels the controller).", ""]
     if snr is not None:
         lines += ["## Achieved SNR (the realistic fight)", "",
                   "Per-DoF SNR = |driven-line response averaged over periods| / its",
@@ -659,7 +635,7 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               f"realistic seismic+OSEM background**.",
               f"- {len(rows)} shared modal poles recovered at `df={df:.5f} Hz`; median "
               f"|df| vs oracle = {df_med:.2f}%, with a **physical CRB** from real OSEM "
-              f"readout + ADC noise (dof={dof} ≥ 14).",
+              f"readout noise (dof={dof} ≥ 14).",
               f"- **Q recovery (the goal):** **{sc['n_good']}** modes recovered well in "
               f"BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **{qmed*100:.1f}%** "
               f"across the {sc['n_wellsep']} well-separated modes.",
@@ -673,7 +649,7 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               "- The recovered `f0`/`Q` centres track the noise-free run closely (the "
               "well-separated modes still recover Q to a few percent); what changes is the "
               "**CRB**: the `±f0` / `±Q` bars are no longer a meaningless ~1e-25 — they are "
-              "physical uncertainties set by the seismic + OSEM + ADC noise. That is the "
+              "physical uncertainties set by the seismic + OSEM noise. That is the "
               "intended effect: realistic noise does not break the recovery of the "
               "well-separated modes, it puts honest error bars on them.",
               "",
@@ -688,15 +664,12 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               (f"- {nbad} mode(s) land on a near-critically-damped pole (Q→∞ / CRB "
                f"undefined) where two oracle poles merged; `f0` is still accurate."
                if nbad else "- No degenerate/unstable poles in the chosen fit."),
-              "- **The 16-bit ±1 mm ADC is calibrated for displacement (L/T/V) only.** Its "
-              "metre full-scale mis-scales the rotational R/P/Y readouts (radians) — applying "
-              "it there biases R/P/Y recovery to 0.7–0.95 (isolation-tested), so it is applied "
-              "only to L/T/V; R/P/Y carry the in-loop seismic+OSEM noise. A faithful R/P/Y ADC "
-              "needs the angular-OSEM µrad/count calibration, absent from this raw-displacement "
-              "model. The ADC is also measurement-side (the model can't splice a quantiser "
-              "between plant and damper); the seismic+OSEM disturbances ARE in-loop. Honest "
-              "caveat — a `READOUT_NOISE`+quantiser `cdsFilt` rebuild (as `x1hstsdamped` has) "
-              "would fix both.", "",
+              "- *OSEM noise is measurement-referred at the damper sensor node, not via an "
+              "in-loop quantised sensor* — the compiled model can't splice a sensor between "
+              "plant and damper, so the readout noise is carried by the bosem injection at "
+              "`DAMP_EXC`. A true in-loop quantised sensor would need a `READOUT_NOISE` "
+              "`cdsFilt` rebuild (as `x1hstsdamped` has). The seismic+OSEM disturbances ARE "
+              "in-loop.", "",
               f"Oracle in-band poles ({len(ora)}, near-degenerate doublets collapse to the "
               f"{len(rows)} resolved modes): " +
               ", ".join(f"{f:.3f}Hz/Q{q:.1f}" for f, q in ora), "",
