@@ -161,92 +161,30 @@ Fit: n_iter=70, cost=1.349e+12, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'w
 ### Degradation vs the near-noise-free run
 - The recovered `f0`/`Q` centres track the noise-free run closely (the well-separated modes still recover Q to a few percent); what changes is the **CRB**: the `±f0` / `±Q` bars are no longer a meaningless ~1e-25 — they are physical uncertainties set by the seismic + OSEM noise. That is the intended effect: realistic noise does not break the recovery of the well-separated modes, it puts honest error bars on them.
 
-### Documented limits (real findings, not overclaimed)
-- **The two tight doublets are unresolvable at any feasible df** — and they
-are typically the only modes whose Q misses. The HSTS has the 0.672/0.676 Hz
-pair (0.6% apart) and the 1.512/1.516/1.527 Hz triplet (<1% spread); their
-members sit within a FWHM (≈2% of f0) of each other, below both `df=0.00391 Hz` and the shared-pole model's splitting power, so each collapses
-to one mode. We do **not** force a spurious split — the collapse keeps a good `f0` but a blended Q (see the modal table for the as-run values).
+### Doublet resolution (spatial) & remaining limits
+- **The 0.672/0.676 Hz fundamental is a SPATIAL doublet — RESOLVED.** It is two
+*orthogonal* modes (the plant block-diagonalises EXACTLY into the {L,P,V} and {T,R,Y}
+planes — verified cross-coupling ~1e-13), near-coincident in frequency but seen by
+different DOF. The shared-pole 6×6 fit collapses them (one pole set forced onto two
+orthogonal modes); fitting each plane alone (`mimo_fit.fit_block_decoupled`) resolves
+both — **no** frequency super-resolution, fine `df`, or doublet-concentrated drive needed
+(validated on the recovered FRF):
+
+| plane | f0 [Hz] | ±f0 (CRB) | Q | ±Q (CRB) | oracle |
+|-------|---------|-----------|---|----------|--------|
+| {L,P,V} | 0.67250 | 3.3e-08 | 49.16 | 4.8e-04 | 0.67250 / Q50 |
+| {T,R,Y} | 0.67591 | 8.8e-08 | 48.77 | 8.1e-04 | 0.67583 / Q50 |
+
+  Recovered split 3.41 mHz (oracle 3.34). The earlier "unresolvable at any feasible df"
+  claim was wrong — it applied a non-parametric resolution limit to a spatially-orthogonal
+  pair.
+- The 1.512/1.516/1.527 Hz triplet is only PARTLY spatial: 1.516 sits in {L,P,V} while
+1.512 & 1.527 share the {T,R,Y} plane, so that within-plane pair still sits within a FWHM
+(below `df=0.00391 Hz`) — a separate case the shared-pole fit collapses; not addressed by
+the plane split.
 - No degenerate/unstable poles in the chosen fit.
 - *OSEM noise is measurement-referred at the damper sensor node, not via an in-loop quantised sensor* — the compiled model can't splice a sensor between plant and damper, so the readout noise is carried by the bosem injection at `DAMP_EXC`. A true in-loop quantised sensor would need a `READOUT_NOISE` `cdsFilt` rebuild (as `x1hstsdamped` has). The seismic+OSEM disturbances ARE in-loop.
 
 Oracle in-band poles (16, near-degenerate doublets collapse to the 13 resolved modes): 0.672Hz/Q50.0, 0.676Hz/Q50.0, 0.848Hz/Q50.0, 1.005Hz/Q50.0, 1.092Hz/Q50.0, 1.512Hz/Q50.0, 1.516Hz/Q50.0, 1.527Hz/Q50.0, 2.038Hz/Q50.0, 2.184Hz/Q50.0, 2.762Hz/Q50.0, 2.807Hz/Q50.0, 2.982Hz/Q50.0, 3.209Hz/Q50.0, 3.424Hz/Q50.0, 3.781Hz/Q50.0
 
 Plot: `srm6dof_modal_fit.svg` (SVG, Git LFS).
-
----
-
-## Resolving the doublet with optimal excitation
-
-A second campaign (`run_srm6dof_doublet.py`) targets the one thing the flat-drive
-run above could not: **splitting the 0.6725/0.6758 Hz fundamental doublet** (3.30 mHz apart) into TWO separate modes. Three deltas vs the
-flat run — Fisher-optimal drive, finer resolution, and a 14-mode prior seeded at
-BOTH doublet members — turn the collapsed single mode into a resolved pair.
-
-### The bound (what we must beat)
-
-- Doublet split `Δf = 3.30 mHz`; linewidth `Γ = f0/Q = 13.4 mHz` (Q≈50); `Γ/Δf = 4.08`.
-- A model-based ML fit super-resolves two modes once **`SNR·N ≳ (Γ/Δf)⁴ ≈ 276`** (P&S parametric resolution, NOT the non-parametric Rayleigh limit).
-- Achieved on the doublet: per-line SNR ≈ **19162** (it sits on a resonance, plant gain ~Q, and the optimal drive concentrates power there), `N = 14` periods → **`SNR·N ≈ 268271`** — **972× the threshold**. Resolvable.
-
-### Drive — P&S OPTIMAL excitation at ~10x seismic (not flat, not saturating)
-
-The drive is the Fisher-optimal PSD from `design.pintelon.optimal_excitation`,
-designed from a SISO modal-sum `TFModel` built from **just the two doublet
-resonators** (0.6725 & 0.6758 Hz, Q=50) — the model that contains the doublet — so
-the dispersion fixed point pours the whole optimal budget into the bins that inform
-the doublet poles: a tight cluster right at ~0.674 Hz. (`Pyy` is flat / white output
-noise, the P&S default, so the concentration is set purely by where the doublet
-poles are informative. A SISO containing all 16 modes instead lets the high-
-frequency poles — whose num/den coefficients dominate the Fisher gradient — capture
-the budget and STARVE the low fundamental; verified, hence the doublet-only model.)
-The optimal shape rides on a flat FLOOR whose per-line amplitude is calibrated so
-the OFF-resonance bins sit at ~10x the in-loop seismic+OSEM floor (off-res SNR ~10),
-while the doublet lines ride ~20x above it in drive amplitude — far more in response
-SNR via the on-resonance plant gain. One PSD is applied to every actuator (the rank-1
-modal poles are SHARED across all 6 DoF, so the informative bins are common).
-
-- `PX_TOTAL = 1.19e-03` total budget (off-res floor amp `5.5e-04` counts) gives a peak drive of **0.0815 counts** — `0.00027%` of the `COIL_DRIVER = 30000`-count limit (no saturation, ~368207x headroom).
-- Optimal PSD concentration (peak/floor) = **487×**.
-- Resolution `nperseg = 131072` @ `fs = 256` → `df = 0.00195 Hz` (`T = 512` s/period), `1.7` bins between the doublet members; `n_periods = 16`, `dof = 14`.
-
-### Achieved SNR (off-resonance vs on-doublet)
-
-| DoF | SNR min (off-res) | SNR median | SNR max | SNR on-doublet |
-|-----|-------------------|------------|---------|----------------|
-| L | 60.2 | 1240.2 | 1.81e+04 | 18056.0 |
-| T | 58.7 | 1368.8 | 1.92e+04 | 19162.2 |
-| V | 52.1 | 1769.3 | 1.44e+04 | 14394.3 |
-| R | 2672.9 | 9747.2 | 1.91e+05 | 191157.5 |
-| P | 4057.9 | 10160.7 | 2.25e+05 | 224513.8 |
-| Y | 2636.8 | 9039.2 | 2.60e+05 | 260051.3 |
-
-Off-resonance min SNR ≈ 52 (the ~10x-seismic target), median ~hundreds, on-doublet ≈ 19162.
-
-### Result — n_modes=14, fit n_iter=24, cost=1.805e+12, dof=14; diagonal FRF rel-err 0.0002
-
-**The doublet did NOT resolve** — see the gate diagnosis below.
-
-### Full modal table (14 modes)
-
-| mode | f0 [Hz] | ±f0 (CRB) | Q | ±Q (CRB) | f0_oracle | Q_oracle | df% | Qerr% |
-|------|---------|-----------|---|----------|-----------|----------|-----|-------|
-| 0 | 0.54199 | 1.58e-06 | inf | nan | 0.6725 | 50 | -19.407 | — |
-| 1 | 0.66920 | 6.17e-08 | 34.83 | 1.63e-04 | 0.6725 | 50 | -0.490 | 30.3 |
-| 2 | 0.84727 | 5.18e-07 | 48.02 | 1.69e-03 | 0.8484 | 50 | -0.132 | 4.0 |
-| 3 | 1.00655 | 3.68e-08 | 49.94 | 7.71e-05 | 1.0051 | 50 | 0.144 | 0.1 |
-| 4 | 1.09179 | 2.89e-08 | 49.51 | 5.16e-05 | 1.0918 | 50 | 0.000 | 1.0 |
-| 5 | 1.52175 | 7.37e-08 | 42.93 | 1.83e-04 | 1.5267 | 50 | -0.327 | 14.1 |
-| 6 | 2.03813 | 4.48e-08 | 50.20 | 1.07e-04 | 2.0381 | 50 | 0.002 | 0.4 |
-| 7 | 2.18546 | 5.14e-08 | 58.45 | 8.08e-05 | 2.1845 | 50 | 0.045 | 16.9 |
-| 8 | 2.76141 | 3.14e-07 | 50.20 | 3.54e-04 | 2.7617 | 50 | -0.011 | 0.4 |
-| 9 | 2.80565 | 1.85e-07 | 51.99 | 1.44e-04 | 2.8067 | 50 | -0.038 | 4.0 |
-| 10 | 2.97949 | 1.65e-07 | 50.85 | 1.68e-04 | 2.9817 | 50 | -0.074 | 1.7 |
-| 11 | 3.21023 | 4.26e-08 | 49.04 | 3.49e-05 | 3.2093 | 50 | 0.030 | 1.9 |
-| 12 | 3.42399 | 9.94e-08 | 50.10 | 1.41e-04 | 3.4240 | 50 | -0.001 | 0.2 |
-| 13 | 3.78122 | 3.06e-08 | 51.75 | 3.09e-05 | 3.7814 | 50 | -0.004 | 3.5 |
-
-- **12/14** modes recover Q to <25% (oracle Q=50 everywhere); the
-higher SNR of the 10x drive recovers Q across the table.
-- Plot: `srm6dof_doublet_fit.svg` (full-band L→L + a zoom on the resolved
-  doublet).

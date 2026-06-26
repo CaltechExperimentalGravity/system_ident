@@ -3,7 +3,8 @@ import pytest
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (peak_pick_modes, init_residues, initial_theta,
                                     MIMOModalEstimator, parameter_covariance,
-                                    modal_uncertainty, frf_band, validate_fit)
+                                    modal_uncertainty, frf_band, validate_fit,
+                                    fit_block_decoupled)
 
 def synth_openloop(model, modes, phi, psi, *, sigZ=0.0, M=20, seed=0, freq=None):
     """Robust-method campaign on G = model truth (open loop). Returns (exps, freq, theta_true, G)."""
@@ -130,3 +131,26 @@ def test_pole_prior_anchors_to_design_frequency():
     import pytest
     with pytest.raises(ValueError):
         MIMOModalEstimator(m).fit(exps, freq, th0, pole_prior_hz=[0.6], prior_weight=1.0)  # wrong count
+
+
+def test_fit_block_decoupled_resolves_spatial_doublet():
+    # A 4-DOF plant that decouples into blocks {0,1} and {2,3}, with a near-coincident
+    # frequency pair (1.000 Hz in block A, 1.004 Hz in block B; Q=50 -> 2% FWHM overlaps
+    # the 0.4% split). The two modes are spatially orthogonal (each residue lives in one
+    # block), so block-decoupled fitting resolves them with no frequency super-resolution.
+    m = Rank1ModalModel(4, 4, 2)
+    phi = np.array([[1.0, 0.5, 0.0, 0.0],      # mode 0 -> sensors {0,1}
+                    [0.0, 0.0, 1.0, 0.6]])     # mode 1 -> sensors {2,3}
+    psi = np.array([[1.0, 0.4, 0.0, 0.0],      # mode 0 -> actuators {0,1}
+                    [0.0, 0.0, 1.0, 0.5]])     # mode 1 -> actuators {2,3}
+    freq = np.linspace(0.85, 1.15, 220)
+    exps, freq, theta, G = synth_openloop(m, [(1.000, 50), (1.004, 50)], phi, psi,
+                                          sigZ=1e-3, M=20, seed=3, freq=freq)
+    blocks = [{"sensors": [0, 1], "actuators": [0, 1], "modes": [(1.000, 50)]},
+              {"sensors": [2, 3], "actuators": [2, 3], "modes": [(1.004, 50)]}]
+    res = fit_block_decoupled(exps, freq, blocks, dof=18)
+    fA = sorted(f for f, _ in res[0]["modes"])
+    fB = sorted(f for f, _ in res[1]["modes"])
+    assert abs(fA[0] - 1.000) < 1e-3            # block A recovers the 1.000 Hz member
+    assert abs(fB[0] - 1.004) < 1e-3            # block B recovers the 1.004 Hz member
+    assert res[0]["mu"] is not None and res[0]["mu"][0]["f0_std"] < 1e-3   # CRB populated

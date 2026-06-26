@@ -263,3 +263,55 @@ def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
     return {"frf_rel_median_offres": frf_rel_median_offres,
             "cost": float(cost), "cost_expected": float(cost_expected),
             "cost_ratio": float(cost / cost_expected)}
+
+
+def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600):
+    """Fit independent rank-1 modal models on decoupled DOF blocks, then combine.
+
+    For a plant that block-diagonalizes into orthogonal DOF subspaces — e.g. a
+    suspension whose dynamics split into the {L,P,V} and {T,R,Y} planes — two modes
+    near-coincident in FREQUENCY but living in DIFFERENT blocks form a *spatial
+    doublet*: they are separated by block membership, NOT by frequency resolution. A
+    single shared-pole full-MIMO fit collapses such a pair (two near-equal poles with
+    orthogonal residues make J^H J ill-conditioned); fitting each block alone — where
+    only one of the pair appears — recovers both cleanly with no frequency
+    super-resolution and no doublet-concentrated drive.
+
+    Parameters
+    ----------
+    exps : list of full-MIMO experiments ``(Ybar(F,n_dof), Ubar(F,n_dof),
+        Cz(F,2*n_dof,2*n_dof))``, one per driven DOF, indexed by DOF.
+    freq : excited-line frequencies.
+    blocks : list of ``{"sensors": [idx...], "actuators": [idx...], "modes":
+        [(f0,Q),...]}`` — DOF indices into the full ordering plus the prior modes
+        assigned to that block (from the suspension design / plane decomposition).
+        Experiments ``exps[a]`` for ``a in actuators`` drive the block.
+    dof : P&S effective dof (``n_periods - n_transient``) for the per-block CRB; if
+        None, the CRB (``mu``) is skipped.
+    max_iter : LM iterations per block fit.
+
+    Returns
+    -------
+    list of dicts, one per block: ``{"sensors", "actuators", "model", "fit",
+    "modes": [(f0,Q),...], "mu": modal_uncertainty | None}``.
+    """
+    from .mimo_modal import Rank1ModalModel
+    n_dof = exps[0][0].shape[1]
+    F = len(freq)
+    out = []
+    for blk in blocks:
+        si = list(blk["sensors"]); ai = list(blk["actuators"]); pm = sorted(blk["modes"])
+        comp = si + [n_dof + a for a in ai]            # block rows/cols of the 2n Cz vector
+        sub = [(exps[a][0][:, si], exps[a][1][:, ai],
+                exps[a][2][np.ix_(np.arange(F), comp, comp)]) for a in ai]
+        m = Rank1ModalModel(len(si), len(ai), n_modes=len(pm)).set_reference(freq)
+        ab = m.ab_from_modes(pm)
+        phi, psi = init_residues(m, ab, sub, freq)
+        res = MIMOModalEstimator(m).fit(sub, freq, m.pack(ab, phi, psi), max_iter=max_iter)
+        mu = None
+        if dof is not None:
+            Ct = parameter_covariance(res, dof=dof, n_sens=len(si))
+            mu = modal_uncertainty(m, res.theta, Ct)
+        out.append({"sensors": si, "actuators": ai, "model": m, "fit": res,
+                    "modes": m.poles(res.theta), "mu": mu})
+    return out
