@@ -37,6 +37,33 @@ def test_prior_robust_spreads_power_off_the_prior():
     np.testing.assert_allclose(Pxx_zero, Pxx_opt, rtol=1e-9)
 
 
+def test_floor_frac_meaningful_floor_every_line():
+    band, freq = _grid()
+    Pyy = np.ones_like(freq)
+    prior = TFModel.from_resonances([(1.5, 30.0)], 150.0)
+    alpha = 0.05
+    Pxx = prior_robust_excitation(freq, prior, Pyy, 1.0, 0.5, n_iter=3, floor_frac=alpha)
+    # budget preserved
+    assert abs(trapezoid(Pxx, freq) - 1.0) < 1e-6
+    # EVERY line carries a meaningful floor: min/peak == alpha (floor then uniform renorm)
+    assert np.isclose(Pxx.min() / Pxx.max(), alpha, rtol=1e-6)
+    # still SHAPED, not flat: the resonance peak rides well above the floor
+    assert Pxx.max() / np.median(Pxx) > 2.0
+    # the default floor is negligible by comparison -> floor_frac genuinely raises it
+    Pxx_def = prior_robust_excitation(freq, prior, Pyy, 1.0, 0.5, n_iter=3)
+    assert Pxx_def.min() / Pxx_def.max() < 1e-3 < Pxx.min() / Pxx.max()
+
+
+def test_floor_frac_default_unchanged():
+    # default floor_frac leaves optimal_excitation behaviour as-is (regression guard)
+    band, freq = _grid()
+    Pyy = np.ones_like(freq)
+    prior = TFModel.from_resonances([(1.5, 30.0)], 150.0)
+    a = optimal_excitation(freq, prior, Pyy, 1.0, n_iter=3)
+    b = optimal_excitation(freq, prior, Pyy, 1.0, n_iter=3, floor_frac=1e-8)
+    np.testing.assert_allclose(a, b, rtol=1e-12)
+
+
 def _far_prior_cfg():
     return {
         "run": {"name": "far", "excitation_mode": "sequential"},

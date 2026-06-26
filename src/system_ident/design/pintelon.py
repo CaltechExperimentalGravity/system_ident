@@ -40,6 +40,7 @@ def optimal_excitation(
     dpar: float | np.ndarray = 1e-8,
     logflag: np.ndarray | None = None,
     rec_progress: bool = False,
+    floor_frac: float = _EXC_FLOOR_FRAC,
 ):
     """Iteratively optimise the excitation PSD over ``freq``.
 
@@ -50,6 +51,12 @@ def optimal_excitation(
     With ``rec_progress=False`` returns the final ``Pxx``; with ``True`` returns
     ``(Pxx_rec, nu_rec, gamma_rec)`` recording every iteration — used for the
     dashboard's convergence view and for validation.
+
+    ``floor_frac`` floors every bin at that fraction of the per-iteration peak. The
+    default ``_EXC_FLOOR_FRAC`` (1e-8) is purely numerical (keeps the 1/Pxx dispersion
+    division well-posed). A larger value (e.g. 0.05) makes a *meaningful* per-line floor
+    so every multisine component carries usable power — an uncertainty-aware drive that
+    can iterate, not a flat broadband/noise drive.
     """
     freq = np.asarray(freq, dtype=float)
     n_bin = len(freq)
@@ -69,7 +76,7 @@ def optimal_excitation(
         Pxx = Pxx * nu
         peak = np.max(Pxx)
         if peak > 0:
-            Pxx = np.maximum(Pxx, _EXC_FLOOR_FRAC * peak)   # no bin starves to ~0
+            Pxx = np.maximum(Pxx, floor_frac * peak)        # no bin starves to ~0
         Pxx *= Px_tot / trapezoid(Pxx, freq)
         Pxx_rec[cnt] = Pxx
         nu_rec[cnt] = nu
@@ -88,6 +95,7 @@ def prior_robust_excitation(
     prior_uncertainty: float,
     n_iter: int = 3,
     n_samples: int = 7,
+    floor_frac: float = _EXC_FLOOR_FRAC,
 ) -> np.ndarray:
     """Optimal excitation averaged over the prior's plausible resonance band.
 
@@ -99,20 +107,32 @@ def prior_robust_excitation(
     budget — so the drive covers everywhere a resonance could plausibly be:
     efficient (not flat broadband) yet robust to a far prior.
     ``prior_uncertainty=0`` reduces to the point-optimal drive.
+
+    ``floor_frac`` floors the FINAL averaged design at that fraction of its peak (then
+    renormalises once to the budget), guaranteeing a *meaningful* power on every
+    multisine line so the initial drive returns information everywhere and can iterate
+    — without being a flat broadband/noise drive (the Fisher-shaped peaks remain).
     """
     u = float(prior_uncertainty)
     if u <= 0.0:
-        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)
+        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter,
+                                  floor_frac=floor_frac)
     freq = np.asarray(freq, dtype=float)
     z, p, k = sig.tf2zpk(model.num, model.den)
     scales = np.linspace(max(1.0 - u, 0.05), 1.0 + u, n_samples)
     acc = np.zeros(len(freq))
     for sc in scales:
         scaled = TFModel.from_zpk(z * sc, p * sc, k)
+        # inner designs keep the tiny NUMERICAL floor; the meaningful floor_frac floor is
+        # applied ONCE to the averaged design below (else it compounds through the average).
         acc += optimal_excitation(freq, scaled, Pyy, Px_tot, n_iter=n_iter)
     integral = trapezoid(acc, freq)
     if integral > 0:
         acc *= Px_tot / integral
+    peak = float(np.max(acc))
+    if peak > 0 and floor_frac > 0:
+        acc = np.maximum(acc, floor_frac * peak)            # meaningful floor on every line
+        acc *= Px_tot / trapezoid(acc, freq)                # renormalise once to budget
     return acc
 
 
@@ -132,9 +152,12 @@ class PintelonSchoukensDesigner(InputDesigner):
         Px_tot: float,
         n_iter: int = 3,
         prior_uncertainty: float = 0.0,
+        floor_frac: float = _EXC_FLOOR_FRAC,
     ) -> np.ndarray:
         if prior_uncertainty > 0.0:
             return prior_robust_excitation(
-                freq, model, Pyy, Px_tot, prior_uncertainty, n_iter=n_iter
+                freq, model, Pyy, Px_tot, prior_uncertainty, n_iter=n_iter,
+                floor_frac=floor_frac,
             )
-        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)
+        return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter,
+                                  floor_frac=floor_frac)

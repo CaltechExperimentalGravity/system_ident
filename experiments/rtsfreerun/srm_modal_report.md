@@ -81,21 +81,22 @@ error vs the analytic SS oracle (the reference-based recovery cancels the contro
 ## Achieved SNR (the realistic fight)
 
 Per-DoF SNR = |driven-line response averaged over periods| / its
-period-to-period scatter, at the excited lines. The suspension resonances
-have large plant gain so on-resonance SNR is high (the modes are well
-measured); the binding number is the off-resonance / weak-coupling
-**minimum**, where the response approaches the seismic+OSEM floor. The
-drive budget `PX_TOTAL=1e-4` is calibrated to land that minimum at a
-believable ~30 (vs the old token regime where every bin was SNR>1e7).
+period-to-period scatter, at the excited lines. The drive is an
+**uncertainty-aware prior-robust multisine** (NOT flat): the optimal design
+averaged over the prior band f0·[1±0.5] with a meaningful `0.05·peak` per-line floor, so the resonances carry most of the
+power (high on-mode SNR) while every line still gets usable power to
+iterate. Off-resonance SNR is not a design target — Fisher information
+lives at the modes. Total budget `PX_TOTAL=9e-4` (peak drive « the
+30000-count coil limit).
 
 | DoF | SNR min | SNR median | SNR max |
 |-----|---------|------------|---------|
-| L | 130.6 | 1560.0 | 4.57e+04 |
-| T | 127.9 | 2663.7 | 3.55e+04 |
-| V | 49.7 | 1927.4 | 4.10e+04 |
-| R | 4274.9 | 19721.1 | 8.48e+04 |
-| P | 6782.7 | 55679.3 | 4.60e+05 |
-| Y | 5123.9 | 21457.2 | 7.72e+05 |
+| L | 69.5 | 954.5 | 6.30e+04 |
+| T | 68.2 | 1717.6 | 3.89e+04 |
+| V | 26.5 | 1034.6 | 6.97e+04 |
+| R | 3258.6 | 14913.4 | 4.26e+05 |
+| P | 6064.0 | 24659.6 | 2.33e+05 |
+| Y | 2184.7 | 10292.1 | 2.08e+05 |
 
 ## Tuned SRM CAL (per-DOF, tau ≈ 5 s target)
 
@@ -125,66 +126,76 @@ FRF's sidelobes.) Picked `n_modes` = most modes recovered well in BOTH f0
 
 | n_modes | cost | n_good (f0&Q) | median Q-err (well-sep) | n_well-sep | n_bad-Q |
 |---------|------|---------------|-------------------------|------------|---------|
-| 8 | 3.936e+13 | 6 | 6.6% | 7 | 0 |
-| 10 | 3.337e+13 | 7 | 2.1% | 8 | 1 |
-| 12 | 6.331e+12 | 10 | 3.4% | 11 | 0 |
-| 13 ★ | 1.349e+12 | 11 | 2.5% | 12 | 0 |
+| 8 | 7.844e+12 | 8 | 1.8% | 8 | 0 |
+| 10 | 6.214e+12 | 9 | 0.9% | 9 | 0 |
+| 12 | 2.925e+12 | 10 | 1.6% | 10 | 0 |
+| 13 ★ | 5.557e+11 | 11 | 0.4% | 11 | 0 |
 
 ## Recovered modal table — n_modes=13 (f0/Q ± CRB) vs oracle
 
-Fit: n_iter=70, cost=1.349e+12, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'well-sep' = |df|<1% & finite Q.
+Fit: n_iter=34, cost=5.557e+11, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'well-sep' = |df|<1% & finite Q.
 
 | mode | f0_fit [Hz] | ±f0 (CRB) | Q_fit | ±Q (CRB) | f0_oracle | Q_oracle | df% | Q-err% |
 |------|-------------|-----------|-------|----------|-----------|----------|-----|--------|
-| 0 | 0.6765 | 3.17e-07 | 16.98 | 2.13e-05 | 0.6758 | 50.00 | 0.101 | 66.0 |
-| 1 | 0.7683 | 2.80e-07 | 18.79 | 1.22e-05 | 0.8484 | 50.00 | -9.436 | 62.4 |
-| 2 | 1.0051 | 8.19e-08 | 46.50 | 4.59e-05 | 1.0051 | 50.00 | -0.000 | 7.0 |
-| 3 | 1.0918 | 3.97e-08 | 49.94 | 1.77e-04 | 1.0918 | 50.00 | -0.001 | 0.1 |
-| 4 | 1.5216 | 2.62e-08 | 48.77 | 9.53e-05 | 1.5267 | 50.00 | -0.335 | 2.5 |
-| 5 | 2.0382 | 6.84e-08 | 49.88 | 1.24e-04 | 2.0381 | 50.00 | 0.005 | 0.2 |
-| 6 | 2.1859 | 8.67e-08 | 55.53 | 1.28e-04 | 2.1845 | 50.00 | 0.068 | 11.1 |
-| 7 | 2.7655 | 3.95e-07 | 54.46 | 4.78e-04 | 2.7617 | 50.00 | 0.139 | 8.9 |
-| 8 | 2.7876 | 2.81e-07 | 51.23 | 1.44e-04 | 2.8067 | 50.00 | -0.682 | 2.5 |
-| 9 | 2.9778 | 1.14e-07 | 50.74 | 1.32e-04 | 2.9817 | 50.00 | -0.131 | 1.5 |
-| 10 | 3.2092 | 7.19e-08 | 48.09 | 8.79e-05 | 3.2093 | 50.00 | -0.003 | 3.8 |
-| 11 | 3.4240 | 4.77e-08 | 50.00 | 7.41e-05 | 3.4240 | 50.00 | -0.000 | 0.0 |
-| 12 | 3.7821 | 7.22e-08 | 49.79 | 8.45e-05 | 3.7814 | 50.00 | 0.019 | 0.4 |
+| 0 | 0.6586 | 7.93e-07 | 16.00 | 4.00e-05 | 0.6725 | 50.00 | -2.062 | 68.0 |
+| 1 | 0.8119 | 4.34e-07 | 23.88 | 3.06e-05 | 0.8484 | 50.00 | -4.305 | 52.2 |
+| 2 | 1.0126 | 1.35e-07 | 51.65 | 7.28e-05 | 1.0051 | 50.00 | 0.751 | 3.3 |
+| 3 | 1.0918 | 2.74e-08 | 49.85 | 1.13e-04 | 1.0918 | 50.00 | 0.001 | 0.3 |
+| 4 | 1.5212 | 4.75e-08 | 47.16 | 1.41e-04 | 1.5267 | 50.00 | -0.363 | 5.7 |
+| 5 | 2.0382 | 3.95e-08 | 49.95 | 7.21e-05 | 2.0381 | 50.00 | 0.003 | 0.1 |
+| 6 | 2.1851 | 5.07e-08 | 50.15 | 8.29e-05 | 2.1845 | 50.00 | 0.028 | 0.3 |
+| 7 | 2.7652 | 5.26e-07 | 52.41 | 6.17e-04 | 2.7617 | 50.00 | 0.127 | 4.8 |
+| 8 | 2.7932 | 3.74e-07 | 49.40 | 1.00e-04 | 2.8067 | 50.00 | -0.481 | 1.2 |
+| 9 | 2.9780 | 1.73e-07 | 50.73 | 1.64e-04 | 2.9817 | 50.00 | -0.125 | 1.5 |
+| 10 | 3.2095 | 2.74e-08 | 50.19 | 4.19e-05 | 3.2093 | 50.00 | 0.007 | 0.4 |
+| 11 | 3.4240 | 7.90e-08 | 50.04 | 1.27e-04 | 3.4240 | 50.00 | -0.001 | 0.1 |
+| 12 | 3.7816 | 4.18e-08 | 50.14 | 5.59e-05 | 3.7814 | 50.00 | 0.005 | 0.3 |
 
 ## Summary
 
 - All 6 SRM damping loops close **stable** on the bare-M1 HSTS plant.
 - The reference-based recovery cancels the controller: diagonal FRF matches the oracle to 0.0002 median rel-err **even under the full realistic seismic+OSEM background**.
-- 13 shared modal poles recovered at `df=0.00391 Hz`; median |df| vs oracle = 0.07%, with a **physical CRB** from real OSEM readout noise (dof=14 ≥ 14).
-- **Q recovery (the goal):** **11** modes recovered well in BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **2.5%** across the 12 well-separated modes.
-- **Realistic fight:** worst-case (off-resonance / weak-coupling) per-line SNR ≈ 50 against the seismic+OSEM floor; the modal peaks sit at SNR ~1e4–1e6, so the well-separated modes still recover — the CRB bars are now physical, grown from the ~1e-25 token bound to real noise levels.
+- 13 shared modal poles recovered at `df=0.00391 Hz`; median |df| vs oracle = 0.12%, with a **physical CRB** from real OSEM readout noise (dof=14 ≥ 14).
+- **Q recovery (the goal):** **11** modes recovered well in BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **0.4%** across the 11 well-separated modes.
+- **Realistic fight:** worst-case (off-resonance / weak-coupling) per-line SNR ≈ 26 against the seismic+OSEM floor; the modal peaks sit at SNR ~1e4–1e6, so the well-separated modes still recover — the CRB bars are now physical, grown from the ~1e-25 token bound to real noise levels.
 
 ### Degradation vs the near-noise-free run
 - The recovered `f0`/`Q` centres track the noise-free run closely (the well-separated modes still recover Q to a few percent); what changes is the **CRB**: the `±f0` / `±Q` bars are no longer a meaningless ~1e-25 — they are physical uncertainties set by the seismic + OSEM noise. That is the intended effect: realistic noise does not break the recovery of the well-separated modes, it puts honest error bars on them.
 
 ### Doublet resolution (spatial) & remaining limits
-- **The 0.672/0.676 Hz fundamental is a SPATIAL doublet — RESOLVED.** It is two
-*orthogonal* modes (the plant block-diagonalises EXACTLY into the {L,P,V} and {T,R,Y}
-planes — verified cross-coupling ~1e-13), near-coincident in frequency but seen by
-different DOF. The shared-pole 6×6 fit collapses them (one pole set forced onto two
-orthogonal modes); fitting each plane alone (`mimo_fit.fit_block_decoupled`) resolves
-both — **no** frequency super-resolution, fine `df`, or doublet-concentrated drive needed
-(validated on the recovered FRF):
+- **The 0.672/0.676 Hz fundamental is a SPATIAL doublet — RESOLVED.** It is
+two *orthogonal* modes (the plant block-diagonalises EXACTLY into the {L,P,V}
+and {T,R,Y} planes — cross-coupling ~1e-13), near-coincident in frequency but
+seen by different DOF. The shared-pole 6×6 fit collapses them (one pole set
+forced onto two orthogonal modes); fitting each plane alone
+(`mimo_fit.fit_block_decoupled`) resolves both — **no** frequency
+super-resolution, fine `df`, or doublet-concentrated drive needed:
 
-| plane | f0 [Hz] | ±f0 (CRB) | Q | ±Q (CRB) | oracle |
-|-------|---------|-----------|---|----------|--------|
-| {L,P,V} | 0.67250 | 3.3e-08 | 49.16 | 4.8e-04 | 0.67250 / Q50 |
-| {T,R,Y} | 0.67591 | 8.8e-08 | 48.77 | 8.1e-04 | 0.67583 / Q50 |
+| plane | f0 [Hz] | ±f0 (CRB) | Q | ±Q (CRB) |
+|-------|---------|-----------|---|----------|
+| LPV | 0.67259 | 2.5e-07 | 47.72 | 2.0e-03 |
+| TRY | 0.67583 | 5.3e-07 | 50.30 | 4.1e-03 |
 
-  Recovered split 3.41 mHz (oracle 3.34). The earlier "unresolvable at any feasible df"
-  claim was wrong — it applied a non-parametric resolution limit to a spatially-orthogonal
-  pair.
-- The 1.512/1.516/1.527 Hz triplet is only PARTLY spatial: 1.516 sits in {L,P,V} while
-1.512 & 1.527 share the {T,R,Y} plane, so that within-plane pair still sits within a FWHM
-(below `df=0.00391 Hz`) — a separate case the shared-pole fit collapses; not addressed by
-the plane split.
+- The 1.512/1.516/1.527 Hz triplet is only PARTLY spatial: 1.516 sits in
+{L,P,V} while 1.512 & 1.527 share the {T,R,Y} plane, so that within-plane pair
+still sits within a FWHM (below `df=0.00391 Hz`) — a separate case the shared-
+pole fit collapses; not addressed by the plane split.
 - No degenerate/unstable poles in the chosen fit.
 - *OSEM noise is measurement-referred at the damper sensor node, not via an in-loop quantised sensor* — the compiled model can't splice a sensor between plant and damper, so the readout noise is carried by the bosem injection at `DAMP_EXC`. A true in-loop quantised sensor would need a `READOUT_NOISE` `cdsFilt` rebuild (as `x1hstsdamped` has). The seismic+OSEM disturbances ARE in-loop.
 
 Oracle in-band poles (16, near-degenerate doublets collapse to the 13 resolved modes): 0.672Hz/Q50.0, 0.676Hz/Q50.0, 0.848Hz/Q50.0, 1.005Hz/Q50.0, 1.092Hz/Q50.0, 1.512Hz/Q50.0, 1.516Hz/Q50.0, 1.527Hz/Q50.0, 2.038Hz/Q50.0, 2.184Hz/Q50.0, 2.762Hz/Q50.0, 2.807Hz/Q50.0, 2.982Hz/Q50.0, 3.209Hz/Q50.0, 3.424Hz/Q50.0, 3.781Hz/Q50.0
+
+## Drive & the iterative follow-up (spec)
+
+The drive is the **uncertainty-aware initial** multisine (`design_drive`): prior-robust
+optimal excitation over the prior modes' band f0·[1±0.5] with a `0.05·peak` per-line floor
+— power everywhere to get information, shaped (not flat/noise), one PSD for all 6 actuators.
+Audited: 100% of spectral energy is at the excited lines, periods are bit-identical (a true
+periodic multisine, not noise), peak drive 0.068 counts (4e5× under the 30000-count coil).
+This is **pass 1**. The planned iteration (not yet built; `loop.py:SysIDLoop.run` does it for
+the SISO path) closes the loop: modal fit → per-mode CRB (`modal_uncertainty`) → shrink the
+prior uncertainty / re-design the drive (point-optimal as the model firms up) → re-measure,
+until a CRB target is met. Budget-sizing to the actuator limit is a separate axis to settle
+there.
 
 Plot: `srm6dof_modal_fit.svg` (SVG, Git LFS).

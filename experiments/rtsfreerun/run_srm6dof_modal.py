@@ -36,6 +36,7 @@ from system_ident.mimo_loop import recover_open_loop
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (init_residues, MIMOModalEstimator,
                                    parameter_covariance, modal_uncertainty)
+from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends import rtsfreerun_oracle as orc
 
 # ── frequency resolution drives the Q recovery ──────────────────────────────────
@@ -56,22 +57,21 @@ NPERSEG = 65536          # df = 0.003906 Hz  (3.4 bins across the 0.67 Hz / Q50 
 N_PERIODS = 16           # P&S robust method; dof = N_PERIODS - N_TRANSIENT = 14 ≥ 14
 N_TRANSIENT = 2
 BAND = (0.3, 8.0)
-# REALISTIC-NOISE drive budget. The CRB is now set by the twin's physically-complete
-# HSTS noise background (ligo-india seismic through HSTS_GND_TF+ISI + bosem OSEM 1e-10/
-# 1 Hz; see srm6dof_loop.py), so the drive must produce a BELIEVABLE
-# SNR against that floor — not the ~1e10 "token" SNR of the old PX_TOTAL=1e7. The
-# suspension resonances have huge plant gain (|G|~O(1–20) at the modes) while the
-# noise floor is physically ~1e-10 m/√Hz, so on-resonance SNR is naturally large; the
-# binding number is the OFF-resonance / weak-coupling minimum. PX_TOTAL=9e-4 lands the
-# worst-case (band-edge L/T/V valleys, |G|~5e-5) per-line SNR at ~30, with the modal
-# peaks at SNR ~1e4–1e6 — a realistic LIGO sus-ID fight: peaks dominate the seismic/
-# OSEM background, valleys approach it. (At 1e7 every bin was SNR>1e7 — infinite.)
-# Sized from the measured clean (no-ADC) floor: the binding DoF V hit off-res SNR_min=49.7
-# at PX_TOTAL=2.5e-3, and SNR ∝ √PX_TOTAL, so 2.5e-3·(30/49.7)² ≈ 9e-4 targets SNR_min≈30.
-PX_TOTAL = 9.0e-4        # flat in-band drive budget — off-res SNR_min ≈ 30 vs the real
-                         # seismic+OSEM floor (peak drive « the 30000-count coil limit)
-N_MODES_SWEEP = (8, 10, 12, 13)   # 13 = resolvable design modes (doublets collapse)
-                                  # (16 oracle poles minus the 3 unresolvable doublet members)
+# DRIVE: an UNCERTAINTY-AWARE P&S multisine — NOT flat. A flat (broadband) drive justified
+# by an "off-resonance SNR" target is, in spirit, a noise drive (forbidden by P&S and the
+# project): off-res SNR is a non-quantity for a parametric fit, whose Fisher information
+# lives at the resonances. But pure nominal-optimal concentration also fails as a STARTING
+# drive — it trusts an uncertain prior. So the initial drive is `prior_robust_excitation`
+# (design/pintelon.py): the optimal design averaged over the prior's plausible resonance
+# band f0·[1±PRIOR_U], with a MEANINGFUL per-line floor (FLOOR_FRAC·peak) so every multisine
+# component carries usable power — power everywhere to get information and iterate, shaped by
+# uncertainty, not flat. The model is the modal-SUM SISO built from the prior modes.
+PX_TOTAL = 9.0e-4        # total in-band drive-power budget (∫Pxx df). Budget-sizing to the
+                         # actuator limit is a separate axis; peak drive « the 30000-count coil.
+PRIOR_U = 0.5            # fractional prior uncertainty on the mode f0's (robust over f0·[1±u])
+FLOOR_FRAC = 0.05        # per-line floor = FLOOR_FRAC·peak — every component carries power
+N_MODES_SWEEP = (8, 10, 12, 13)   # 13 = resolvable design modes (the shared-pole 6×6 fit
+                                  # collapses the spatial doublets — resolved separately, [5b])
 
 # Realistic noise is configured per-DoF in srm6dof_loop.py (SEISMIC_PRESET, BOSEM_FLOOR/
 # KNEE). Seismic enters in-loop as a drive-referred M1 displacement disturbance (ground→M1
@@ -130,7 +130,7 @@ def tune_srm_cal(m, *, target_tau=5.0, n_iter=3, dur=45.0):
 
 
 # ── MIMO campaign through the closed SRM loops ─────────────────────────────────
-def run_campaign(m, cal, lines, *, warmup_s=40.0, seed=0):
+def run_campaign(m, cal, lines, Pxx, *, warmup_s=40.0, seed=0):
     """Drive each DOF in turn under REALISTIC seismic + OSEM noise; return exps
     (per-actuator Ybar, Ubar, Cz) plus the achieved per-DoF SNR table.
 
@@ -147,7 +147,7 @@ def run_campaign(m, cal, lines, *, warmup_s=40.0, seed=0):
     sel, freq = _grid()
     f = np.fft.rfftfreq(NPERSEG, 1.0 / FS)
     line_idx = np.array([int(np.argmin(np.abs(f - fl))) for fl in lines])
-    Pxx = np.full(len(lines), PX_TOTAL / (BAND[1] - BAND[0]))
+    Pxx = np.asarray(Pxx, float)               # uncertainty-aware design PSD (see main)
     duration = N_PERIODS * NPERSEG / FS
     n_model = int(round(duration * m.fs_model))               # model-rate sample count
     m.set_cal(cal)
@@ -341,6 +341,25 @@ def oracle_modes(model6):
     return sorted(modes)
 
 
+def design_drive(model6, lines):
+    """Uncertainty-aware INITIAL drive PSD (not flat): prior-robust optimal excitation over
+    the prior modal model, with a meaningful per-line floor.
+
+    The SISO prior is the modal SUM (`s6.modal_sum_tf`) of the prior modes — peaks at every
+    resonance, so the dispersion fixed point concentrates drive there. `prior_robust_excitation`
+    averages that optimal design over f0·[1±PRIOR_U] (so a mode displaced from its prior is
+    still driven), and the FLOOR_FRAC·peak floor keeps every multisine line carrying usable
+    power to iterate. ONE PSD drives all 6 actuators (the rank-1 modal poles are SHARED, so
+    the informative bins are common). Returns (Pxx, siso_prior).
+    """
+    prior_modes = oracle_modes(model6)             # the design prior (in the twin: = model)
+    siso = s6.modal_sum_tf(prior_modes)
+    Pyy = np.ones(len(lines))                      # white output noise (P&S default)
+    Pxx = prior_robust_excitation(lines, siso, Pyy, PX_TOTAL, PRIOR_U,
+                                  n_iter=3, floor_frac=FLOOR_FRAC)
+    return Pxx, siso
+
+
 # The HSTS plant block-diagonalizes EXACTLY into two decoupled DOF planes (verified:
 # cross-plane FRF coupling ~1e-13). The 0.672/0.676 Hz "doublet" is a SPATIAL doublet —
 # two orthogonal modes (0.6725 in {L,P,V}, 0.6758 in {T,R,Y}), near-coincident in
@@ -447,10 +466,15 @@ def main():
                  cal=np.array([cal[d] for d in m6.dofs]),
                  taus=np.array([taus[d] for d in m6.dofs]),
                  stable=np.array([stable[d] for d in m6.dofs]))
+        Pxx_design, _siso = design_drive(m6, freq)
         print(f"\n[2] MIMO campaign: fs={FS} nperseg={NPERSEG} df={FS/NPERSEG:.5f}Hz "
               f"n_periods={N_PERIODS} band={BAND} ({len(freq)} lines)  "
               f"[~13 min twin time — cached to {_cache_path().name}]")
-        exps, freq, snr = run_campaign(m6, cal, freq)
+        print(f"    drive: uncertainty-aware prior-robust multisine (u={PRIOR_U}, "
+              f"floor={FLOOR_FRAC}·peak) — PSD peak/median = "
+              f"{Pxx_design.max()/np.median(Pxx_design):.1f}× (shaped, not flat), "
+              f"min/peak = {Pxx_design.min()/Pxx_design.max():.3f} (≈floor)")
+        exps, freq, snr = run_campaign(m6, cal, freq, Pxx_design)
 
     # ── [3] open-loop recovery + oracle baseline ─────────────────────────────────
     Xmat = np.stack([exps[l][1] for l in range(6)], axis=-1)
@@ -650,12 +674,14 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
     if snr is not None:
         lines += ["## Achieved SNR (the realistic fight)", "",
                   "Per-DoF SNR = |driven-line response averaged over periods| / its",
-                  "period-to-period scatter, at the excited lines. The suspension resonances",
-                  "have large plant gain so on-resonance SNR is high (the modes are well",
-                  "measured); the binding number is the off-resonance / weak-coupling",
-                  "**minimum**, where the response approaches the seismic+OSEM floor. The",
-                  "drive budget `PX_TOTAL=9e-4` is calibrated to land that minimum at a",
-                  "believable ~30 (vs the old token regime where every bin was SNR>1e7).", "",
+                  "period-to-period scatter, at the excited lines. The drive is an",
+                  "**uncertainty-aware prior-robust multisine** (NOT flat): the optimal design",
+                  f"averaged over the prior band f0·[1±{PRIOR_U}] with a meaningful "
+                  f"`{FLOOR_FRAC}·peak` per-line floor, so the resonances carry most of the",
+                  "power (high on-mode SNR) while every line still gets usable power to",
+                  "iterate. Off-resonance SNR is not a design target — Fisher information",
+                  "lives at the modes. Total budget `PX_TOTAL=9e-4` (peak drive « the",
+                  "30000-count coil limit).", "",
                   "| DoF | SNR min | SNR median | SNR max |",
                   "|-----|---------|------------|---------|"]
         for d in ["L", "T", "V", "R", "P", "Y"]:
@@ -758,6 +784,16 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               f"Oracle in-band poles ({len(ora)}, near-degenerate doublets collapse to the "
               f"{len(rows)} resolved modes): " +
               ", ".join(f"{f:.3f}Hz/Q{q:.1f}" for f, q in ora), "",
+              "## Drive & the iterative follow-up (spec)", "",
+              "The drive is the **uncertainty-aware initial** multisine "
+              f"(`design_drive`): prior-robust optimal excitation over the prior modes' band "
+              f"f0·[1±{PRIOR_U}] with a `{FLOOR_FRAC}·peak` per-line floor — power everywhere",
+              "to get information, shaped (not flat/noise), one PSD for all 6 actuators. This",
+              "is **pass 1**. The planned iteration (not yet built; `loop.py:SysIDLoop.run`",
+              "does it for the SISO path) closes the loop: modal fit → per-mode CRB",
+              "(`modal_uncertainty`) → shrink the prior uncertainty / re-design the drive",
+              "(point-optimal as the model firms up) → re-measure, until a CRB target is met.",
+              "Budget-sizing to the actuator limit is a separate axis to settle there.", "",
               "Plot: `srm6dof_modal_fit.svg` (SVG, Git LFS).", ""]
     out = HERE / "srm_modal_report.md"
     out.write_text("\n".join(lines))

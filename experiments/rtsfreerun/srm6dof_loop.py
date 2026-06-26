@@ -258,6 +258,26 @@ def bosem_noise_spec(self, dof: str) -> dict:
             "params": {"floor": BOSEM_FLOOR, "knee_hz": BOSEM_KNEE_HZ}}
 
 
+def modal_sum_tf(modes, gains=None):
+    """SISO ``TFModel`` = Σ_k g_k / (s² − 2a_k s + |p_k|²) for ``modes=[(f0,Q),...]``.
+
+    A modal SUM (one num/den built by successive ``polyadd``), NOT a product of the pole
+    pairs: the all-pole product rolls off as 1/s^(2M) and its magnitude at the low
+    fundamental is ~1e-29 (uninformative to the Fisher optimiser), whereas the modal sum
+    has a ~Q-tall PEAK at every f0 — so ``optimal_excitation`` concentrates drive at each
+    resonance. Used to build the SISO prior model the prior-robust drive design runs on.
+    """
+    from system_ident.model import TFModel, resonance_pole_pair
+    num, den = np.array([0.0]), np.array([1.0])
+    gains = [1.0] * len(modes) if gains is None else gains
+    for (f0, q), g in zip(modes, gains):
+        a, b = resonance_pole_pair(f0, q)
+        n_k, d_k = np.array([g]), np.array([1.0, -2 * a, a * a + b * b])
+        num = np.polyadd(np.polymul(num, d_k), np.polymul(n_k, den))
+        den = np.polymul(den, d_k)
+    return TFModel(num=num, den=den)
+
+
 # Bind the methods onto SRM6DOF (kept as module functions above for readability).
 SRM6DOF._drive_ref_seismic_asd_fn = _drive_ref_seismic_asd_fn
 SRM6DOF.seismic_drive_series = seismic_drive_series
