@@ -96,6 +96,7 @@ def prior_robust_excitation(
     n_iter: int = 3,
     n_samples: int = 7,
     floor_frac: float = _EXC_FLOOR_FRAC,
+    floor_energy_frac: float | None = None,
 ) -> np.ndarray:
     """Optimal excitation averaged over the prior's plausible resonance band.
 
@@ -108,31 +109,44 @@ def prior_robust_excitation(
     efficient (not flat broadband) yet robust to a far prior.
     ``prior_uncertainty=0`` reduces to the point-optimal drive.
 
-    ``floor_frac`` floors the FINAL averaged design at that fraction of its peak (then
-    renormalises once to the budget), guaranteeing a *meaningful* power on every
-    multisine line so the initial drive returns information everywhere and can iterate
-    — without being a flat broadband/noise drive (the Fisher-shaped peaks remain).
+    Floor (a meaningful per-line floor so every line carries iterable power, without a
+    flat/noise drive):
+    - ``floor_frac``: floor at that fraction of the FINAL design's peak. A *fixed*
+      peak-fraction floors N·floor_frac·peak·df of energy → for large N (~2000 lines) the
+      floor dominates the budget and the drive collapses to near-flat.
+    - ``floor_energy_frac`` (preferred): sets the floor so its TOTAL energy is that fraction
+      of ``Px_tot`` — a fixed small budget SHARE regardless of the line count, so the
+      Fisher-shaped peaks keep the rest. Derives ``α = floor_energy_frac·Px_tot/(peak·B)``
+      (B = band width), overriding ``floor_frac``.
     """
     u = float(prior_uncertainty)
-    if u <= 0.0:
+    if u <= 0.0 and floor_energy_frac is None:
         return optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter,
                                   floor_frac=floor_frac)
     freq = np.asarray(freq, dtype=float)
-    z, p, k = sig.tf2zpk(model.num, model.den)
-    scales = np.linspace(max(1.0 - u, 0.05), 1.0 + u, n_samples)
-    acc = np.zeros(len(freq))
-    for sc in scales:
-        scaled = TFModel.from_zpk(z * sc, p * sc, k)
-        # inner designs keep the tiny NUMERICAL floor; the meaningful floor_frac floor is
-        # applied ONCE to the averaged design below (else it compounds through the average).
-        acc += optimal_excitation(freq, scaled, Pyy, Px_tot, n_iter=n_iter)
-    integral = trapezoid(acc, freq)
-    if integral > 0:
-        acc *= Px_tot / integral
+    if u <= 0.0:
+        acc = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=n_iter)
+    else:
+        z, p, k = sig.tf2zpk(model.num, model.den)
+        scales = np.linspace(max(1.0 - u, 0.05), 1.0 + u, n_samples)
+        acc = np.zeros(len(freq))
+        for sc in scales:
+            scaled = TFModel.from_zpk(z * sc, p * sc, k)
+            # inner designs keep the tiny NUMERICAL floor; the meaningful floor is applied
+            # ONCE to the averaged design below (else it compounds through the average).
+            acc += optimal_excitation(freq, scaled, Pyy, Px_tot, n_iter=n_iter)
+        integral = trapezoid(acc, freq)
+        if integral > 0:
+            acc *= Px_tot / integral
     peak = float(np.max(acc))
-    if peak > 0 and floor_frac > 0:
-        acc = np.maximum(acc, floor_frac * peak)            # meaningful floor on every line
-        acc *= Px_tot / trapezoid(acc, freq)                # renormalise once to budget
+    if peak > 0:
+        ff = floor_frac
+        if floor_energy_frac is not None:
+            band = float(freq[-1] - freq[0]) or 1.0
+            ff = min(float(floor_energy_frac) * Px_tot / (peak * band), 0.5)   # derived α
+        if ff > 0:
+            acc = np.maximum(acc, ff * peak)                # meaningful floor on every line
+            acc *= Px_tot / trapezoid(acc, freq)            # renormalise once to budget
     return acc
 
 

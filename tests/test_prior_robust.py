@@ -54,6 +54,24 @@ def test_floor_frac_meaningful_floor_every_line():
     assert Pxx_def.min() / Pxx_def.max() < 1e-3 < Pxx.min() / Pxx.max()
 
 
+def test_floor_energy_frac_fixed_budget_share():
+    # Derived-α floor: the floor holds a FIXED share of the budget regardless of line count,
+    # so the drive stays concentrated (does not collapse to near-flat as N grows).
+    from scipy.integrate import trapezoid as trap
+    prior = TFModel.from_resonances([(1.5, 30.0)], 150.0)
+    for nper in (2048, 8192):                        # different line counts
+        f_all = np.fft.rfftfreq(nper, 1 / FS)
+        freq = f_all[(f_all >= 0.1) & (f_all <= 5.0)]
+        Pyy = np.ones_like(freq)
+        Pxx = prior_robust_excitation(freq, prior, Pyy, 1.0, 0.5, n_iter=3,
+                                      floor_energy_frac=0.15)
+        assert abs(trap(Pxx, freq) - 1.0) < 1e-6                 # budget preserved
+        band = freq[-1] - freq[0]
+        floor_energy = Pxx.min() * band                          # ~all-but-peaks at the floor
+        assert 0.10 < floor_energy / 1.0 < 0.25                  # ≈ target 0.15 of the budget
+        assert Pxx.max() / np.median(Pxx) > 3.0                  # still concentrated, not flat
+
+
 def test_floor_frac_default_unchanged():
     # default floor_frac leaves optimal_excitation behaviour as-is (regression guard)
     band, freq = _grid()

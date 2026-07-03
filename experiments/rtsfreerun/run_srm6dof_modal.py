@@ -69,7 +69,10 @@ BAND = (0.3, 8.0)
 PX_TOTAL = 9.0e-4        # total in-band drive-power budget (∫Pxx df). Budget-sizing to the
                          # actuator limit is a separate axis; peak drive « the 30000-count coil.
 PRIOR_U = 0.5            # fractional prior uncertainty on the mode f0's (robust over f0·[1±u])
-FLOOR_FRAC = 0.05        # per-line floor = FLOOR_FRAC·peak — every component carries power
+FLOOR_ENERGY = 0.15      # floor holds this SHARE of the budget (derived α) — a fixed small
+                         # share regardless of line count, so the drive stays concentrated and
+                         # does NOT collapse to near-flat (the fixed-peak-fraction floor did)
+FLOOR_FRAC = 0.05        # legacy fixed peak-fraction floor (kept for explicit small-floor use)
 N_MODES_SWEEP = (8, 10, 12, 13)   # 13 = resolvable design modes (the shared-pole 6×6 fit
                                   # collapses the spatial doublets — resolved separately, [5b])
 
@@ -130,7 +133,7 @@ def tune_srm_cal(m, *, target_tau=5.0, n_iter=3, dur=45.0):
 
 
 # ── MIMO campaign through the closed SRM loops ─────────────────────────────────
-def run_campaign(m, cal, lines, Pxx, *, warmup_s=40.0, seed=0):
+def run_campaign(m, cal, lines, Pxx, *, warmup_s=40.0, seed=0, cache_path=None):
     """Drive each DOF in turn under REALISTIC seismic + OSEM noise; return exps
     (per-actuator Ybar, Ubar, Cz) plus the achieved per-DoF SNR table.
 
@@ -201,7 +204,7 @@ def run_campaign(m, cal, lines, Pxx, *, warmup_s=40.0, seed=0):
               f"min={snr_rows[-1][1]:.1f} med={snr_rows[-1][2]:.1f}")
     # cache so the (slow) campaign need not re-run while iterating on the fit
     snr_arr = np.array([[r[1], r[2], r[3]] for r in snr_rows])
-    np.savez(_cache_path(),
+    np.savez(_cache_path() if cache_path is None else cache_path,
              freq=freq, nperseg=NPERSEG, n_periods=N_PERIODS,
              Y=np.stack([e[0] for e in exps]), U=np.stack([e[1] for e in exps]),
              Cz=np.stack([e[2] for e in exps]),
@@ -244,13 +247,15 @@ def load_campaign():
 
 # ── modal fit + scoring ────────────────────────────────────────────────────────
 def distinct_oracle_modes(ora, *, merge_rel=0.012):
-    """Collapse the oracle poles into the set the data can actually RESOLVE.
+    """Collapse the oracle poles into the set the SHARED-pole 6×6 fit represents as one.
 
-    Two poles closer than ``merge_rel`` (≈1.2%) are within a FWHM of each other (FWHM ≈
-    f0/Q ≈ f0/50 = 2% of f0) and the rank-1 SHARED pole set cannot split them — they must
-    appear as one mode. This is a physical resolution limit, not a tuning knob: the two
-    tightest HSTS doublets (0.672/0.676, 1.512/1.516/1.527 Hz) collapse here. Returns the
-    merged (f0, Q) centers, Q kept from the constituents (they share Q≈50).
+    Two poles closer than ``merge_rel`` (≈1.2%) sit within a FWHM (≈f0/Q≈2% of f0), and the
+    rank-1 SHARED pole set carries them as ONE mode. This is a PARAMETERIZATION choice of the
+    joint 6×6 fit, **not a physical limit**: the 0.672/0.676 doublet is two spatially-
+    orthogonal modes and IS resolved by ``fit_block_decoupled`` (per-plane, step [5b]); the
+    1.512/1.516/1.527 triplet's within-plane pair likewise super-resolves given
+    SNR·N ≳ (Γ/Δf)⁴ or a per-plane multi-mode fit. We merge here only to seed the collapsed
+    shared-pole fit. Returns the merged (f0, Q) centers (Q kept from the constituents, ≈50).
     """
     groups = [[ora[0]]]
     for m in ora[1:]:
@@ -341,22 +346,30 @@ def oracle_modes(model6):
     return sorted(modes)
 
 
-def design_drive(model6, lines):
-    """Uncertainty-aware INITIAL drive PSD (not flat): prior-robust optimal excitation over
-    the prior modal model, with a meaningful per-line floor.
+def design_drive(model6, lines, *, modes=None, u=PRIOR_U, floor_energy=FLOOR_ENERGY,
+                 floor_frac=None):
+    """Uncertainty-aware drive PSD (not flat): prior-robust optimal excitation over a modal
+    model, with a meaningful per-line floor.
 
-    The SISO prior is the modal SUM (`s6.modal_sum_tf`) of the prior modes — peaks at every
+    The SISO prior is the modal SUM (`s6.modal_sum_tf`) of ``modes`` — peaks at every
     resonance, so the dispersion fixed point concentrates drive there. `prior_robust_excitation`
-    averages that optimal design over f0·[1±PRIOR_U] (so a mode displaced from its prior is
-    still driven), and the FLOOR_FRAC·peak floor keeps every multisine line carrying usable
-    power to iterate. ONE PSD drives all 6 actuators (the rank-1 modal poles are SHARED, so
-    the informative bins are common). Returns (Pxx, siso_prior).
+    averages that optimal design over f0·[1±u] (so a mode displaced from its prior is still
+    driven), and the FLOOR_FRAC·peak floor keeps every multisine line carrying usable power.
+    ONE PSD drives all 6 actuators (the rank-1 modal poles are SHARED, so the informative bins
+    are common).
+
+    ``modes``/``u`` are the iteration handle: pass 0 designs from the PRIOR (``modes=None`` →
+    ``oracle_modes``, u=PRIOR_U — robust). Later passes pass the FITTED modes with ``u=0``, a
+    point-optimal drive that concentrates the budget on the now-trusted resonances. Returns
+    (Pxx, siso).
     """
-    prior_modes = oracle_modes(model6)             # the design prior (in the twin: = model)
+    prior_modes = oracle_modes(model6) if modes is None else sorted(modes)
     siso = s6.modal_sum_tf(prior_modes)
     Pyy = np.ones(len(lines))                      # white output noise (P&S default)
-    Pxx = prior_robust_excitation(lines, siso, Pyy, PX_TOTAL, PRIOR_U,
-                                  n_iter=3, floor_frac=FLOOR_FRAC)
+    # Prefer the derived-α floor (fixed budget SHARE → stays concentrated at any line count);
+    # ``floor_frac`` forces an explicit fixed peak-fraction floor instead (e.g. a small demo floor).
+    kw = dict(floor_frac=floor_frac) if floor_frac is not None else dict(floor_energy_frac=floor_energy)
+    Pxx = prior_robust_excitation(lines, siso, Pyy, PX_TOTAL, u, n_iter=3, **kw)
     return Pxx, siso
 
 
@@ -471,9 +484,9 @@ def main():
               f"n_periods={N_PERIODS} band={BAND} ({len(freq)} lines)  "
               f"[~13 min twin time — cached to {_cache_path().name}]")
         print(f"    drive: uncertainty-aware prior-robust multisine (u={PRIOR_U}, "
-              f"floor={FLOOR_FRAC}·peak) — PSD peak/median = "
+              f"derived-α floor = {FLOOR_ENERGY} of the budget) — PSD peak/median = "
               f"{Pxx_design.max()/np.median(Pxx_design):.1f}× (shaped, not flat), "
-              f"min/peak = {Pxx_design.min()/Pxx_design.max():.3f} (≈floor)")
+              f"min/peak = {Pxx_design.min()/Pxx_design.max():.3f} (per-line floor)")
         exps, freq, snr = run_campaign(m6, cal, freq, Pxx_design)
 
     # ── [3] open-loop recovery + oracle baseline ─────────────────────────────────
@@ -611,14 +624,15 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
              f"({period:.0f} s/period), `n_periods = {N_PERIODS}` (`dof = {dof} ≥ 14`).",
              f"- That puts **{bins_lo:.1f} bins** across the narrowest "
              f"({fmin:.2f} Hz) peak and ~{(fmax/50)/df:.0f} across the top mode.", "",
-             "### Feasibility / resolution limit", "",
+             "### Feasibility (a compute trade, not a physical limit)", "",
              "The twin runs ~31× realtime (~0.032 s wall / sim-second, measured), and the",
              "total sim cost is `n_periods·(nperseg/fs)` per actuator × 6 — purely a",
-             "`df ↔ per-period-length` trade. The chosen grid is the **finest feasible**",
-             "one (~13 min total twin time, cached). Going finer (`nperseg=131072`,",
-             "`df=0.002 Hz`, ~7 bins across the fundamental) costs ~27 min for marginal",
-             "gain; coarser grids (`nperseg≤16384`) drop below ~1 bin on the low modes and",
-             "Q collapses. So **~0.004 Hz is the practical resolution knee** for this plant.",
+             "`df ↔ per-period-length` trade. The chosen grid (`df=0.004 Hz`, ~13 min twin",
+             "time) is a **compute** choice, not a resolution limit: parametric ML",
+             "super-resolves, so `df` only needs `T ≳ Q/f0` to see a Q, and any residual",
+             "tight-mode collapse is beaten by SNR·N ≳ (Γ/Δf)⁴ or the spatial/per-plane fit —",
+             "NOT by a `df` floor. (Coarser grids `nperseg≤16384` drop below ~1 bin on the",
+             "low modes and the shared-pole Q blends; that is the shared-pole fit, not physics.)",
              "", "## The CRB now fights REALISTIC seismic + OSEM noise",
              "",
              "Earlier this demo injected only a small *token* process disturbance on the",
@@ -676,8 +690,8 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
                   "Per-DoF SNR = |driven-line response averaged over periods| / its",
                   "period-to-period scatter, at the excited lines. The drive is an",
                   "**uncertainty-aware prior-robust multisine** (NOT flat): the optimal design",
-                  f"averaged over the prior band f0·[1±{PRIOR_U}] with a meaningful "
-                  f"`{FLOOR_FRAC}·peak` per-line floor, so the resonances carry most of the",
+                  f"averaged over the prior band f0·[1±{PRIOR_U}] with a derived-α floor "
+                  f"holding {FLOOR_ENERGY:.0%} of the budget, so the resonances carry most of the",
                   "power (high on-mode SNR) while every line still gets usable power to",
                   "iterate. Off-resonance SNR is not a design target — Fisher information",
                   "lives at the modes. Total budget `PX_TOTAL=9e-4` (peak drive « the",
@@ -695,11 +709,12 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
 
     distinct = distinct_oracle_modes(ora)
     lines += ["", "## n_modes sweep (prior-seeded init)", "",
-              "The HSTS has **16 in-band poles**, but several form tight doublets within a",
+              "The HSTS has **16 in-band poles**, but several form tight clusters within a",
               "FWHM of each other (FWHM ≈ f0/Q ≈ 2% of f0): 0.672/0.676 (0.6% apart) and",
-              "1.512/1.516/1.527 Hz. The rank-1 model shares ONE pole set across all 6×6",
-              "elements, so such unresolvable doublets MUST collapse to a single mode —",
-              f"leaving **{len(distinct)} resolvable design modes**. The init is",
+              "1.512/1.516/1.527 Hz. The rank-1 SHARED pole set carries each such cluster as",
+              "ONE mode — a parameterization choice of THIS joint fit, not a physical limit",
+              "(the 0.672/0.676 pair is spatially resolved in step [5b]) —",
+              f"leaving **{len(distinct)} design modes** for the shared-pole sweep. The init is",
               "**prior-driven**: poles are seeded directly from those design (oracle) modes,",
               "ranked by the recovered-FRF power so the strongest real resonances are taken",
               "first, then the package's linear residue LS (`init_residues`) sets the rank-1",
@@ -787,7 +802,8 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               "## Drive & the iterative follow-up (spec)", "",
               "The drive is the **uncertainty-aware initial** multisine "
               f"(`design_drive`): prior-robust optimal excitation over the prior modes' band "
-              f"f0·[1±{PRIOR_U}] with a `{FLOOR_FRAC}·peak` per-line floor — power everywhere",
+              f"f0·[1±{PRIOR_U}] with a derived-α floor ({FLOOR_ENERGY:.0%} of the budget) — "
+              "power everywhere",
               "to get information, shaped (not flat/noise), one PSD for all 6 actuators. This",
               "is **pass 1**. The planned iteration (not yet built; `loop.py:SysIDLoop.run`",
               "does it for the SISO path) closes the loop: modal fit → per-mode CRB",
