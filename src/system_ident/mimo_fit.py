@@ -337,7 +337,7 @@ def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
             "cost_ratio": float(cost / cost_expected)}
 
 
-def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600):
+def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600, prior_weight=0.0):
     """Fit independent rank-1 modal models on decoupled DOF blocks, then combine.
 
     For a plant that block-diagonalizes into orthogonal DOF subspaces — e.g. a
@@ -361,6 +361,10 @@ def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600):
     dof : P&S effective dof (``n_periods - n_transient``) for the per-block CRB; if
         None, the CRB (``mu``) is skipped.
     max_iter : LM iterations per block fit.
+    prior_weight : if > 0, softly anchor each block's poles to their seed frequencies
+        (the block's ``modes``) — stabilises the fragile per-block fit against a pole
+        drifting to a spurious near-critically-damped junk mode. The CRB (``FitResult.jac``)
+        still carries DATA information alone, so anchored bars stay honest.
 
     Returns
     -------
@@ -379,7 +383,9 @@ def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600):
         m = Rank1ModalModel(len(si), len(ai), n_modes=len(pm)).set_reference(freq)
         ab = m.ab_from_modes(pm)
         phi, psi = init_residues(m, ab, sub, freq)
-        res = MIMOModalEstimator(m).fit(sub, freq, m.pack(ab, phi, psi), max_iter=max_iter)
+        kw = ({"pole_prior_hz": [f for f, _ in pm], "prior_weight": prior_weight}
+              if prior_weight > 0 else {})
+        res = MIMOModalEstimator(m).fit(sub, freq, m.pack(ab, phi, psi), max_iter=max_iter, **kw)
         mu = None
         if dof is not None:
             Ct = parameter_covariance(res, dof=dof, n_sens=len(si))

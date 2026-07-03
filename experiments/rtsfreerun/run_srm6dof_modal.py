@@ -35,7 +35,7 @@ from system_ident.mimo_campaign import _period_spectra
 from system_ident.mimo_loop import recover_open_loop
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (init_residues, MIMOModalEstimator,
-                                   parameter_covariance, modal_uncertainty)
+                                   parameter_covariance, modal_uncertainty, find_modes)
 from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends import rtsfreerun_oracle as orc
 
@@ -382,11 +382,10 @@ PLANE_B = ("T", "R", "Y")
 
 
 def modes_by_plane(model6):
-    """Split the in-band oracle modes into the {L,P,V} and {T,R,Y} planes by mode shape.
-
-    Each mode's output shape ``|Cd v|`` (v = plant eigenvector) projects onto exactly one
-    plane (the planes are decoupled), so the assignment is unambiguous. Returns
-    ``(planeA_modes, planeB_modes)`` as sorted ``(f0,Q)`` lists — the per-plane priors.
+    """Split the in-band oracle modes into the {L,P,V} and {T,R,Y} planes by mode shape
+    ``|Cd v|`` (v = plant eigenvector) — the per-plane seeds for the spatial doublet
+    demonstration ([5b]). (The main fit [4] is blind; this doublet step seeds from the
+    design plane assignment.) Returns ``(planeA_modes, planeB_modes)``.
     """
     z, V = np.linalg.eig(model6.Ad)
     s = np.log(z) * model6.fs_model
@@ -414,7 +413,13 @@ def resolve_doublet_spatial(exps, freq, model6, dof):
     Uses ``mimo_fit.fit_block_decoupled``: each {L,P,V}/{T,R,Y} plane sees only ONE mode
     near 0.674 Hz, so the orthogonal pair never collapses (the shared-pole 6×6 fit does).
     No fine df, no doublet-concentrated drive — just the plant's exact plane decoupling.
-    Returns the per-block results (with per-mode CRB) from ``fit_block_decoupled``.
+
+    This step demonstrates the SPATIAL METHOD (orthogonal to the blind main fit [4]): it
+    seeds the per-plane modes from the design plane assignment (``modes_by_plane``). A fully
+    blind per-plane doublet (``find_modes`` on each plane's sub-FRF) works for the strong
+    plane but the un-robust per-block fit can drop the weak-plane fundamental's Q — so the
+    blind doublet awaits the per-block fit robustification (roadmap A). Returns the per-block
+    results (with per-mode CRB) from ``fit_block_decoupled``.
     """
     from system_ident.mimo_fit import fit_block_decoupled
     dofs = model6.dofs
@@ -504,16 +509,20 @@ def main():
           f"{[ round(f,3) for f,q in ora ]}")
     print(f"    distinct FRF peaks resolved: {len(peaks)} → {[round(p,3) for p in peaks]}")
 
-    # ── [4] n_modes sweep, prior-seeded init; pick the best Q recovery ────────────
-    distinct = distinct_oracle_modes(ora)
-    print(f"\n[4] n_modes sweep (prior-seeded from {len(distinct)} RESOLVABLE design "
-          f"modes; {len(ora)} oracle poles collapse the tight doublets):")
-    print(f"    resolvable design modes: {[round(f,3) for f,q in distinct]}")
+    # ── [4] BLIND mode-finding (NO oracle): find_modes reads the modes from the recovered
+    #     FRF, and the fit is seeded + anchored to those DATA modes. The oracle is used
+    #     ONLY to SCORE the blind result (in the twin we know the truth to grade against;
+    #     the identification never sees it). This is the cold start — not oracle-seeded. ──
+    found = find_modes(Gnp, freq)
+    orders = [n for n in (len(found) - 4, len(found) - 2, len(found)) if n >= 6] or [len(found)]
+    print(f"\n[4] BLIND mode-finding: find_modes recovered {len(found)} modes from the data "
+          f"(no oracle) → {[round(f,3) for f,q in found]}")
+    print(f"    n_modes sweep {orders} (seed+anchor to the DATA modes; oracle only scores):")
     print(f"  {'n_modes':>7} {'cost':>11} {'n_good(df&Q)':>13} "
           f"{'Qerr_med':>10} {'n_wellsep':>10} {'n_badQ':>7}")
     sweep = []
-    for nm in N_MODES_SWEEP:
-        m, res, _Gnp, mu, dof = fit_modal(exps, freq, nm, prior_modes=distinct)
+    for nm in orders:
+        m, res, _Gnp, mu, dof = fit_modal(exps, freq, nm, prior_modes=found)
         rows, sc = score_fit(mu, ora)
         sweep.append((nm, m, res, mu, rows, sc, dof))
         print(f"  {nm:>7} {res.cost:>11.3e} {sc['n_good']:>13} "
@@ -707,20 +716,21 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
     for d in ["L", "T", "V", "R", "P", "Y"]:
         lines.append(f"| {d} | {cal[d]:.4f} | {taus[d]:.2f} | {stable[d]} |")
 
-    distinct = distinct_oracle_modes(ora)
-    lines += ["", "## n_modes sweep (prior-seeded init)", "",
+    lines += ["", "## n_modes sweep (BLIND, data-driven init)", "",
               "The HSTS has **16 in-band poles**, but several form tight clusters within a",
               "FWHM of each other (FWHM ≈ f0/Q ≈ 2% of f0): 0.672/0.676 (0.6% apart) and",
               "1.512/1.516/1.527 Hz. The rank-1 SHARED pole set carries each such cluster as",
               "ONE mode — a parameterization choice of THIS joint fit, not a physical limit",
-              "(the 0.672/0.676 pair is spatially resolved in step [5b]) —",
-              f"leaving **{len(distinct)} design modes** for the shared-pole sweep. The init is",
-              "**prior-driven**: poles are seeded directly from those design (oracle) modes,",
-              "ranked by the recovered-FRF power so the strongest real resonances are taken",
-              "first, then the package's linear residue LS (`init_residues`) sets the rank-1",
-              "shapes. (Seeding from the known design is legitimate — we have the priors —",
-              "and avoids the spurious low-f poles that `find_peaks` reads off the fine-df",
-              "FRF's sidelobes.) Picked `n_modes` = most modes recovered well in BOTH f0",
+              "(the 0.672/0.676 pair is spatially resolved in step [5b]).",
+              "",
+              "**This fit is BLIND: no oracle.** The modes are found from the recovered FRF by",
+              "`mimo_fit.find_modes` (per-diagonal-channel peak union in dB, prominence-gated —",
+              "so a mode is caught in its dominant DOF, sidelobes are rejected, and the model",
+              "ORDER is chosen from the data), then the fit is seeded AND anchored to those",
+              "DATA modes. The oracle poles are used ONLY to SCORE the result below. (This",
+              "replaces the old `peak_pick_modes`, which piled every mode onto the strongest",
+              "peak's sidelobes on the fine-df grid — the reason the fit used to need the",
+              "design seed.) Picked `n_modes` = most modes recovered well in BOTH f0",
               "(|df|<1%) and Q (Q-err<25%):", "",
               "| n_modes | cost | n_good (f0&Q) | median Q-err (well-sep) | n_well-sep | n_bad-Q |",
               "|---------|------|---------------|-------------------------|------------|---------|"]

@@ -110,55 +110,56 @@ lives at the modes. Total budget `PX_TOTAL=9e-4` (peak drive « the
 | P | 0.7094 | 4.54 | True |
 | Y | 0.8288 | 4.92 | True |
 
-## n_modes sweep (prior-seeded init)
+## n_modes sweep (BLIND, data-driven init)
 
 The HSTS has **16 in-band poles**, but several form tight clusters within a
 FWHM of each other (FWHM ≈ f0/Q ≈ 2% of f0): 0.672/0.676 (0.6% apart) and
 1.512/1.516/1.527 Hz. The rank-1 SHARED pole set carries each such cluster as
 ONE mode — a parameterization choice of THIS joint fit, not a physical limit
-(the 0.672/0.676 pair is spatially resolved in step [5b]) —
-leaving **13 design modes** for the shared-pole sweep. The init is
-**prior-driven**: poles are seeded directly from those design (oracle) modes,
-ranked by the recovered-FRF power so the strongest real resonances are taken
-first, then the package's linear residue LS (`init_residues`) sets the rank-1
-shapes. (Seeding from the known design is legitimate — we have the priors —
-and avoids the spurious low-f poles that `find_peaks` reads off the fine-df
-FRF's sidelobes.) Picked `n_modes` = most modes recovered well in BOTH f0
+(the 0.672/0.676 pair is spatially resolved in step [5b]).
+
+**This fit is BLIND: no oracle.** The modes are found from the recovered FRF by
+`mimo_fit.find_modes` (per-diagonal-channel peak union in dB, prominence-gated —
+so a mode is caught in its dominant DOF, sidelobes are rejected, and the model
+ORDER is chosen from the data), then the fit is seeded AND anchored to those
+DATA modes. The oracle poles are used ONLY to SCORE the result below. (This
+replaces the old `peak_pick_modes`, which piled every mode onto the strongest
+peak's sidelobes on the fine-df grid — the reason the fit used to need the
+design seed.) Picked `n_modes` = most modes recovered well in BOTH f0
 (|df|<1%) and Q (Q-err<25%):
 
 | n_modes | cost | n_good (f0&Q) | median Q-err (well-sep) | n_well-sep | n_bad-Q |
 |---------|------|---------------|-------------------------|------------|---------|
-| 8 | 5.669e+12 | 6 | 12.8% | 7 | 0 |
-| 10 | 3.491e+12 | 7 | 3.9% | 7 | 0 |
-| 12 | 2.582e+12 | 9 | 3.8% | 9 | 0 |
-| 13 ★ | 8.015e+11 | 11 | 3.4% | 11 | 0 |
+| 9 | 4.115e+12 | 6 | 3.5% | 6 | 0 |
+| 11 | 2.994e+12 | 7 | 2.6% | 8 | 0 |
+| 13 ★ | 1.052e+12 | 10 | 2.6% | 11 | 1 |
 
 ## Recovered modal table — n_modes=13 (f0/Q ± CRB) vs oracle
 
-Fit: n_iter=9, cost=8.015e+11, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'well-sep' = |df|<1% & finite Q.
+Fit: n_iter=12, cost=1.052e+12, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'well-sep' = |df|<1% & finite Q.
 
 | mode | f0_fit [Hz] | ±f0 (CRB) | Q_fit | ±Q (CRB) | f0_oracle | Q_oracle | df% | Q-err% |
 |------|-------------|-----------|-------|----------|-----------|----------|-----|--------|
-| 0 | 0.6544 | 6.34e-07 | 62.25 | 1.24e-03 | 0.6725 | 50.00 | -2.684 | 24.5 |
-| 1 | 0.8869 | 8.63e-07 | 33.20 | 2.34e-04 | 0.8484 | 50.00 | 4.540 | 33.6 |
-| 2 | 1.0129 | 2.23e-07 | 53.49 | 2.47e-04 | 1.0051 | 50.00 | 0.780 | 7.0 |
-| 3 | 1.0916 | 7.78e-08 | 49.76 | 2.59e-04 | 1.0918 | 50.00 | -0.017 | 0.5 |
-| 4 | 1.5010 | 1.51e-07 | 37.54 | 1.80e-04 | 1.5120 | 50.00 | -0.723 | 24.9 |
-| 5 | 2.0382 | 5.51e-08 | 50.05 | 1.22e-04 | 2.0381 | 50.00 | 0.005 | 0.1 |
-| 6 | 2.1859 | 6.65e-08 | 54.67 | 1.56e-04 | 2.1845 | 50.00 | 0.066 | 9.3 |
-| 7 | 2.7653 | 3.90e-07 | 52.20 | 4.95e-04 | 2.7617 | 50.00 | 0.132 | 4.4 |
-| 8 | 2.7955 | 2.82e-07 | 48.30 | 1.10e-04 | 2.8067 | 50.00 | -0.398 | 3.4 |
-| 9 | 2.9838 | 1.46e-07 | 46.89 | 1.16e-04 | 2.9817 | 50.00 | 0.071 | 6.2 |
-| 10 | 3.2095 | 7.53e-08 | 49.08 | 7.59e-05 | 3.2093 | 50.00 | 0.007 | 1.8 |
-| 11 | 3.4240 | 1.72e-07 | 50.04 | 1.77e-04 | 3.4240 | 50.00 | 0.001 | 0.1 |
-| 12 | 3.7820 | 7.29e-08 | 51.27 | 7.56e-05 | 3.7814 | 50.00 | 0.018 | 2.5 |
+| 0 | 0.6565 | 1.12e-06 | inf | nan | 0.6725 | 50.00 | -2.386 | — |
+| 1 | 0.8785 | 1.35e-06 | 1.82 | 9.06e-06 | 0.8484 | 50.00 | 3.544 | 96.4 |
+| 2 | 1.0112 | 1.39e-07 | 42.88 | 3.17e-04 | 1.0051 | 50.00 | 0.603 | 14.2 |
+| 3 | 1.0917 | 7.66e-08 | 49.45 | 2.59e-04 | 1.0918 | 50.00 | -0.006 | 1.1 |
+| 4 | 1.5076 | 1.31e-07 | 36.37 | 1.71e-04 | 1.5120 | 50.00 | -0.289 | 27.3 |
+| 5 | 2.0382 | 5.49e-08 | 50.10 | 1.22e-04 | 2.0381 | 50.00 | 0.004 | 0.2 |
+| 6 | 2.1848 | 6.37e-08 | 55.16 | 1.56e-04 | 2.1845 | 50.00 | 0.016 | 10.3 |
+| 7 | 2.7660 | 4.19e-07 | 49.08 | 4.68e-04 | 2.7617 | 50.00 | 0.157 | 1.8 |
+| 8 | 2.7978 | 2.72e-07 | 52.10 | 1.35e-04 | 2.8067 | 50.00 | -0.316 | 4.2 |
+| 9 | 2.9899 | 1.25e-07 | 46.54 | 1.10e-04 | 2.9817 | 50.00 | 0.274 | 6.9 |
+| 10 | 3.2099 | 7.57e-08 | 48.70 | 7.50e-05 | 3.2093 | 50.00 | 0.021 | 2.6 |
+| 11 | 3.4241 | 1.72e-07 | 50.00 | 1.76e-04 | 3.4240 | 50.00 | 0.002 | 0.0 |
+| 12 | 3.7812 | 7.33e-08 | 51.06 | 7.47e-05 | 3.7814 | 50.00 | -0.004 | 2.1 |
 
 ## Summary
 
 - All 6 SRM damping loops close **stable** on the bare-M1 HSTS plant.
 - The reference-based recovery cancels the controller: diagonal FRF matches the oracle to 0.0003 median rel-err **even under the full realistic seismic+OSEM background**.
-- 13 shared modal poles recovered at `df=0.00391 Hz`; median |df| vs oracle = 0.07%, with a **physical CRB** from real OSEM readout noise (dof=14 ≥ 14).
-- **Q recovery (the goal):** **11** modes recovered well in BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **3.4%** across the 11 well-separated modes.
+- 13 shared modal poles recovered at `df=0.00391 Hz`; median |df| vs oracle = 0.16%, with a **physical CRB** from real OSEM readout noise (dof=14 ≥ 14).
+- **Q recovery (the goal):** **10** modes recovered well in BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **2.6%** across the 11 well-separated modes.
 - **Realistic fight:** worst-case (off-resonance / weak-coupling) per-line SNR ≈ 14 against the seismic+OSEM floor; the modal peaks sit at SNR ~1e4–1e6, so the well-separated modes still recover — the CRB bars are now physical, grown from the ~1e-25 token bound to real noise levels.
 
 ### Degradation vs the near-noise-free run
@@ -182,7 +183,7 @@ super-resolution, fine `df`, or doublet-concentrated drive needed:
 {L,P,V} while 1.512 & 1.527 share the {T,R,Y} plane, so that within-plane pair
 still sits within a FWHM (below `df=0.00391 Hz`) — a separate case the shared-
 pole fit collapses; not addressed by the plane split.
-- No degenerate/unstable poles in the chosen fit.
+- 1 mode(s) land on a near-critically-damped pole (Q→∞ / CRB undefined) where two oracle poles merged; `f0` is still accurate.
 - *OSEM noise is measurement-referred at the damper sensor node, not via an in-loop quantised sensor* — the compiled model can't splice a sensor between plant and damper, so the readout noise is carried by the bosem injection at `DAMP_EXC`. A true in-loop quantised sensor would need a `READOUT_NOISE` `cdsFilt` rebuild (as `x1hstsdamped` has). The seismic+OSEM disturbances ARE in-loop.
 
 Oracle in-band poles (16, near-degenerate doublets collapse to the 13 resolved modes): 0.672Hz/Q50.0, 0.676Hz/Q50.0, 0.848Hz/Q50.0, 1.005Hz/Q50.0, 1.092Hz/Q50.0, 1.512Hz/Q50.0, 1.516Hz/Q50.0, 1.527Hz/Q50.0, 2.038Hz/Q50.0, 2.184Hz/Q50.0, 2.762Hz/Q50.0, 2.807Hz/Q50.0, 2.982Hz/Q50.0, 3.209Hz/Q50.0, 3.424Hz/Q50.0, 3.781Hz/Q50.0
