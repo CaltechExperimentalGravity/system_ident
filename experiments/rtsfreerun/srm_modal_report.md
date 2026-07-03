@@ -160,6 +160,7 @@ Fit: n_iter=12, cost=1.052e+12, dof=14 (P&S CRB needs dof ≥ n_sens+8 = 14). 'w
 - The reference-based recovery cancels the controller: diagonal FRF matches the oracle to 0.0003 median rel-err **even under the full realistic seismic+OSEM background**.
 - 13 shared modal poles recovered at `df=0.00391 Hz`; median |df| vs oracle = 0.16%, with a **physical CRB** from real OSEM readout noise (dof=14 ≥ 14).
 - **Q recovery (the goal):** **10** modes recovered well in BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **2.6%** across the 11 well-separated modes.
+- **Feasibility-gate CRB (A2):** worst-case fractional per-mode uncertainty = **9.54e-06** (max over modes of f0_std/f0 and Q_std/Q) — the gate quantity as a first-class scalar via the fit-independent `mimo_parameter_covariance` / `modal_frac_uncertainty`, no by-hand scripting.
 - **Realistic fight:** worst-case (off-resonance / weak-coupling) per-line SNR ≈ 14 against the seismic+OSEM floor; the modal peaks sit at SNR ~1e4–1e6, so the well-separated modes still recover — the CRB bars are now physical, grown from the ~1e-25 token bound to real noise levels.
 
 ### Degradation vs the near-noise-free run

@@ -3,8 +3,9 @@ import pytest
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (peak_pick_modes, find_modes, init_residues, initial_theta,
                                     MIMOModalEstimator, parameter_covariance,
-                                    modal_uncertainty, frf_band, validate_fit,
-                                    fit_block_decoupled)
+                                    mimo_parameter_covariance, mimo_fisher_matrix,
+                                    modal_uncertainty, modal_frac_uncertainty, frf_band,
+                                    validate_fit, fit_block_decoupled)
 
 def synth_openloop(model, modes, phi, psi, *, sigZ=0.0, M=20, seed=0, freq=None):
     """Robust-method campaign on G = model truth (open loop). Returns (exps, freq, theta_true, G)."""
@@ -131,6 +132,27 @@ def test_pole_prior_anchors_to_design_frequency():
     import pytest
     with pytest.raises(ValueError):
         MIMOModalEstimator(m).fit(exps, freq, th0, pole_prior_hz=[0.6], prior_weight=1.0)  # wrong count
+
+
+def test_mimo_fisher_independent_matches_post_fit():
+    # The fit-independent MIMO CRB (from model+theta+exps) must reproduce the post-fit CRB
+    # (from FitResult.jac) exactly, and yield a sensible scalar DONE criterion.
+    m = Rank1ModalModel(3, 3, 2)
+    phi = np.array([[1., .3, .2], [.2, 1., .4]]); psi = np.array([[1., .2, .1], [.1, 1., .3]])
+    exps, freq, theta_true, G = synth_openloop(m, [(0.6, 30), (1.6, 40)], phi, psi,
+                                               sigZ=3e-3, M=20, seed=5)
+    res = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G))
+    Cfit = parameter_covariance(res, dof=18, n_sens=3)
+    Cind = mimo_parameter_covariance(m, res.theta, exps, freq, dof=18, n_sens=3)
+    np.testing.assert_allclose(Cfit, Cind, rtol=1e-9, atol=0)      # fit-independent == post-fit
+    fisher = mimo_fisher_matrix(m, res.theta, exps, freq)
+    assert fisher.shape == (m.n_theta, m.n_theta)
+    fu = modal_frac_uncertainty(m, res.theta, Cind)
+    assert 0.0 < fu < 1.0                                          # sensible DONE scalar
+    # CRB can be evaluated at ANY theta with no fit (the ideal-bound-at-truth use case)
+    assert modal_frac_uncertainty(m, theta_true,
+                                  mimo_parameter_covariance(m, theta_true, exps, freq,
+                                                            dof=18, n_sens=3)) > 0.0
 
 
 def test_find_modes_data_driven_no_count_no_clustering():

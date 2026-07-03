@@ -270,19 +270,45 @@ class MIMOModalEstimator:
 
 
 # --------------------------------------------------------------------------- CRB
-def parameter_covariance(fit_result, dof, n_sens):
-    """CRB parameter covariance (2 Re(J^H J))^-1 with the SML inflation lambda_2 (P&S 12-30)."""
+def mimo_fisher_matrix(model, theta, exps, freq):
+    """MIMO Fisher information ``2 Re(J^H J)`` for the modal parameters at ``theta``.
+
+    ``J`` is the campaign-``Cz``-whitened Jacobian ``d(residual)/dtheta`` (P&S SML), the
+    SAME object the estimator assembles. Unlike :func:`parameter_covariance` this is
+    fit-INDEPENDENT — it takes ``(model, theta, exps)`` directly, so the feasibility gate
+    can be evaluated on ANY model/scenario without a fit: the CRB at the oracle ``theta`` is
+    the ideal bound, the CRB at a candidate model predicts its uncertainty, and it drives a
+    DONE criterion for the iterative loop (:func:`modal_frac_uncertainty`).
+    """
+    J = MIMOModalEstimator(model)._assemble(theta, exps, freq)[0]
+    return 2.0 * (J.conj().T @ J).real
+
+
+def _cov_from_fisher(fisher, dof, n_sens):
     d = dof - n_sens
     if d < 2:
         raise ValueError(
             f"dof - n_sens = {d} < 2: the SML inflation lambda_2 is undefined/negative. "
             f"Need dof >= n_sens + 2 (spec recommends dof >= n_sens + 8 for a trustworthy CRB)."
         )
-    J = fit_result.jac
-    fisher = 2.0 * (J.conj().T @ J).real
     cov = np.linalg.pinv(fisher, rcond=1e-10)     # drops the per-mode gauge directions
     lam = dof * dof / ((d + 1) * (d - 1))         # SML inflation lambda_2 (P&S 12-30)
     return cov * lam
+
+
+def parameter_covariance(fit_result, dof, n_sens):
+    """CRB parameter covariance (2 Re(J^H J))^-1 with the SML inflation lambda_2 (P&S 12-30),
+    from a completed fit's whitened Jacobian ``fit_result.jac``."""
+    fisher = 2.0 * (fit_result.jac.conj().T @ fit_result.jac).real
+    return _cov_from_fisher(fisher, dof, n_sens)
+
+
+def mimo_parameter_covariance(model, theta, exps, freq, *, dof, n_sens):
+    """Fit-independent MIMO CRB covariance at ``theta`` from the campaign ``Cz`` — the same
+    SML-inflated ``(2 Re J^H J)^-1`` as :func:`parameter_covariance` but computed directly
+    from ``(model, theta, exps)`` (via :func:`mimo_fisher_matrix`), so you can predict the
+    per-mode CRB for any model/scenario without running a fit."""
+    return _cov_from_fisher(mimo_fisher_matrix(model, theta, exps, freq), dof, n_sens)
 
 
 def modal_uncertainty(model, theta, Ctheta):
@@ -305,6 +331,21 @@ def modal_uncertainty(model, theta, Ctheta):
                     "f0_std": float(np.sqrt(max(gf @ Ctheta @ gf, 0.0))),
                     "Q_std": float(np.sqrt(max(gq @ Ctheta @ gq, 0.0)))})
     return out
+
+
+def modal_frac_uncertainty(model, theta, Ctheta):
+    """Worst-case fractional per-mode uncertainty: ``max`` over modes of ``f0_std/f0`` and
+    ``Q_std/Q``. A single scalar the feasibility gate / iterative loop compare to a target
+    (the MIMO analog of ``loop.py::_frac_uncertainty``): stop when it drops below the goal.
+    ``inf``-Q modes contribute only their f0 term. Returns 0.0 for an empty model.
+    """
+    fr = []
+    for x in modal_uncertainty(model, theta, Ctheta):
+        if x["f0"] > 0:
+            fr.append(x["f0_std"] / abs(x["f0"]))
+        if np.isfinite(x["Q"]) and x["Q"] > 0:
+            fr.append(x["Q_std"] / x["Q"])
+    return float(max(fr)) if fr else 0.0
 
 
 def frf_band(model, theta, Ctheta, freq):

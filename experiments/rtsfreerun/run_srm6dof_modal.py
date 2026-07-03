@@ -35,7 +35,8 @@ from system_ident.mimo_campaign import _period_spectra
 from system_ident.mimo_loop import recover_open_loop
 from system_ident.mimo_modal import Rank1ModalModel
 from system_ident.mimo_fit import (init_residues, MIMOModalEstimator,
-                                   parameter_covariance, modal_uncertainty, find_modes)
+                                   parameter_covariance, modal_uncertainty, find_modes,
+                                   mimo_parameter_covariance, modal_frac_uncertainty)
 from system_ident.design.pintelon import prior_robust_excitation
 from system_ident.backends import rtsfreerun_oracle as orc
 
@@ -548,6 +549,15 @@ def main():
               f"{r['Q_std']:>9.2e} {r['f0_oracle']:>11.4f} {r['Q_oracle']:>9.2f} "
               f"{r['df_pct']:>7.3f} {qe:>7.1f}")
 
+    # ── [5c] feasibility-gate CRB (A2): the worst-case fractional per-mode uncertainty
+    #     (max over modes of f0_std/f0 and Q_std/Q) is a single scalar the gate / iterative
+    #     loop compare to a target — first-class, no by-hand scripting. Computed via the
+    #     FIT-INDEPENDENT mimo_parameter_covariance (model+theta+campaign Cz, no FitResult). ─
+    Ct = mimo_parameter_covariance(m, res.theta, exps, freq, dof=dof, n_sens=6)
+    achieved_fu = modal_frac_uncertainty(m, res.theta, Ct)
+    print(f"\n[5c] feasibility-gate CRB (A2): worst-case fractional per-mode uncertainty = "
+          f"{achieved_fu:.2e}  (mimo_parameter_covariance / modal_frac_uncertainty)")
+
     # ── [5b] resolve the fundamental SPATIAL doublet via plane decoupling ─────────
     # The shared-pole 6×6 fit above collapses the 0.672/0.676 pair (two orthogonal modes
     # forced onto one pole set). They live in the decoupled {L,P,V}/{T,R,Y} planes, so
@@ -577,7 +587,7 @@ def main():
 
     _save_plot(Gnp, m, res, freq, ora)
     _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, nm, sweep, sc, snr,
-                  doublet=doublet)
+                  doublet=doublet, frac_unc=achieved_fu)
     return cal, taus, stable, mu, ora, rows
 
 
@@ -607,7 +617,7 @@ def _save_plot(Gnp, model, res, freq, ora):
 
 
 def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, sweep, sc,
-                  snr=None, doublet=None):
+                  snr=None, doublet=None, frac_unc=None):
     df = FS / NPERSEG
     period = NPERSEG / FS
     # narrowest / widest in-band peak widths (FWHM = f0/Q) at the oracle Q
@@ -765,6 +775,11 @@ def _write_report(cal, taus, stable, ora, rows, res, dof, diag_rel, n_modes, swe
               f"- **Q recovery (the goal):** **{sc['n_good']}** modes recovered well in "
               f"BOTH f0 (|df|<1%) and Q (Q-err<25%); median Q-error = **{qmed*100:.1f}%** "
               f"across the {sc['n_wellsep']} well-separated modes.",
+              (f"- **Feasibility-gate CRB (A2):** worst-case fractional per-mode uncertainty "
+               f"= **{frac_unc:.2e}** (max over modes of f0_std/f0 and Q_std/Q) — the gate "
+               f"quantity as a first-class scalar via the fit-independent "
+               f"`mimo_parameter_covariance` / `modal_frac_uncertainty`, no by-hand scripting."
+               if frac_unc is not None else ""),
               (f"- **Realistic fight:** worst-case (off-resonance / weak-coupling) per-line "
                f"SNR ≈ {snr_min:.0f} against the seismic+OSEM floor; the modal peaks sit at "
                f"SNR ~1e4–1e6, so the well-separated modes still recover — the CRB bars are "
