@@ -36,6 +36,78 @@ def peak_pick_modes(G, freq, n_modes, *, default_Q=20.0):
     return [(float(freq[i]), float(default_Q)) for i in sorted(top)]
 
 
+def _estimate_Q(power, freq, i, *, qmin=3.0, qmax=300.0):
+    """Rough Q from the half-power width of the peak at bin ``i`` (local baseline removed)."""
+    n = len(power)
+    lo0 = max(0, i - 1); hi0 = min(n - 1, i + 1)
+    # walk out until the power starts rising again -> local valley = baseline estimate
+    lo = i
+    while lo > 0 and power[lo - 1] < power[lo]:
+        lo -= 1
+    hi = i
+    while hi < n - 1 and power[hi + 1] < power[hi]:
+        hi += 1
+    base = min(power[lo], power[hi])
+    half = base + 0.5 * (power[i] - base)
+    a = i
+    while a > lo and power[a] > half:
+        a -= 1
+    b = i
+    while b < hi and power[b] > half:
+        b += 1
+    fwhm = float(freq[b] - freq[a])
+    if fwhm <= 0:
+        fwhm = float(freq[hi0] - freq[lo0]) or 1.0
+    return float(np.clip(freq[i] / fwhm, qmin, qmax))
+
+
+def find_modes(G, freq, *, prominence_db=4.0, min_sep_frac=0.012, min_dist_bins=3,
+               max_modes=24, default_Q=50.0):
+    """Data-driven modes ``[(f0,Q),...]`` from an FRF tensor — NO oracle, NO fixed count.
+
+    Robust to the two failure modes of a naive strongest-bins pick on fine-``df`` data:
+    (a) piling several 'modes' onto adjacent bins of ONE sharp peak, and (b) over-sampling
+    the high-frequency modes (which dominate the absolute power) while missing the weaker
+    low modes. Both are fixed by working in **dB** (log power equalises the huge
+    across-band dynamic range) and selecting by **prominence** — a real resonance stands
+    tens of dB above its local baseline, a recovery sidelobe does not — with a minimum
+    bin distance and a fractional-``min_sep_frac`` merge. Model ORDER is chosen from the
+    data (the count of prominent peaks), not supplied. Sub-``min_sep_frac`` clusters (a
+    spatial doublet) merge to one shared-pole seed — resolve those with
+    ``fit_block_decoupled``. Q is estimated per peak from its half-power width.
+
+    ``G``: nonparametric FRF ``(F, n_sens, n_act)`` (e.g. ``recover_open_loop`` output).
+    """
+    G = np.asarray(G)
+    freq = np.asarray(freq, float)
+    # Collect candidate peaks from EVERY diagonal channel |G_ii|^2 and UNION them: a mode
+    # is prominent in its dominant DOF channel even where it is shallow in the summed power
+    # (which the top-few modes dominate). dB + prominence rejects recovery sidelobes.
+    cand = []                                             # (bin_index, prominence_dB)
+    for i in range(min(G.shape[1], G.shape[2])):
+        p = np.abs(G[:, i, i]) ** 2
+        if p.max() <= 0:                                  # dead channel — no modes to find
+            continue
+        pdb = 10.0 * np.log10(p + p.max() * 1e-12)
+        pk, props = find_peaks(pdb, prominence=prominence_db,
+                               distance=max(1, int(min_dist_bins)))
+        cand += list(zip(pk.tolist(), props["prominences"].tolist()))
+    if not cand:
+        return []
+    cand.sort(key=lambda t: -t[1])                        # strongest-standing first
+    accepted = []
+    for idx, _ in cand:
+        f0 = float(freq[idx])
+        if any(abs(f0 - freq[j]) / f0 < min_sep_frac for j in accepted):
+            continue                                      # merge sub-min_sep clusters
+        accepted.append(int(idx))
+        if len(accepted) >= max_modes:
+            break
+    power = (np.abs(G) ** 2).sum(axis=(1, 2)).astype(float)   # Q from summed-power half-width
+    return sorted((float(freq[i]), _estimate_Q(power, freq, i, qmax=2 * default_Q))
+                  for i in accepted)
+
+
 def init_residues(model, ab, exps, freq):
     """Mode shapes (phi, psi) from a linear residue LS given fixed poles, then rank-1 SVD.
 

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from system_ident.mimo_modal import Rank1ModalModel
-from system_ident.mimo_fit import (peak_pick_modes, init_residues, initial_theta,
+from system_ident.mimo_fit import (peak_pick_modes, find_modes, init_residues, initial_theta,
                                     MIMOModalEstimator, parameter_covariance,
                                     modal_uncertainty, frf_band, validate_fit,
                                     fit_block_decoupled)
@@ -131,6 +131,25 @@ def test_pole_prior_anchors_to_design_frequency():
     import pytest
     with pytest.raises(ValueError):
         MIMOModalEstimator(m).fit(exps, freq, th0, pole_prior_hz=[0.6], prior_weight=1.0)  # wrong count
+
+
+def test_find_modes_data_driven_no_count_no_clustering():
+    # A 4-DOF FRF on a FINE grid with 3 well-separated modes, each dominant in a DIFFERENT
+    # channel and ONE much weaker in the summed power. find_modes must (a) return exactly 3
+    # (order from the data, not supplied), (b) NOT cluster several onto one peak's bins
+    # (the old peak_pick failure), and (c) find the weak-in-sum mode via its own channel.
+    m = Rank1ModalModel(4, 4, 3)
+    phi = np.array([[1., 0, 0, 0], [0, 1., 0, 0], [0, 0, 0, 0.12]])   # mode 2 small, chan 3
+    psi = np.array([[1., 0, 0, 0], [0, 1., 0, 0], [0, 0, 0, 0.12]])
+    freq = np.linspace(0.3, 3.0, 1200)                               # fine grid
+    _, _, theta, G = synth_openloop(m, [(0.6, 50), (1.3, 50), (2.4, 50)], phi, psi, freq=freq)
+    found = find_modes(G, freq)
+    f0 = sorted(f for f, _ in found)
+    assert len(found) == 3, f"expected 3 modes, got {len(found)}: {f0}"
+    for tf in (0.6, 1.3, 2.4):
+        assert min(abs(f - tf) for f in f0) < 0.02, f"missed {tf}: {f0}"
+    # the old strongest-bins pick clusters on a fine grid; find_modes must not
+    assert all(abs(f0[i + 1] - f0[i]) > 0.1 for i in range(len(f0) - 1))
 
 
 def test_fit_block_decoupled_resolves_spatial_doublet():
