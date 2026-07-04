@@ -6,7 +6,8 @@ import numpy as np
 from scipy.integrate import trapezoid
 
 from system_ident.config import RunConfig
-from system_ident.design.pintelon import optimal_excitation, prior_robust_excitation
+from system_ident.design.pintelon import (optimal_excitation, prior_robust_excitation,
+                                           select_excited_lines)
 from system_ident.loop import SysIDLoop
 from system_ident.model import TFModel
 
@@ -80,6 +81,18 @@ def test_floor_frac_default_unchanged():
     a = optimal_excitation(freq, prior, Pyy, 1.0, n_iter=3)
     b = optimal_excitation(freq, prior, Pyy, 1.0, n_iter=3, floor_frac=1e-8)
     np.testing.assert_allclose(a, b, rtol=1e-12)
+
+
+def test_select_excited_lines_sparse_clustered_covering():
+    freq = np.fft.rfftfreq(65536, 1 / 256.0)
+    freq = freq[(freq >= 0.3) & (freq <= 8.0)]                 # ~1972 in-band bins
+    modes = [(0.672, 50.0), (1.005, 50.0), (3.781, 50.0)]
+    sel = select_excited_lines(freq, modes, fwhm_frac=2.0, n_comb=40)
+    assert len(sel) < len(freq) / 3                            # genuinely SPARSE (~10× fewer)
+    for f0, _ in modes:                                        # a cluster at every mode
+        assert int(np.sum(np.abs(sel - f0) < 0.03)) >= 3, f"no cluster at {f0}"
+    assert sel.min() < 0.4 and sel.max() > 7.5                 # comb covers the band edges
+    assert np.all(np.isin(sel, freq))                          # only real grid bins
 
 
 def _far_prior_cfg():

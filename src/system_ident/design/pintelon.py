@@ -30,6 +30,29 @@ from .base import InputDesigner
 _EXC_FLOOR_FRAC = 1e-8
 
 
+def select_excited_lines(freq, modes, *, fwhm_frac: float = 2.0, n_comb: int = 48):
+    """Choose a SPARSE informative subset of the candidate line grid ``freq`` for a P&S
+    multisine (roadmap #3).
+
+    A cluster of lines across each mode's ``±fwhm_frac·(f0/Q)`` neighbourhood — where the
+    Fisher information for that mode lives — plus a thin covering comb of ``n_comb`` lines
+    across the band (prior robustness / catching an unmodelled or displaced mode). Exciting
+    only these, rather than every in-band bin, puts far more power per excited line (higher
+    on-mode SNR at the same budget) and leaves the rest as leakage-free gaps the DFT uses for
+    noise estimation — the canonical P&S multisine, not a near-flat comb over every bin.
+
+    ``modes``: prior ``[(f0, Q), ...]``. Returns the sorted unique selected frequencies.
+    """
+    freq = np.asarray(freq, dtype=float)
+    keep = np.zeros(len(freq), bool)
+    for f0, Q in modes:
+        half = fwhm_frac * float(f0) / max(float(Q), 1.0)
+        keep |= np.abs(freq - f0) <= half
+    if n_comb > 0 and len(freq) > n_comb:            # thin covering comb across the band
+        keep[np.unique(np.round(np.linspace(0, len(freq) - 1, n_comb)).astype(int))] = True
+    return np.sort(freq[keep])
+
+
 def optimal_excitation(
     freq: np.ndarray,
     model: TFModel,
