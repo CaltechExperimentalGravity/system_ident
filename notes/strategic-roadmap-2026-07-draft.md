@@ -28,6 +28,26 @@ right work is not more twin polish.** It is (A) making the MIMO fit trustworthy 
 oracle*, (B) auditing twin fidelity and productionizing the MIMO iterative loop, and (C) a
 concrete, question-driven bridge to real CDS.
 
+**Update (2026-07-03, later):** the central risk is now **largely retired** — the MIMO fit is
+**blind** (find_modes, no oracle), has a **first-class MIMO Fisher/CRB**, and **iterates**.
+Progress snapshot below.
+
+## 0b. Progress snapshot (2026-07-03)
+
+| Item | State | Where |
+|---|---|---|
+| ADC fabrication removed; doublet resolved spatially; uncertainty-aware (prior-robust) drive; feasibility-gate prose purged | ✅ done | `e8d8358`, `bccfa79`, `68124fe`, `2fdd9d8` |
+| **Top-1** data-driven mode-finder + BLIND flagship adoption | ✅ done | `mimo_fit.find_modes`; `ba8ee01`, `479f239` |
+| **Top-2** first-class MIMO Fisher/CRB + DONE criterion | ✅ done | `mimo_fit.mimo_fisher_matrix`/`mimo_parameter_covariance`/`modal_frac_uncertainty`; `62598de` |
+| **Top-3** drive α-vs-concentration: derived-α floor + sparse Fisher-placed lines | ✅ capability (adoption = wire sparse lines through the campaign + regen) | `design/pintelon.select_excited_lines`, `floor_energy_frac`; `f24acca`, `68124fe` |
+| **Top-4** MIMO iterative loop | ◑ engine + `u_decay` + `combine` hook done; **config integration, SRM inverse-variance combine, hard-scenario blind run remain** | `mimo_iterate.iterate_mimo`; `0759cba`, `0f0e0ec` |
+| **Top-5** twin-fidelity ledger + guard test | ✅ done | `notes/twin-fidelity-ledger.md`, `tests/test_twin_fidelity.py`; `d865b8b` |
+| **A5** `recover_open_loop` conditioning guard + `assemble_campaign` resolution guard | ✅ done (adaptive `_choose_transient` for MIMO remains) | `mimo_loop`, `mimo_campaign`; `81937a4` |
+
+**Open next:** #3 sparse-line adoption (campaign regen); #4 config.py integration + SRM combine
+impl + hard-scenario blind validation; per-mode-Q twin realism; the blind `[5b]` doublet
+(per-block fit robustification); **Phase C is still gated on the operator questions.**
+
 ---
 
 ## 1. What is SOLID (protect it; don't re-litigate)
@@ -317,17 +337,17 @@ ones first.)*
 
 ## 4. TOP-5 PRIORITIES (ruthlessly ordered, cross-phase)
 
-1. **[A] Data-driven mode-finder + order selection** so the MIMO fit works **without the
-   oracle** — kills the single biggest credibility risk (`mimo_fit.py`).
-2. **[A] First-class MIMO Fisher/CRB** in `fisher.py` — lets the feasibility gate apply to MIMO
-   with real numbers.
-3. **[A] Resolve the drive α-vs-concentration tradeoff** (sparse Fisher-placed lines + derived-α
-   floor) — unblocks meaningful iteration (`design/pintelon.py`).
-4. **[B] Productionize the MIMO iterative loop + config integration**, then **blind** oracle
-   validation (anchor/seed OFF) — unifies SISO/MIMO maturity and proves identifiability.
-5. **[A/B] Purge feasibility-gate-violating "physical limit" prose** and institutionalize the
-   **twin-fidelity ledger + guard test** — so we never re-ship a fabricated-ADC or an
-   under-modeling-as-limit claim.
+1. ✅ **[A] Data-driven mode-finder + order selection** so the MIMO fit works **without the
+   oracle** — **DONE** (`find_modes` + blind flagship adoption).
+2. ✅ **[A] First-class MIMO Fisher/CRB** — **DONE** (`mimo_fisher_matrix` /
+   `mimo_parameter_covariance` / `modal_frac_uncertainty`; in `mimo_fit.py`, not `fisher.py`).
+3. ◑ **[A] Resolve the drive α-vs-concentration tradeoff** — derived-α floor + sparse
+   Fisher-placed lines (`select_excited_lines`) **DONE**; sparse-line pipeline adoption pending.
+4. ◑ **[B] Productionize the MIMO iterative loop + config integration**, then **blind**
+   validation — loop engine + `u_decay` + `combine` **DONE**; config integration, the SRM
+   inverse-variance combine, and the hard-scenario blind run remain.
+5. ✅ **[A/B] Purge "physical limit" prose** and institutionalize the **twin-fidelity ledger +
+   guard test** — **DONE** (`notes/twin-fidelity-ledger.md`, `tests/test_twin_fidelity.py`).
 
 *(Phase C is high-value but gated on the user answering §Phase-C questions; do not start
 hardware code first.)*
