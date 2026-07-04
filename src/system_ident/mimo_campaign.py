@@ -32,6 +32,12 @@ def assemble_campaign(backend, exc_names, drive_names, sens_names, freq_lines, *
     nperseg = int(nperseg)
     f = np.fft.rfftfreq(nperseg, 1.0 / fs)
     lines = np.array([int(np.argmin(np.abs(f - fl))) for fl in freq_lines])
+    # DFT-resolution guard (A5): requested lines closer than df collide on the same rfft bin
+    # and are silently merged/dropped — a resolution error the caller must see.
+    if len(np.unique(lines)) != len(freq_lines):
+        raise ValueError(f"{len(freq_lines)} requested lines collapse onto "
+                         f"{len(np.unique(lines))} distinct rfft bins (df = {fs/nperseg:.5g} "
+                         f"Hz) — space excited lines ≥ df apart or raise nperseg.")
     rng = np.random.default_rng(seed)
     duration = n_periods * nperseg / fs
     n_sens, n_act = len(sens_names), len(drive_names)

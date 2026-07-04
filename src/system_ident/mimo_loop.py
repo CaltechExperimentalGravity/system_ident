@@ -6,6 +6,7 @@ u_drive = Sd · u_exc, then y_sens = Gd · u_drive — so Y = Gd·X and the matr
 G = Y_mat · X_mat^-1 is exact off-resonance (verified, 2e-5 in a 2×2 prototype).
 """
 from __future__ import annotations
+import warnings
 import numpy as np
 import control
 
@@ -52,14 +53,25 @@ class CoupledLoop:
         return self.Gd(z)
 
 
-def recover_open_loop(Xmat, Ymat):
-    """Per-bin G = Y_mat · X_mat^-1 (the closed-loop MIMO reference-FRF recovery)."""
+def recover_open_loop(Xmat, Ymat, *, rcond=1e-10, cond_warn=1e8):
+    """Per-bin ``G = Y·X^-1`` (the closed-loop MIMO reference-FRF recovery).
+
+    Conditioning guard (A5): uses a ``rcond``-limited pseudo-inverse (== the plain inverse
+    for well-conditioned X) so an ill-conditioned drive matrix — a bin where the excitation
+    under-drives some actuator direction — cannot blow the recovery up into garbage. Warns
+    once if any bin's ``cond(X)`` exceeds ``cond_warn`` (a diagnostic that the drive is
+    starving a direction there, so the recovered FRF at that bin is untrustworthy).
+    """
     X = np.asarray(Xmat); Y = np.asarray(Ymat)
     assert X.shape[1] == X.shape[2], \
         "recover_open_loop needs square X (n_act drive monitors per actuator)"
-    out = np.empty((X.shape[0], Y.shape[1], X.shape[2]), dtype=complex)
-    for k in range(X.shape[0]):
-        out[k] = Y[k] @ np.linalg.inv(X[k])
+    out = np.einsum('fij,fjk->fik', Y, np.linalg.pinv(X, rcond=rcond))   # Y @ pinv(X) per bin
+    worst = float(np.max(np.linalg.cond(X))) if X.shape[0] else 0.0
+    if worst > cond_warn:
+        warnings.warn(f"recover_open_loop: worst drive-matrix cond = {worst:.1e} "
+                      f"(> {cond_warn:.0e}) — the excitation under-drives an actuator "
+                      f"direction at some line; the recovered FRF there is uncertain.",
+                      RuntimeWarning)
     return out
 
 
