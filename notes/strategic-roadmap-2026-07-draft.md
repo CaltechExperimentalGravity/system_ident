@@ -203,6 +203,29 @@ add per-mode-Q realism so the method isn't tuned to an idealization.
    instead of flooring it; add σ-calibration (predicted vs empirical) and a residual
    whiteness/Gaussianity test.
 
+### Status & findings (B core — done 2026-07-03)
+The loop ENGINE is built and validated; two findings reshape the remaining priorities.
+
+- **Built:** `src/system_ident/mimo_iterate.py::iterate_mimo` — the callback-based
+  estimate→redesign→re-measure loop (prior-robust first pass → point-optimal from the trusted
+  fitted modes → stop when `modal_frac_uncertainty` < target), unit-tested with mocks (no
+  campaigns). `run_srm6dof_iterate.py` drives it on the twin with a fully BLIND fit
+  (`find_modes` + `mimo_parameter_covariance` + `modal_frac_uncertainty`). Remaining for
+  priority 2: `config.py` integration + cross-pass inverse-variance accumulation.
+- **Finding 1 — iteration is marginal on the perfect-prior, high-SNR twin.** Far-prior end-to-end
+  run (+30% wrong prior): pass 0 (robust) already hits 12/13 within 1% at frac-unc 1.85e-5;
+  pass 1 (point-optimal) gives 1.62e-5 — only **1.1× tighter**. Iteration's value is real only
+  when pass 0 *can't* cope (far prior, scarce SNR, or a much smaller floor). So: **make the loop's
+  validation scenario a genuinely hard one** (far prior AND scarce SNR / low budget), not this
+  idealized twin — else the loop looks pointless.
+- **Finding 2 — point-optimal redesign can OVER-concentrate.** Pass 1 narrowed recovery 12→10
+  modes within 1% while the worst-case CRB improved: concentrating the budget on the fitted modes
+  under-drives weakly-coupled ones. So `frac_unc` (worst-case CRB) is **not a complete quality
+  proxy**. Redesign refinement (fold into priority 2): keep a **broader floor** on later passes
+  (don't collapse to pure point-optimal), and add a **recovery-breadth / coverage** term to the
+  DONE criterion alongside the worst-case CRB. Same α-vs-concentration tension as Phase-A §5 —
+  resolve them together.
+
 ### Already solid (reuse)
 - `rtsfreerun_adapter.py` (PLANT_IN reconstruction), `rtsfreerun_oracle.py` (oracle + SOS
   cross-check), the caches, the closed-loop reference-based recovery (diagonal FRF → oracle at
@@ -216,11 +239,14 @@ add per-mode-Q realism so the method isn't tuned to an idealization.
   experiment plots are tracked in git/LFS at all. Clean up + LFS the SVGs.
 
 ### Concrete next actions (files/functions)
-- `src/system_ident/mimo_loop.py` (or new `mimo_sysid_loop.py`): `MIMOSysIDLoop.run` mirroring
-  `SysIDLoop.run`.
+- ✅ `src/system_ident/mimo_iterate.py::iterate_mimo` (loop engine, callback-based) — DONE.
+- `src/system_ident/mimo_iterate.py`: add cross-pass inverse-variance accumulation of
+  `(Ybar,Ubar,Cz)`; a broader-floor late-pass redesign + a coverage term in the DONE criterion
+  (findings 1–2 above).
 - `src/system_ident/config.py`: `build_priors` emits `Rank1ModalModel`; register a MIMO
-  estimator/designer.
-- `experiments/rtsfreerun/`: a blind-validation script; per-mode-Q twin variant.
+  estimator/designer; a `RunConfig`-driven wrapper around `iterate_mimo` with the watchdog.
+- `experiments/rtsfreerun/`: a HARD-scenario blind-validation script (far prior + low budget,
+  seed/anchor OFF); per-mode-Q twin variant.
 - `notes/twin-fidelity-ledger.md`; `tests/`: a "no untraceable noise source" guard test.
 
 ---
