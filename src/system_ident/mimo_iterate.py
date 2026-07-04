@@ -26,22 +26,33 @@ import numpy as np
 
 
 def iterate_mimo(design, measure, fit, *, prior_modes, prior_u=0.5,
-                 target_frac_unc, max_passes=5):
+                 target_frac_unc, max_passes=5, u_decay=0.0, combine=None):
     """Run the estimate→redesign→re-measure loop. Returns ``(final_result, history)``.
 
     ``final_result`` is the last pass's ``fit`` dict, annotated with ``pass``, ``u`` and
-    ``converged``. ``history`` is the per-pass list of the same. The first pass uses
-    ``prior_u`` (prior-robust); every later pass uses ``u=0`` (point-optimal) designed from
-    the previous pass's fitted modes. Stops as soon as ``frac_unc <= target_frac_unc``.
+    ``converged``. ``history`` is the per-pass list. The first pass uses ``prior_u``
+    (prior-robust); each later pass shrinks ``u`` by ``u_decay`` and re-designs from the
+    previous pass's fitted modes. Stops as soon as ``frac_unc <= target_frac_unc``.
+
+    ``u_decay`` (0..1): the late-pass uncertainty schedule. ``0.0`` (default) collapses
+    straight to ``u=0`` (pure point-optimal) — which can OVER-concentrate and narrow recovery
+    (a demonstrated finding); a value like ``0.3`` keeps a shrinking-but-nonzero spread so the
+    drive stays broad enough to hold all modes while tightening.
+
+    ``combine`` (optional): ``combine(list_of_all_passes_exps) -> exps`` to fold every pass's
+    data into the fit (e.g. inverse-variance accumulation of the recovered FRF), instead of
+    fitting only the latest pass. If ``None``, each pass fits its own data.
     """
     modes = list(prior_modes)
     u = float(prior_u)
     history = []
+    all_exps = []
     converged = False
     for k in range(int(max_passes)):
         Pxx = design(modes, u)
         exps = measure(Pxx, k)
-        res = dict(fit(exps))
+        all_exps.append(exps)
+        res = dict(fit(combine(all_exps) if combine is not None else exps))
         res["pass"] = k
         res["u"] = u
         history.append(res)
@@ -49,7 +60,7 @@ def iterate_mimo(design, measure, fit, *, prior_modes, prior_u=0.5,
         if float(res.get("frac_unc", np.inf)) <= float(target_frac_unc):
             converged = True
             break
-        u = 0.0                                     # point-optimal from the trusted modes
+        u = u * float(u_decay)                      # shrink toward point-optimal (0.0 => u=0)
     if history:
         history[-1]["converged"] = converged
     return (history[-1] if history else None), history
