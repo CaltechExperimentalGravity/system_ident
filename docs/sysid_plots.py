@@ -603,3 +603,53 @@ def _ramp(i, n):
     b = np.array(_hex2rgb(GOLD))
     r, g, bl = (a + t * (b - a)).astype(int)
     return f"rgb({r},{g},{bl})"
+
+
+def resolvability_map(ratio, budget, *, points=(), rayleigh=1.0, height=560,
+                      title="When are two modes resolvable?"):
+    """Log–log resolvability map for a parametric two-mode fit.
+
+    ``x = Δf/Γ`` (mode separation in linewidths); ``y = budget`` is the measurement
+    budget (``∝ SNR·N``) required for the CRB on the separation to fall below the
+    separation itself (``σ_Δf = Δf``), normalised to the one-linewidth case. The gold
+    curve is that **computed** CRB boundary: a pair plots **above** the curve → resolvable
+    at that budget, **below** → not. The vertical line at ``Δf/Γ = rayleigh`` marks one
+    linewidth — the classical *non-parametric* (Rayleigh / peak-pick) limit. Parametric ML
+    lives to its LEFT by paying a steep but finite budget. ``points`` = iterable of
+    ``(label, x, y)`` example modes.
+    """
+    ratio = np.asarray(ratio, float); budget = np.asarray(budget, float)
+    ys = list(budget) + [p[2] for p in points]
+    hi, lo = max(ys) * 4.0, min(ys) / 4.0
+    fig = go.Figure()
+    upper = np.full_like(ratio, hi)
+    lower = np.full_like(ratio, lo)
+    # shaded regions: below the boundary = unresolvable (rose), above = resolvable (green)
+    fig.add_scatter(x=ratio, y=lower, mode="lines", line=dict(width=0),
+                    hoverinfo="skip", showlegend=False)
+    fig.add_scatter(x=ratio, y=budget, mode="lines", line=dict(width=0), fill="tonexty",
+                    fillcolor=_fade(ROSE, 0.10), hoverinfo="skip",
+                    name="unresolvable at this budget")
+    fig.add_scatter(x=ratio, y=budget, mode="lines", line=dict(width=0),
+                    hoverinfo="skip", showlegend=False)
+    fig.add_scatter(x=ratio, y=upper, mode="lines", line=dict(width=0), fill="tonexty",
+                    fillcolor=_fade(GREEN, 0.10), hoverinfo="skip",
+                    name="resolvable at this budget")
+    # the computed CRB boundary σ_Δf = Δf
+    fig.add_scatter(x=ratio, y=budget, mode="lines", line=dict(color=GOLD, width=3.0),
+                    name="CRB boundary  σ(Δf) = Δf")
+    # the classical non-parametric (one-linewidth) limit
+    fig.add_vline(x=rayleigh, line=dict(color=ROSE, width=2.0, dash="dash"),
+                  annotation_text="one linewidth — non-parametric (Rayleigh) limit",
+                  annotation_position="top right", annotation_font=dict(color=ROSE))
+    for label, x, y in points:
+        fig.add_scatter(x=[x], y=[y], mode="markers+text", text=[label],
+                        textposition="top center", textfont=dict(color=SKY),
+                        marker=dict(color=SKY, size=MK_BIG, symbol="diamond",
+                                    line=dict(color="white", width=1.5)),
+                        showlegend=False)
+    fig.update_xaxes(type="log", title_text="mode separation  Δf / Γ   (linewidths)")
+    fig.update_yaxes(type="log", range=[np.log10(lo), np.log10(hi)],
+                     title_text="required budget  ∝ SNR·N   (rel. to one linewidth)")
+    fig.update_layout(title=title)
+    return style(fig, height=height)

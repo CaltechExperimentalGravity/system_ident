@@ -206,6 +206,82 @@ ramp. Because the waveform is periodic over the analysis window, the response DF
 is leakage-free — see [the method overview](overview.qmd) and the
 [worked examples](../examples/01-single-resonance.qmd).
 
+## When are two modes resolvable?
+
+A non-parametric habit says two resonances closer than **one linewidth**
+`Γ = f₀/Q` (or one DFT bin `1/T`) are "unresolvable" — merged under a single peak.
+That is a statement about *peak-picking*, not about *information*. A parametric
+maximum-likelihood fit does not read peaks; it fits the whole complex FRF, and the
+Fisher information about the mode **separation** `Δf` is finite for any `Δf > 0`.
+The right question is therefore never "is this doublet resolvable?" but "**at what
+measurement budget?**" — and the CRB answers it with a number.
+
+Take two resonances of equal linewidth `Γ` separated by `Δf`, and treat the pair as
+resolved when the CRB on the separation drops below the separation itself,
+`σ(Δf) < Δf` (the modes are more than 1σ apart). Because the Fisher information is
+linear in the budget `∝ SNR·N`, `σ(Δf)² ∝ 1/(SNR·N)`, so the budget needed to reach
+`σ(Δf) = Δf` is a pure function of `Δf/Γ`. We compute it straight from the two-mode
+Jacobian — the same `2T·Pₓₓ/P_yy · Re[∂G*∂G]` Fisher used above:
+
+```{python}
+#| label: fig-resolvability
+#| fig-cap: "The CRB-computed resolvability boundary for a parametric two-mode fit. Below one linewidth (Δf/Γ < 1) — where non-parametric peak-picking gives up — the required budget rises as a steep but finite power of Γ/Δf. Sub-linewidth resolution is a cost, not a wall. The SRM within-plane 1.512/1.527 Hz pair (Q≈50) is marked."
+#| code-summary: "CRB on the mode separation vs Δf/Γ"
+from IPython.display import display, Markdown
+
+def _two_mode_frf(f, f1, f2, Q):                       # two unit-residue resonances
+    d1 = 1 - (f / f1) ** 2 + 1j * (f / f1) / Q
+    d2 = 1 - (f / f2) ** 2 + 1j * (f / f2) / Q
+    return 1.0 / d1 + 1.0 / d2
+
+def _sigma_sep(f0, Q, dsep, *, span=30.0, npts=8000):   # σ(Δf) at unit budget
+    Gam = f0 / Q                                        # linewidth
+    f1, f2 = f0 - dsep / 2, f0 + dsep / 2
+    fg = np.linspace(f0 - span * Gam, f0 + span * Gam, npts)
+    h = 1e-6 * f0
+    dG1 = (_two_mode_frf(fg, f1 + h, f2, Q) - _two_mode_frf(fg, f1 - h, f2, Q)) / (2 * h)
+    dG2 = (_two_mode_frf(fg, f1, f2 + h, Q) - _two_mode_frf(fg, f1, f2 - h, Q)) / (2 * h)
+    I = np.array([[np.sum((a.conj() * b).real) for b in (dG1, dG2)] for a in (dG1, dG2)])
+    C = np.linalg.inv(I)
+    return np.sqrt(C[0, 0] + C[1, 1] - 2 * C[0, 1])     # σ of (f2 − f1)
+
+f0_r, Q_r = 1.52, 50.0                                  # SRM {T,R,Y} within-plane pair scale
+Gam_r = f0_r / Q_r
+ratio = np.unique(np.r_[np.logspace(np.log10(0.15), np.log10(5.0), 40), 1.0])
+# budget to reach σ(Δf)=Δf is (σ_unit/Δf)^2; normalise to the one-linewidth case
+budget = np.array([(_sigma_sep(f0_r, Q_r, r * Gam_r) / (r * Gam_r)) ** 2 for r in ratio])
+ref = budget[np.argmin(np.abs(ratio - 1.0))]           # the one-linewidth budget
+budget = budget / ref
+expo = np.polyfit(np.log(ratio[ratio <= 1.0]), np.log(budget[ratio <= 1.0]), 1)[0]
+
+dsep_wp = 0.015                                         # 1.512 ↔ 1.527 Hz
+r_wp = dsep_wp / Gam_r
+b_wp = (_sigma_sep(f0_r, Q_r, dsep_wp) / dsep_wp) ** 2 / ref
+
+sp.resolvability_map(
+    ratio, budget, rayleigh=1.0,
+    points=[(f"1.51 Hz pair  ({r_wp:.2f} Γ)", r_wp, b_wp)]).show()
+```
+
+```{python}
+#| echo: false
+display(Markdown(
+    f"The computed boundary follows **budget ∝ (Γ/Δf)<sup>{-expo:.1f}</sup>** below one "
+    f"linewidth — a steep power law, close to (and slightly gentler than) the pure-tone "
+    f"**SNR·N ≳ (Γ/Δf)⁴** rule of thumb. The SRM within-plane 1.512/1.527 Hz pair sits at "
+    f"**Δf/Γ ≈ {r_wp:.2f}** (sub-linewidth): resolving it by frequency alone costs **≈ "
+    f"{b_wp:.0f}×** the budget of a one-linewidth pair — a finite record-length / SNR price, "
+    f"not a physical wall. (In the plant it is cheaper still to sidestep: the 0.67 Hz doublet "
+    f"is *spatial* and resolves for free by "
+    f"[plane decoupling](../examples/10-srm-hsts.qmd), while the 1.51 pair shares one plane "
+    f"and is the genuine frequency-super-resolution case.)"))
+```
+
+This is the feasibility gate in one figure: **"resolution-limited" is a budget
+statement, not a boundary.** Never quote a one-linewidth / one-bin / Rayleigh limit
+against a parametric fit — compute `σ(Δf)` from the CRB, and if a doublet is truly
+sub-linewidth, report the SNR·N (record length or drive) that would resolve it.
+
 ## References
 
 Pintelon & Schoukens, *System Identification: A Frequency Domain Approach*,
