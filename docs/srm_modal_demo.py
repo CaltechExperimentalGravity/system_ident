@@ -93,7 +93,8 @@ def run():
         rows=rows, sc=sc, mu=mu, dof=dof, cost=res.cost, n_iter=res.n_iter,
         ora=ora, distinct=distinct, design=design,
         fs=fs, used_df=used_df, used_n=used_n,
-        reco_n=reco_n, reco_df=reco_df, reco_nt=reco_nt)
+        reco_n=reco_n, reco_df=reco_df, reco_nt=reco_nt,
+        exps=exps, m6=m6)
 
 
 # numbers the prose pulls inline ----------------------------------------------------
@@ -228,3 +229,107 @@ def modal_recovery_fig(*, height=520):
     fig.update_layout(
         title="Modal frequency recovery — fit − oracle with the Cramér–Rao bound")
     return sp.style(fig, height=height)
+
+
+# ── figure/table (d): the 0.67 Hz spatial doublet, collapsed vs plane-resolved ──
+_PLANES = ((0, "{L,P,V}"), (1, "{T,R,Y}"))     # block index → plane label (PLANE_A, PLANE_B)
+_DBL_LO, _DBL_HI = 0.66, 0.69                  # frequency window bracketing the fundamental pair
+
+
+def _near_doublet(f0):
+    return _DBL_LO <= float(f0) <= _DBL_HI
+
+
+@lru_cache(maxsize=1)
+def doublet():
+    """Contrast the shared-pole 6×6 fit (collapses the 0.672/0.676 Hz pair to one blended
+    pole) with ``fit_block_decoupled`` (resolves BOTH by fitting the orthogonal {L,P,V} /
+    {T,R,Y} planes alone — no fine df, no super-resolution). Returns oracle / collapsed /
+    per-plane recovered ``(f0±σ, Q±σ)`` for the figure and table.
+    """
+    d = run()
+    # oracle: the fundamental in each decoupled plane (Q is the twin's uniform ~50)
+    A_modes, B_modes = R.modes_by_plane(d.m6)
+    oracle = {}
+    for (bi, lbl), pm in zip(_PLANES, (A_modes, B_modes)):
+        f0, q = next((f, q) for f, q in pm if _near_doublet(f))
+        oracle[lbl] = SimpleNamespace(f0=f0, Q=q)
+    # shared-pole 6×6 fit: the single collapsed row nearest the pair (blended Q)
+    cr = min((r for r in d.rows if _near_doublet(r["f0_oracle"])),
+             key=lambda r: abs(r["f0_oracle"] - 0.674))
+    collapsed = SimpleNamespace(f0=cr["f0"], f0_std=cr["f0_std"],
+                                Q=cr["Q"], Q_std=cr["Q_std"])
+    # block-decoupled fit: pull each plane's fundamental (f0, Q) with its CRB
+    blocks = R.resolve_doublet_spatial(d.exps, d.freq, d.m6, d.dof)
+    planes = {}
+    for (bi, lbl) in _PLANES:
+        m = next(x for x in blocks[bi]["mu"] if _near_doublet(x["f0"]))
+        planes[lbl] = SimpleNamespace(f0=m["f0"], f0_std=m["f0_std"],
+                                      Q=m["Q"], Q_std=m["Q_std"])
+    df_hz = abs(oracle["{L,P,V}"].f0 - oracle["{T,R,Y}"].f0)
+    return SimpleNamespace(oracle=oracle, collapsed=collapsed, planes=planes,
+                           df_hz=df_hz, used_df=d.used_df)
+
+
+def doublet_resolved_fig(*, height=560):
+    """The spatial doublet, made visual in the (f₀, Q) plane. The two orthogonal oracle
+    modes (sky) sit ~3 mHz apart at Q≈50. The shared-pole 6×6 fit (rose ✕) forces one pole
+    across both, landing off the pair with a *biased* f₀ and Q. The block-decoupled fit (gold)
+    recovers BOTH — each plane sees only one fundamental — sitting back on the oracle with a
+    tight CRB. No finer df, no doublet-concentrated drive: the pair was never a frequency
+    split, it was two modes in orthogonal DOF planes.
+    """
+    b = doublet()
+    fig = go.Figure()
+    # oracle pair
+    ox = [b.oracle[l].f0 for _, l in _PLANES]
+    oy = [b.oracle[l].Q for _, l in _PLANES]
+    fig.add_scatter(x=ox, y=oy, mode="markers+text", name="oracle (two orthogonal modes)",
+                    text=[l for _, l in _PLANES], textposition="bottom center",
+                    textfont=dict(color=sp.SKY),
+                    marker=dict(color=sp.SKY, size=sp.MK_BIG, symbol="diamond",
+                                line=dict(color="white", width=1.5)))
+    # shared-pole collapse (single blended pole)
+    fig.add_scatter(x=[b.collapsed.f0], y=[b.collapsed.Q], mode="markers",
+                    name="shared-pole 6×6 fit — collapsed to one pole",
+                    marker=dict(color=sp.ROSE, size=sp.MK_BIG + 4, symbol="x-thin",
+                                line=dict(color=sp.ROSE, width=3)),
+                    error_x=dict(type="data", array=[b.collapsed.f0_std], visible=True,
+                                 color=sp._fade(sp.ROSE, 0.5), thickness=2, width=8),
+                    error_y=dict(type="data", array=[b.collapsed.Q_std], visible=True,
+                                 color=sp._fade(sp.ROSE, 0.5), thickness=2, width=8))
+    # block-decoupled recovery (both planes)
+    px = [b.planes[l].f0 for _, l in _PLANES]
+    py = [b.planes[l].Q for _, l in _PLANES]
+    fig.add_scatter(x=px, y=py, mode="markers",
+                    name="block-decoupled fit — both modes resolved",
+                    marker=dict(color=sp.GOLD, size=sp.MK_BIG,
+                                line=dict(color="white", width=1.5)),
+                    error_x=dict(type="data", array=[b.planes[l].f0_std for _, l in _PLANES],
+                                 visible=True, color=sp._fade(sp.GOLD, 0.5), thickness=2, width=8),
+                    error_y=dict(type="data", array=[b.planes[l].Q_std for _, l in _PLANES],
+                                 visible=True, color=sp._fade(sp.GOLD, 0.5), thickness=2, width=8))
+    fig.update_xaxes(title_text="mode frequency f₀ [Hz]")
+    fig.update_yaxes(title_text="quality factor Q")
+    fig.update_layout(
+        title=f"The 0.67 Hz doublet is spatial, not a resolution limit — "
+              f"Δf₀ ≈ {b.df_hz * 1e3:.1f} mHz across orthogonal planes")
+    return sp.style(fig, height=height)
+
+
+def doublet_table():
+    """The collapsed vs plane-resolved fundamental, side by side with the oracle."""
+    b = doublet()
+    rows = []
+    for _, l in _PLANES:
+        o, p = b.oracle[l], b.planes[l]
+        rows.append([l, f"{o.f0:.4f}", f"{o.Q:.0f}",
+                     f"{p.f0:.4f} ± {p.f0_std:.1e}", f"{p.Q:.1f} ± {p.Q_std:.1e}"])
+    rows.append(["shared-pole 6×6 (both planes)", "0.6725 / 0.6758", "50 / 50",
+                 f"{b.collapsed.f0:.4f} ± {b.collapsed.f0_std:.1e} (one pole)",
+                 f"{b.collapsed.Q:.1f} ± {b.collapsed.Q_std:.1e} (blended)"])
+    return sp.param_table(
+        ["fit / plane", "f₀ oracle [Hz]", "Q oracle", "f₀ recovered [Hz]", "Q recovered"],
+        rows,
+        caption="The 0.67 Hz fundamental: the shared-pole fit blends the pair into one pole; "
+                "the block-decoupled per-plane fit recovers both members on the oracle.")

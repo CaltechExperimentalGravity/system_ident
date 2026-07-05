@@ -61,8 +61,8 @@ display(Markdown(
     f"used **df = {h.used_df:.4f} Hz** ({h.used_period:.0f} s/period), the **finest feasible** "
     f"grid (~13 min total twin time across the six DoFs). Frequencies recover in a short record; "
     f"**Q is gated by the ringdown** — high-Q suspension modes ring for a long time, so resolving "
-    f"Q is a long record. The narrowest peak (the 0.67 Hz / Q≈50 mode) has FWHM ≈ 13 mHz, which is "
-    f"what makes 0.004 Hz the practical resolution knee here."))
+    f"Q is a long record. The narrowest peak (the 0.67 Hz / Q≈50 mode) has FWHM ≈ 13 mHz, so "
+    f"several bins across it — the fine 0.004 Hz grid — are needed to pin its Q."))
 ```
 
 ```{python}
@@ -126,27 +126,65 @@ display(Markdown(
     f"within a few % of the oracle's ~50."))
 ```
 
-## What this shows, and two honest limits
+## What this shows — a resolved doublet and an honest CRB
 
 Through the **real** production L1-SRM damping loops on the compiled twin, the open-loop coupled
 plant comes back to 0.11% median diagonal error, and the joint fit returns 13 shared modal poles
-with most Qs recovered to a few percent against a CRB. Two limits are documented plainly:
+with most Qs recovered to a few percent against a CRB. Two features deserve a careful,
+feasibility-gate-honest reading — the first is a resolved doublet, the second an honest bound.
 
-1. **The tightest doublets collapse.** The HSTS has a 0.672/0.676 Hz pair (0.6% apart) and a
-   1.512/1.516/1.527 Hz triplet (<1% spread). Their members sit within a FWHM (≈2% of f₀) of each
-   other — below both the achieved `df` and the shared-pole model's splitting power — so each
-   cluster collapses to a single mode (flagged in the table). The collapse still gives a good `f₀`
-   (the 0.67 cluster lands at 0.671 Hz, the 1.51 cluster at 1.484 Hz) but a **blended Q** (≈43 and
-   ≈32 vs 50). We do not force a spurious split: these two are the only modes whose Q misses, and
-   they are exactly the unresolvable clusters. This is a resolution / identifiability limit, not a
-   fitting failure.
+### 1 · The tight 0.67 Hz "doublet" is spatial — and it resolves
 
-2. **The CRB is a process-disturbance bound.** The compiled 6-DoF model exposes only
-   `DRIVE_EXC_<dof>` injection ports — there is **no per-sensor readout-noise port** like the
-   single-DoF `x1hsts`. A noise-free twin gives identical periods, so the P&S sample covariance
-   collapses to the floating-point floor and the bound is meaningless. To define a real CRB a small
-   broadband ground/actuator disturbance is injected on the non-driven drive ports; it propagates
-   through the real plant and dampers, making the spectra genuinely stochastic. The bound is
-   therefore self-consistent for the **injected** statistics — a process-disturbance CRB, not a
-   physical sensor-noise floor. The disturbance is small enough that the diagonal FRF still recovers
-   to 0.11%.
+The HSTS has a 0.672/0.676 Hz fundamental pair (~3 mHz, 0.5% apart). Under the shared-pole 6×6
+model this pair **collapses to a single pole** — one pole set is forced across both modes, so the
+fit returns one blended, biased fundamental (flagged in the table above). It is tempting to call
+this a resolution limit. **It is not.** The HSTS plant **block-diagonalizes exactly** into two
+orthogonal DOF planes — {L,P,V} and {T,R,Y} — with cross-plane FRF coupling ~1e-13 (machine
+zero). The 0.6725 Hz mode lives purely in {L,P,V}; the 0.6758 Hz mode purely in {T,R,Y}. They are
+near-coincident in *frequency* but separated by *which sensors see them*: a **spatial** doublet,
+not a frequency split.
+
+So we fit each plane alone. `mimo_fit.fit_block_decoupled` runs one rank-1 modal fit per plane;
+each plane contains only ONE fundamental near 0.674 Hz, so there is no pair to collapse — and both
+members come back on the oracle with a tight CRB, using **no finer `df`** and **no**
+doublet-concentrated drive:
+
+```{python}
+#| code-summary: "Shared-pole collapse vs the plane-decoupled fit, in the (f₀, Q) plane"
+srm.doublet_resolved_fig()
+```
+
+```{python}
+#| code-summary: "The 0.67 Hz fundamental — collapsed vs plane-resolved vs oracle"
+display(srm.doublet_table())
+```
+
+```{python}
+#| code-summary: "The numbers"
+b = srm.doublet()
+pa, pb, c = b.planes["{L,P,V}"], b.planes["{T,R,Y}"], b.collapsed
+display(Markdown(
+    f"The shared-pole fit blends the pair into a single **{c.f0:.4f} Hz** pole (Q {c.Q:.1f}), "
+    f"off the oracle in both f₀ and Q. Fitting the two planes independently recovers **both** "
+    f"members with no change to `df`: {{L,P,V}} at **{pa.f0:.4f} Hz** (Q {pa.Q:.1f}) and "
+    f"{{T,R,Y}} at **{pb.f0:.4f} Hz** (Q {pb.Q:.1f}) — each within a few % of the oracle's "
+    f"Q≈50, split by only Δf₀ ≈ {b.df_hz * 1e3:.1f} mHz."))
+```
+
+The collapse was a **parameterization** artifact of sharing one pole set across two orthogonal
+modes — precisely the failure mode `CLAUDE.md`'s feasibility gate names — not a property of the
+data. (The one genuinely *within-plane* near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
+not resolved by the plane split; parametric ML super-resolves it given `SNR·N ≳ (Γ/Δf)⁴`, a finite
+record-length/SNR cost, or a per-plane two-mode fit. That, too, is a cost to pay, not a wall.)
+
+### 2 · The CRB is a process-disturbance bound
+
+The compiled 6-DoF model exposes only
+`DRIVE_EXC_<dof>` injection ports — there is **no per-sensor readout-noise port** like the
+single-DoF `x1hsts`. A noise-free twin gives identical periods, so the P&S sample covariance
+collapses to the floating-point floor and the bound is meaningless. To define a real CRB a small
+broadband ground/actuator disturbance is injected on the non-driven drive ports; it propagates
+through the real plant and dampers, making the spectra genuinely stochastic. The bound is
+therefore self-consistent for the **injected** statistics — a process-disturbance CRB, not a
+physical sensor-noise floor. The disturbance is small enough that the diagonal FRF still recovers
+to 0.11%.
