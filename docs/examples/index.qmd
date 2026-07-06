@@ -47,3 +47,7 @@ point — it applies unchanged to a measured or higher-fidelity model.
 
 ::: {#examples-gallery}
 :::
+
+```{=html}
+<script src="../assets/gallery-binder.js"></script>
+```

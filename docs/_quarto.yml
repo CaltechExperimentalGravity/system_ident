@@ -10,6 +10,7 @@ project:
   resources:
     - assets/excitation-arcade.js   # the landing-page arcade engine (referenced via <script src>)
     - assets/pyodide-runner.js      # the in-browser real-package runner (examples/interactive)
+    - assets/gallery-binder.js      # Binder-badge overlay on the examples gallery cards
     - _wheels/system_ident-0.0.1-py3-none-any.whl  # built fresh by the pre-render hook below
   pre-render:
     - python -m quartodoc build

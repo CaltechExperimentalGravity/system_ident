@@ -621,3 +621,13 @@ html { scroll-behavior: smooth; }
   --pyo-code: #dbe6f0; --pyo-codebg: #0e151d; --pyo-out: #8fe3c0; --pyo-outbg: #0d1a15;
   --pyo-err: #f2a3a3;
 }
+
+// ─── Binder badge overlay on gallery cards (examples index) ────────────────
+.gallery-binder {
+  position: absolute; top: 0.55rem; right: 0.55rem; z-index: 6;
+  line-height: 0; opacity: 0.92; border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(20, 40, 70, 0.20);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.gallery-binder:hover { opacity: 1; transform: translateY(-1px); }
+.gallery-binder img { display: block; height: 20px; }
