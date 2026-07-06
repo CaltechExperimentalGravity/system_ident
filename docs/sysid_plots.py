@@ -605,6 +605,47 @@ def _ramp(i, n):
     return f"rgb({r},{g},{bl})"
 
 
+def _ellipse_xy(mean, cov, nsig, npts=200):
+    """Points on the ``nsig``-σ confidence ellipse of a 2×2 covariance."""
+    vals, vecs = np.linalg.eigh(np.asarray(cov, float))
+    vals = np.clip(vals, 0.0, None)
+    t = np.linspace(0.0, 2 * np.pi, npts)
+    pts = (vecs @ (np.sqrt(vals)[:, None] * np.vstack([np.cos(t), np.sin(t)]))) * nsig
+    m = np.asarray(mean, float)
+    return m[0] + pts[0], m[1] + pts[1]
+
+
+def info_ellipse(ellipses, *, xlabel="f₀  [Hz]", ylabel="Q", nsig=1.0, height=520,
+                 title=None):
+    """Draw a set of parameter confidence ellipses (nested, same centre = the truth).
+
+    ``ellipses`` = iterable of dicts ``{mean:(x,y), cov:2×2, label, color, width?, dash?,
+    showlegend?}``. Each is drawn as its ``nsig``-σ ellipse; the optimal design's ellipse is
+    smaller (lower ``det`` = smaller area) than the flat design's — the visual form of the
+    D-optimal criterion. Axis limits are data-driven from the ellipse extents.
+    """
+    ellipses = list(ellipses)
+    fig = go.Figure()
+    xs, ys = [], []
+    for e in ellipses:
+        x, y = _ellipse_xy(e["mean"], e["cov"], nsig)
+        xs += [x.min(), x.max()]; ys += [y.min(), y.max()]
+        fig.add_scatter(x=x, y=y, mode="lines", name=e["label"],
+                        showlegend=e.get("showlegend", True),
+                        line=dict(color=e.get("color", GOLD), width=e.get("width", 2.4),
+                                  dash=e.get("dash")))
+    m = np.asarray(ellipses[0]["mean"], float)
+    fig.add_scatter(x=[m[0]], y=[m[1]], mode="markers", name="truth",
+                    marker=dict(color=INK, size=MK_SMALL, symbol="x"))
+    xr = (min(xs), max(xs)); yr = (min(ys), max(ys))
+    px, py = 0.10 * (xr[1] - xr[0]), 0.10 * (yr[1] - yr[0])
+    fig.update_xaxes(title_text=xlabel, range=[xr[0] - px, xr[1] + px])
+    fig.update_yaxes(title_text=ylabel, range=[yr[0] - py, yr[1] + py])
+    if title:
+        fig.update_layout(title=title)
+    return style(fig, height=height)
+
+
 def resolvability_map(ratio, budget, *, points=(), rayleigh=1.0, height=560,
                       title="When are two modes resolvable?"):
     """Log–log resolvability map for a parametric two-mode fit.

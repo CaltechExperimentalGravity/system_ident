@@ -159,6 +159,59 @@ fig.update_yaxes(title_text="dispersion ν(f)")
 sp.style(fig, height=360).show()
 ```
 
+## The information ellipse
+
+"Maximise $\log\det I(\theta)$" has a picture. The Cramér–Rao covariance
+$\mathrm{Cov}(\hat\theta) = I(\theta)^{-1}$ defines a **confidence ellipse** in parameter
+space, centred on the truth; its area is $\propto \sqrt{\det\mathrm{Cov}} =
+1/\sqrt{\det I}$. So **D-optimal design literally shrinks the ellipse.** Below, the joint
+$(f_0, Q)$ region for the same 1 Hz / Q = 20 resonance under the flat drive (gray) and the
+Fisher-optimal drive (gold), both of equal total power. The flat drive puts almost no power
+at the resonance, so it barely constrains $Q$ — its ellipse sloshes far up the $Q$ axis;
+the optimal drive concentrates there and collapses the region. The covariance is computed in
+physical $(f_0, Q)$ coordinates — gain marginalised out — from the same Fisher integral, so
+the axes are the parameters you care about.
+
+```{python}
+#| label: fig-info-ellipse
+#| fig-cap: "The 1σ (f₀, Q) confidence ellipse for a flat drive (gray) vs the Fisher-optimal drive (gold) of equal power. D-optimal design minimises the ellipse area (det Cov); it also rotates the ellipse, trading f₀ against Q information where the resonance is most informative. The flat drive barely constrains Q, so its region extends well beyond the plotted optimal."
+#| code-summary: "The (f₀, Q) confidence ellipse, flat vs optimal"
+from scipy.integrate import trapezoid
+
+f0_t, Q_t, g_t = 1.0, 20.0, 1.0                       # the truth (ellipse centre)
+
+def _fq_cov(Pxx):
+    """Marginal (f0, Q) covariance from the (f0, Q, gain) Fisher, at drive Pxx."""
+    base = (f0_t, Q_t, g_t)
+    step = [1e-6 * f0_t, 1e-6 * Q_t, 1e-6 * g_t]
+    H = lambda a, b, c: TFModel.from_resonances([(a, b)], gain=c).eval(freq)
+    d = []
+    for i in range(3):
+        hi, lo = list(base), list(base)
+        hi[i] += step[i]; lo[i] -= step[i]
+        d.append((H(*hi) - H(*lo)) / (2 * step[i]))
+    w = Pxx / Pyy
+    I = 2 * T_tot * np.array([[trapezoid((d[i].conj() * d[j]).real * w, freq)
+                               for j in range(3)] for i in range(3)])
+    return np.linalg.inv(I)[:2, :2]                   # (f0, Q) block, gain marginalised
+
+cov_flat_fq = _fq_cov(Pxx_flat)
+cov_opt_fq = _fq_cov(Pxx_opt)
+area_ratio = np.sqrt(np.linalg.det(cov_flat_fq) / np.linalg.det(cov_opt_fq))
+
+sp.info_ellipse(
+    [dict(mean=(f0_t, Q_t), cov=cov_flat_fq, label="flat drive",
+          color=sp.GRAY, width=2.4, dash="dash"),
+     dict(mean=(f0_t, Q_t), cov=cov_opt_fq, label="optimal drive",
+          color=sp.GOLD, width=3.0)],
+    title=f"1σ (f₀, Q) confidence ellipse — the optimal drive shrinks its area "
+          f"{area_ratio:.0f}× (D-optimal minimises det Cov)").show()
+```
+
+The fixed-point iteration reaches this optimum in a few passes (the same 3–5 iterations that
+flatten $\nu$ above); the payoff is the many-fold smaller region in the figure title — the
+$\sqrt{\det\mathrm{Cov}}$ the D-optimal criterion is defined to minimise.
+
 ## Variance reduction in numbers
 
 ```{python}

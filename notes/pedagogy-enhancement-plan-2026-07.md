@@ -17,7 +17,10 @@
 > Top-5 action **#4 ✅ done** — new `tutorial/glossary.qmd` (~22 terms, definition lists, each
 > cross-linked to where it's used; wired into nav) + newcomer on-ramp ("A reading path" section on
 > `index.qmd`, reading-path callout on `overview.qmd`, prerequisites callout on `fisher.qmd`).
-> Remaining: #5 Fisher info-ellipse.
+> Top-5 action **#5 ✅ done** — `sp.info_ellipse` + `fisher.qmd` §"The information ellipse":
+> the (f₀,Q) 1σ confidence ellipse computed in physical coords (gain marginalised) from the
+> Fisher integral, flat vs optimal drive (38× area shrink) making "D-optimal = minimise det Cov"
+> visual. **All top-5 pedagogy actions complete.**
 
 ## 1 · Verdict
 
