@@ -11,6 +11,8 @@ categories: [SISO, multi-mode]
 - Recovering both modes (0.6 Hz / 1.5 Hz) jointly, each with its own CRB.
 :::
 
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/02-double-pendulum.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+
 The canonical two-mode plant: a double pendulum with modes at 0.6 Hz (Q = 20) and
 1.5 Hz (Q = 30), gain 300. We run the **identical full diagnostic set** as
 [example 01](01-single-resonance.qmd) — excitation design, time series, a

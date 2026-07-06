@@ -1,0 +1,20 @@
+# Binder (mybinder.org) environment — launches the pip-runnable worked examples as
+# live Jupyter notebooks. jupytext opens the Quarto .qmd files directly as runnable
+# notebooks (no committed .ipynb to drift). The compiled-CDS examples (07, 10) need
+# the RTSfreerun twin and do NOT run here.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - control
+  - slycot            # python-control MIMO backend (conda-forge has a wheel)
+  - jupyterlab
+  - jupytext          # opens .qmd as runnable notebooks
+  - ipykernel
+  - pip
+  - pip:
+      - plotly        # the docs figures are Plotly

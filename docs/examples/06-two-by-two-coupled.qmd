@@ -11,6 +11,8 @@ categories: [MIMO, coupling]
 - Element-by-element recovery — the step before the *joint* modal fit of examples 09–10.
 :::
 
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/06-two-by-two-coupled.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+
 Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
 **not** a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
 the *same normal modes*, so the honest model is a coupled 2×2 matrix

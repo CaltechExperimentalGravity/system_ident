@@ -1,0 +1,12 @@
+#!/bin/bash
+# Install system_ident itself (deps already provided by environment.yml, so --no-deps
+# avoids the slycot/control source builds pip would otherwise attempt).
+set -e
+pip install --no-deps -e .
+# Open .qmd as notebooks by default in this JupyterLab (so a ?urlpath=…/NN.qmd link
+# launches a runnable notebook, not the text editor).
+mkdir -p "${HOME}/.jupyter/labconfig"
+cat > "${HOME}/.jupyter/labconfig/default_setting_overrides.json" <<'JSON'
+{ "@jupyterlab/docmanager-extension:plugin": {
+    "defaultViewers": { "quarto": "Jupytext Notebook", "markdown": "Jupytext Notebook" } } }
+JSON

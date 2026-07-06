@@ -11,6 +11,8 @@ categories: [SISO, resonance]
 - How optimal excitation, the leakage-free FRF, the ML fit and the Cramér–Rao bound fit together. New to the method? Start from [the overview](../tutorial/overview.qmd).
 :::
 
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/01-single-resonance.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+
 The smallest complete **Pintelon–Schoukens** experiment: a simple harmonic oscillator
 at 1 Hz with Q = 20, identified end-to-end and shown through the **full diagnostic
 set** every example in this book uses — excitation design, the measurement time series,

@@ -58,6 +58,8 @@ website:
             text: Glossary
       - href: examples/index.qmd
         text: Examples
+      - href: examples/interactive.qmd
+        text: "▶ Run it live"
       - href: reference/index.qmd
         text: API Reference
     right:
