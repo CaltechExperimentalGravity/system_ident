@@ -49,3 +49,4 @@ docs/SysID-Pintelon.pdf
 
 # In-browser Pyodide wheel (built by the docs pre-render hook)
 docs/_wheels/
+.superpowers/
