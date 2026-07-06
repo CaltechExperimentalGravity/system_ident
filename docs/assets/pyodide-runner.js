@@ -1,9 +1,10 @@
 /* pyodide-runner — run the REAL system_ident package in the browser (WebAssembly).
  *
- * Boots Pyodide from the CDN once, loads numpy + scipy, installs the freshly-built
- * system_ident wheel (deps=False — numpy/scipy already present, and the package core is
- * numpy/scipy-only), then executes editable code cells. No server, no install: the same
- * pipeline the docs run, in the visitor's browser. See
+ * Boots Pyodide from the CDN once, loads numpy + scipy + matplotlib, installs the freshly-built
+ * system_ident wheel and python-control (both deps=False — their deps are the Pyodide builds
+ * above), then executes editable code cells. This makes the browser run not just the numpy/scipy
+ * core but the time-domain / closed-loop machinery (control.forced_response, CoupledLoop). No
+ * server, no install: the same pipeline the docs run, in the visitor's browser. See
  * docs/superpowers/specs/2026-07-05-excitation-arcade-hero-design.md (phase 3).
  */
 (function () {
@@ -28,11 +29,26 @@
         document.head.appendChild(s);
       });
       const py = await loadPyodide({ indexURL: PYODIDE_INDEX });
-      status("loading numpy + scipy…", "load");
-      await py.loadPackage(["numpy", "scipy", "micropip"]);
+      status("loading numpy + scipy + matplotlib…", "load");
+      await py.loadPackage(["numpy", "scipy", "matplotlib", "micropip"]);
       status("installing system_ident…", "load");
       await py.runPythonAsync(
         `import micropip\nawait micropip.install(${JSON.stringify(wheelUrl)}, deps=False)`);
+      // python-control is pure Python; its deps (numpy/scipy/matplotlib) are the Pyodide builds
+      // loaded above, so install it with deps=False. Retry once — the first PyPI fetch can flake
+      // on a cold cache. This is what lets the browser drive the time-domain / closed-loop
+      // machinery (control.forced_response, CoupledLoop, MIMOTwinBackend).
+      status("installing python-control…", "load");
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await py.runPythonAsync(
+            "import micropip\nawait micropip.install('control', deps=False)\nimport control");
+          break;
+        } catch (e) {
+          if (attempt >= 2) throw new Error("python-control failed to install: " + e);
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
       await py.runPythonAsync("import sys, io");
       status("Python ready ✓", "ready");
       return py;
@@ -40,7 +56,17 @@
     return bootPromise;
   }
 
-  async function run(cell, wheelUrl) {
+  // Runs share one Python interpreter and swap sys.stdout around each cell's
+  // code, so two cells executing at once would interleave stdout and cross
+  // their outputs. Serialize every run through one promise chain: a click while
+  // another cell is running just queues behind it (boot is still shared).
+  let runQueue = Promise.resolve();
+  function run(cell, wheelUrl) {
+    runQueue = runQueue.then(() => runOne(cell, wheelUrl), () => runOne(cell, wheelUrl));
+    return runQueue;
+  }
+
+  async function runOne(cell, wheelUrl) {
     const code = cell.querySelector(".pyo-code").value;
     const out = cell.querySelector(".pyo-out");
     const btn = cell.querySelector(".pyo-run");
@@ -91,8 +117,7 @@
     // opt-in autorun (?pyorun=1) — for smoke tests; never auto-boots for normal visitors,
     // who click Run so the ~30 MB Pyodide download stays their explicit choice.
     if (/[?&]pyorun=1/.test(location.search)) {
-      const first = app.querySelector(".pyodide-cell .pyo-run");
-      if (first) first.click();
+      app.querySelectorAll(".pyodide-cell .pyo-run").forEach((b) => b.click());
     }
   }
 

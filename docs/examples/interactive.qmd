@@ -58,6 +58,39 @@ print(f"-> optimal reaches any error target in {(wf/wo)**2:.0f}x less measuremen
     </div>
     <pre class="pyo-out" aria-live="polite"></pre>
   </div>
+  <h3 style="margin-top:1.8rem">…and drive it closed-loop with <code>python-control</code></h3>
+  <p style="margin:.3rem 0 .8rem;color:#6b7a8d">The same browser session also has <b>python-control</b>. Here a <i>real</i> reduced aLIGO quad element runs closed around a velocity damper — a time-domain state-space simulation, in WebAssembly.</p>
+  <div class="pyodide-cell">
+    <textarea class="pyo-code" spellcheck="false" aria-label="editable Python">import numpy as np, control
+from system_ident.reduced_plant import ReducedStateSpacePlant
+from system_ident.mimo_loop import velocity_damper
+
+# A REAL reduced aLIGO quad element as a python-control state space — in your browser.
+p   = ReducedStateSpacePlant.load("quad")
+sub = p.subplant(sensors=["M0.disp.Y"], actuators=["M0.drive.Y"])
+G   = control.ss(sub.A, sub.B, sub.C, sub.D)
+print(f"plant: {G.nstates} states (a real reduced aLIGO quad yaw element)")
+
+# open loop: the high-Q suspension rings for a long time
+t = np.linspace(0, 40, 4000)
+y_open = control.impulse_response(G, T=t).outputs
+
+# CLOSE a velocity damper around it (python-control), time domain
+C    = velocity_damper(2.0, 3.0)          # k*s*wc/(s+wc)
+loop = control.feedback(G, C)
+y_damped = control.impulse_response(loop, T=t).outputs
+
+r_open   = float(np.sum(y_open[t > 20] ** 2))
+r_damped = float(np.sum(y_damped[t > 20] ** 2))
+print(f"late-time ringing (t>20s):  open = {r_open:.2e}   damped = {r_damped:.2e}")
+print(f"the velocity damper cut the residual motion {r_open / r_damped:.0f}x")
+print("...a closed-loop suspension simulated with python-control, in WebAssembly.")</textarea>
+    <div class="pyo-bar">
+      <button class="pyo-run">&#9654;&nbsp;Run</button>
+      <span class="pyo-status" data-k="">Python not started</span>
+    </div>
+    <pre class="pyo-out" aria-live="polite"></pre>
+  </div>
 </div>
 <script src="../assets/pyodide-runner.js"></script>
 ```
@@ -77,9 +110,11 @@ real package — `from system_ident.fisher import parameter_covariance`, `TFMode
 and the rest are all here to explore.
 
 ::: {.callout-tip appearance="simple"}
-## Want the full pipeline?
-This page runs the numpy/scipy core (model, design, Fisher). The measurement backends, the
-compiled-CDS twin, and the dashboard are not part of the in-browser build — for those, install
-the package and work through the [tutorial](../tutorial/overview.qmd) and
-[worked examples](index.qmd).
+## What runs in the browser
+The numpy/scipy core (model, design, Fisher) **and python-control** — so the time-domain /
+closed-loop machinery (`control.forced_response`, `CoupledLoop`, `MIMOTwinBackend`) runs here
+too, as the second cell shows. Only the compiled-CDS twin (`x1hsts`, Fortran-built) and the
+`slycot` MIMO routines can't cross to WebAssembly; nothing in these demos needs them. For the
+compiled twin and the dashboard, install the package and work through the
+[tutorial](../tutorial/overview.qmd) and [worked examples](index.qmd).
 :::
