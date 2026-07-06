@@ -48,6 +48,14 @@ Progress snapshot below.
 impl + hard-scenario blind validation; per-mode-Q twin realism; the blind `[5b]` doublet
 (per-block fit robustification); **Phase C is still gated on the operator questions.**
 
+**Docs/pedagogy pass (2026-07-05).** A separate figures + scaffolding enhancement of the Quarto
+docs is complete — plan and full record in `notes/pedagogy-enhancement-plan-2026-07.md`. Landed:
+ex10's "resolution limit" prose fixed to the *spatial* doublet (resolved by `fit_block_decoupled`,
+with a recovery figure) — a live feasibility-gate violation removed; a CRB-computed
+"when are two modes resolvable?" section + info-ellipse figure in `fisher.qmd`; a new
+`tutorial/mimo-modal.qmd` theory page for the joint modal fit; and a glossary + newcomer on-ramp.
+No pipeline/code-path changes — docs only.
+
 ---
 
 ## 1. What is SOLID (protect it; don't re-litigate)
