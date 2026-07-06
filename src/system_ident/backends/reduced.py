@@ -45,8 +45,14 @@ class ReducedPlantBackend(ChannelBackend):
             X[idx, :m] = d[:m]
         Xhat = np.fft.rfft(X, axis=1)                      # (n_in, nf)
         fa = np.fft.rfftfreq(n, 1 / self.fs)
-        # evaluate G only where some input has power (multisine is sparse)
-        active = np.where(np.any(np.abs(Xhat) > 0, axis=0))[0]
+        # evaluate G only where some input has power (multisine is sparse). Use a
+        # relative threshold, not `> 0`: non-excited rFFT bins carry ~1e-13 roundoff
+        # noise, which a strict `> 0` mask would flag as active (defeating the sparse
+        # evaluation and risking spurious out-of-band tones near a high-Q resonance).
+        mag = np.abs(Xhat)                       # (n_in, nf)
+        peak = mag.max()
+        active = (np.where(mag.max(axis=0) > 1e-9 * peak)[0]
+                  if peak > 0 else np.array([], dtype=int))
         Yhat = np.zeros((n_out, Xhat.shape[1]), complex)
         if len(active):
             G = self.plant.eval(fa[active])                # (F, n_out, n_in)
