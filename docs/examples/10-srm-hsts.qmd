@@ -179,7 +179,10 @@ display(Markdown(
 
 The collapse was a **parameterization** artifact of sharing one pole set across two orthogonal
 modes — precisely the failure mode `CLAUDE.md`'s feasibility gate names — not a property of the
-data. (The one genuinely *within-plane* near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
+data. This exact resolution also runs **portably, without the compiled twin** — on the committed
+reduced HSTS model (`system_ident/models/hsts_reduced_50hz.npz`, numpy-only): the same
+`fit_block_decoupled` splits the 0.672/0.676 pair across the same two planes, guarded by
+`tests/test_reduced_hsts_oracle.py`. (The one genuinely *within-plane* near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
 not resolved by the plane split; parametric ML super-resolves it given `SNR·N ≳ (Γ/Δf)⁴`, a finite
 record-length/SNR cost, or a per-plane two-mode fit — see
 [*When are two modes resolvable?*](../tutorial/fisher.qmd#when-are-two-modes-resolvable), which
