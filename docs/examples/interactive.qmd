@@ -1,0 +1,85 @@
+---
+title: "Run it live — the real package in your browser"
+---
+
+The [landing-page game](../index.qmd) is a stylised, JavaScript version of one real
+computation. Here is that computation in **actual `system_ident`**, running in your browser
+through WebAssembly (Pyodide) — no install, no server. The same `TFModel`,
+`optimal_excitation`, and Cramér–Rao code the rest of these docs run, only this time *you*
+drive it. Edit the cell and press **Run**.
+
+::: {.callout-note appearance="simple"}
+## First run is slow, then instant
+The first **Run** downloads Python + numpy + scipy (~30 MB) and compiles them — expect
+**30–60 s**. After that it is cached and every Run is immediate. This page is entirely
+client-side; nothing is sent anywhere.
+:::
+
+```{=html}
+<div id="pyodide-app" data-wheel="../_wheels/system_ident-0.0.1-py3-none-any.whl">
+  <div class="pyodide-cell">
+    <textarea class="pyo-code" spellcheck="false" aria-label="editable Python">import numpy as np
+from system_ident.model import TFModel
+from system_ident.design.pintelon import optimal_excitation
+
+# Two resonances share one fixed drive-power budget — the landing-page game,
+# in real code. Try editing: move a mode, change a Q, or shape your own drive.
+modes = [(1.0, 20.0), (2.5, 20.0)]
+gain  = 5000.0
+freq  = np.linspace(0.3, 6.0, 120); df = freq[1] - freq[0]
+Pyy   = np.ones_like(freq)          # flat readout-noise PSD
+Px    = 1.0                         # fixed total drive power
+G     = TFModel.from_resonances(modes, gain=gain)
+
+def worst_frac(Pxx, T0=100.0):
+    """Worst modal-parameter fractional uncertainty (sigma/theta) from the CRB."""
+    th = np.array([m for fq in modes for m in fq], float)      # (f0,Q,f0,Q)
+    H  = lambda p: TFModel.from_resonances([(p[0],p[1]),(p[2],p[3])], gain).eval(freq)
+    J  = []
+    for i in range(4):
+        h = 1e-6*max(abs(th[i]),1e-3); hi=th.copy(); lo=th.copy(); hi[i]+=h; lo[i]-=h
+        J.append((H(hi)-H(lo))/(2*h))
+    w = Pxx/Pyy
+    I = 2*T0*df*np.array([[np.sum((J[i].conj()*J[j]).real*w) for j in range(4)]
+                          for i in range(4)])
+    return np.max(np.sqrt(np.diag(np.linalg.inv(I)))/np.abs(th))
+
+# the REAL Fisher/dispersion designer vs a flat sweep of equal power
+Pxx_opt  = optimal_excitation(freq, G, Pyy, Px, n_iter=6)
+Pxx_flat = np.full_like(freq, Px/(freq[-1]-freq[0]))
+
+wf, wo = worst_frac(Pxx_flat), worst_frac(Pxx_opt)
+print(f"worst sigma/theta  -  flat sweep : {wf:6.1%}")
+print(f"worst sigma/theta  -  optimal    : {wo:6.1%}")
+print(f"-> optimal reaches any error target in {(wf/wo)**2:.0f}x less measurement time.")</textarea>
+    <div class="pyo-bar">
+      <button class="pyo-run">&#9654;&nbsp;Run</button>
+      <span class="pyo-status" data-k="">Python not started</span>
+    </div>
+    <pre class="pyo-out" aria-live="polite"></pre>
+  </div>
+</div>
+<script src="../assets/pyodide-runner.js"></script>
+```
+
+## What just ran
+
+`optimal_excitation` is the actual Pintelon–Schoukens dispersion fixed point from the
+package; `worst_frac` reads the Cramér–Rao bound off the two-mode Fisher matrix. The optimal
+drive reaches the same error target in far less measurement time than a flat sweep — exactly
+what the [game](../index.qmd) lets you feel by dragging, and what
+[Fisher & excitation](../tutorial/fisher.qmd) derives.
+
+**Things to try:** move the two modes closer together (`modes = [(1.0, 20), (1.3, 20)]`) and
+watch the budget fight over them; raise a `Q` to make a mode harder; or replace `Pxx_opt`
+with a drive you shape by hand and see how far off par you land. Everything you import is the
+real package — `from system_ident.fisher import parameter_covariance`, `TFModel.jacobian`,
+and the rest are all here to explore.
+
+::: {.callout-tip appearance="simple"}
+## Want the full pipeline?
+This page runs the numpy/scipy core (model, design, Fisher). The measurement backends, the
+compiled-CDS twin, and the dashboard are not part of the in-browser build — for those, install
+the package and work through the [tutorial](../tutorial/overview.qmd) and
+[worked examples](index.qmd).
+:::

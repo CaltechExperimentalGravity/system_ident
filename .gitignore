@@ -46,3 +46,6 @@ experiments/rtsfreerun/*.npz
 
 # Copyrighted reference textbook — local-only, never publish (scraped into .llm/)
 docs/SysID-Pintelon.pdf
+
+# In-browser Pyodide wheel (built by the docs pre-render hook)
+docs/_wheels/

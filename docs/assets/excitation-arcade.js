@@ -169,7 +169,8 @@
           <p class="arc-caption">Two resonances share a fixed drive budget. Pile energy where a
           mode's <b>Q</b> is least certain — the tall peak is a trap. Beat the flat sweep
           (${fmt(flatEta)}); the Fisher-optimal “par” is ${fmt(parEta)}.
-          <a href="tutorial/fisher.html">Why? →</a></p>
+          <a href="tutorial/fisher.html">Why? →</a> &nbsp;·&nbsp;
+          <a href="examples/interactive.html">▶ run the real code →</a></p>
         </div>
       </div>`;
 

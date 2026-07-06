@@ -35,5 +35,11 @@ mode frequencies are *representative* aLIGO quad rigid-body values (longitudinal
 point — it applies unchanged to a measured or higher-fidelity model.
 :::
 
+::: {.callout-tip appearance="simple"}
+## Prefer to poke at it yourself?
+[**Run the real package in your browser**](interactive.qmd) — no install. Edit a live cell and
+watch `system_ident` design the optimal drive and read the Cramér–Rao bound, in WebAssembly.
+:::
+
 ::: {#examples-gallery}
 :::

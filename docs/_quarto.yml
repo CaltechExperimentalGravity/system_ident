@@ -9,8 +9,13 @@ project:
   execute-dir: project   # run every page from docs/ so `import sysid_plots` resolves
   resources:
     - assets/excitation-arcade.js   # the landing-page arcade engine (referenced via <script src>)
+    - assets/pyodide-runner.js      # the in-browser real-package runner (examples/interactive)
+    - _wheels/system_ident-0.0.1-py3-none-any.whl  # built fresh by the pre-render hook below
   pre-render:
     - python -m quartodoc build
+    # Build a pure-Python wheel for the in-browser (Pyodide) deep-dive so it always runs the
+    # CURRENT package, never a stale copy. Gitignored; rebuilt on every render (CI included).
+    - python -m pip wheel .. --no-deps -w _wheels -q
   render:
     - index.qmd
     - tutorial/*.qmd

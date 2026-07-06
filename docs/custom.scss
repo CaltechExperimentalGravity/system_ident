@@ -576,3 +576,48 @@ html { scroll-behavior: smooth; }
   .arc-canvas { height: 280px; }
   .arc-eta-val { font-size: 2.3rem; }
 }
+
+// ─── Pyodide runner (examples/interactive — real package in the browser) ────
+#pyodide-app {
+  --pyo-ink: #1B2733; --pyo-gold: #C8973A; --pyo-panel: #f7f9fc;
+  --pyo-border: rgba(30,60,100,0.14); --pyo-code: #0b1f33; --pyo-codebg: #fbfcfe;
+  --pyo-out: #0b3d2e; --pyo-outbg: #f0f7f3; --pyo-err: #9b2c2c;
+  margin: 1.4rem 0;
+}
+.pyodide-cell {
+  border: 1px solid var(--pyo-border); border-radius: 12px; overflow: hidden;
+  background: var(--pyo-panel);
+}
+.pyo-code {
+  width: 100%; box-sizing: border-box; border: 0; resize: vertical; min-height: 8rem;
+  padding: 1rem 1.1rem; background: var(--pyo-codebg); color: var(--pyo-code);
+  font: 400 0.86rem/1.55 'JetBrains Mono', ui-monospace, monospace;
+  tab-size: 4; outline: none; display: block;
+}
+.pyo-code:focus { box-shadow: inset 0 0 0 2px rgba(200,151,58,0.35); }
+.pyo-bar {
+  display: flex; align-items: center; gap: 0.9rem;
+  padding: 0.6rem 1.1rem; border-top: 1px solid var(--pyo-border);
+}
+.pyo-run {
+  font: 600 0.85rem 'Outfit', sans-serif; padding: 0.45rem 1.1rem; border-radius: 8px;
+  border: 0; background: var(--pyo-gold); color: #fff; cursor: pointer;
+}
+.pyo-run:hover { filter: brightness(1.06); }
+.pyo-run:disabled { opacity: 0.55; cursor: progress; }
+.pyo-status { font: 500 0.82rem 'Outfit', sans-serif; color: #6b7a8d; }
+.pyo-status[data-k="load"]  { color: var(--pyo-gold); }
+.pyo-status[data-k="ready"] { color: #2D9D6B; }
+.pyo-status[data-k="err"]   { color: var(--pyo-err); font-weight: 600; }
+.pyo-out {
+  margin: 0; padding: 0; max-height: 0; overflow: hidden; transition: max-height 0.2s ease;
+  font: 400 0.85rem/1.5 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--pyo-out); background: var(--pyo-outbg); white-space: pre-wrap;
+}
+.pyo-out:not(:empty) { max-height: 30rem; padding: 0.9rem 1.1rem; border-top: 1px solid var(--pyo-border); }
+
+.quarto-dark #pyodide-app {
+  --pyo-ink: #e6edf3; --pyo-panel: #131b24; --pyo-border: rgba(150,180,210,0.16);
+  --pyo-code: #dbe6f0; --pyo-codebg: #0e151d; --pyo-out: #8fe3c0; --pyo-outbg: #0d1a15;
+  --pyo-err: #f2a3a3;
+}
