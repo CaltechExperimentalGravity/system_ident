@@ -33,3 +33,11 @@ stay documented).
 - Any `quantize`/`ADC_*`/`DAC_*` distortion constant or function in the twin/experiment.
 - Any post-hoc mangling of the recorded readout (round/clip/quantize) that is not a
   traceable, in-loop physical effect.
+
+## Reduced-plant fidelity (2026-07-06)
+The committed reduced suspension models (`system_ident/models/{quad,hsts}_reduced_50hz.npz`,
+modal truncation to 50 Hz) are portable numpy-only plants used by example 11 and the phase-3
+HSTS oracle test. The reduced **HSTS** is built from the same `hsts_full.mat` as the compiled
+`x1hsts6dof` twin, and `tests/test_reduced_vs_compiled_twin.py` (local-only, twin-gated) confirms
+their in-band modes coincide to **< 1e-6 (measured 1.9e-11)** — the reduced numpy plant is
+faithful to the real CDS front-end's modal physics. **Physical / verified.**
