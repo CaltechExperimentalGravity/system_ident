@@ -9,7 +9,7 @@ pip install --no-deps -e .
 # open time). A single conversion failure must not fail the whole image build.
 for f in 01-single-resonance 02-double-pendulum 03-fabry-perot-cavity 04-suspension-multidof \
          05-closed-loop-arm 06-two-by-two-coupled 08-darm-calibration 09-rank1-modal-mimo \
-         11-reduced-quad; do
+         11-reduced-quad 12-reduced-quad-closed; do
     quarto convert "docs/examples/$f.qmd" -o "docs/examples/$f.ipynb" \
         || echo "WARN: quarto convert $f failed (badge for it will be missing)"
 done

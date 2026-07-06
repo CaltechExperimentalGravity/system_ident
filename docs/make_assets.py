@@ -153,6 +153,20 @@ def thumb_11():
     return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
 
 
+def thumb_12():
+    # Closed-loop reduced-QUAD: the open-loop yaw plant recovered THROUGH the damping loops
+    # (controller cancelled by the reference-based FRF), over the band-limited drive — the
+    # flagship closed-loop method on a real reduced aLIGO quad via python-control.
+    f = np.linspace(0.4, 3.5, 800)
+    m = TFModel.from_resonances([(0.599, 60), (1.349, 90), (2.391, 120), (3.036, 140)], 100.0)
+    mag = np.abs(m.eval(f))
+    Pxx = optimal_excitation(f, m, np.ones_like(f), 1.0, n_iter=6)
+    coup = TFModel.from_resonances([(1.349, 90), (3.036, 140)], 25.0)
+    extra = [go.Scatter(x=f, y=np.abs(coup.eval(f)), mode="lines",
+             line=dict(color=sp.ROSE, width=2.5))]
+    return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
+
+
 def thumb_10():
     # SRM modal identification through the real L1-SRM loops: the recovered HSTS
     # magnitude (the 13 resolvable Q≈50 modes, 0.67–3.78 Hz) over the band-limited
@@ -200,7 +214,7 @@ def og_card():
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
               "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07,
-              "09": thumb_09, "10": thumb_10, "11": thumb_11}
+              "09": thumb_09, "10": thumb_10, "11": thumb_11, "12": thumb_12}
 
 if __name__ == "__main__":
     # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.

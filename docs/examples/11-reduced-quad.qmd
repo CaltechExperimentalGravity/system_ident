@@ -97,4 +97,6 @@ lumped teaching plant or the local-only compiled twin. The frequencies of the fo
 rigid-body modes come back to a part in 10⁵ and their (model-set) Q to a percent, all in portable
 numpy — the realistic, reproducible middle the reduced models were brought in to provide. The
 same machinery drives the [SRM demo](10-srm-hsts.qmd) through real production loops on the twin;
-here it runs anywhere.
+here it runs anywhere. For the **closed-loop** version — the same reduced quad identified *through*
+its damping loops with the controller cancelled (via `python-control`), see
+[example 12](12-reduced-quad-closed.qmd).
