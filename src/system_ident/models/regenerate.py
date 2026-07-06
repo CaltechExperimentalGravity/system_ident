@@ -17,8 +17,10 @@ CUTOFF_HZ = 50.0
 
 
 def _modes_from_A(A: np.ndarray, f_c: float) -> list[tuple[float, float]]:
-    """Oracle modes: conjugate-pair eigenvalues with 1e-6 < f0 <= f_c (drops the
-    spurious >f_c eigenvalues the prescaled realization shows). Returns sorted (f0, Q)."""
+    """Oracle modes: conjugate-pair eigenvalues with 1e-6 < f0 <= 1.05*f_c (a 5% margin
+    keeps the boundary mode just above the cutoff — e.g. the QUAD's 50.37 Hz mode — while
+    still dropping the spurious >>f_c eigenvalues the prescaled realization shows). Returns
+    sorted (f0, Q)."""
     lam = sla.eig(np.asarray(A, float), right=False)
     out = []
     for z in lam:

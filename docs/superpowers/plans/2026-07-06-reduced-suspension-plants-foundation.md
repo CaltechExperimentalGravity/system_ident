@@ -14,7 +14,7 @@
 - Run everything via `conda run -n sysid`.
 - Trunk-based: commit to `main`.
 - Reduced models are committed data (owner-approved for the public repo); each carries a provenance/attribution sidecar.
-- Oracle modes come from `scipy.linalg.eig(A)` filtered to conjugate pairs with `1e-6 < f0 ≤ f_c` — **not** raw `np.linalg.eigvals` (spurious >f_c values on the prescaled realization).
+- Oracle modes come from `scipy.linalg.eig(A)` filtered to conjugate pairs with `1e-6 < f0 ≤ 1.05·f_c` (a 5% margin keeps the boundary mode just above the cutoff, e.g. the QUAD's 50.37 Hz mode) — **not** raw `np.linalg.eigvals` (spurious >>f_c values on the prescaled realization).
 
 ---
 
