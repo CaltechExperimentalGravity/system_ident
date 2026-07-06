@@ -17,10 +17,17 @@ the now-public repo.
 
 Two reduced continuous state-space models, copied as committed data with a metadata sidecar:
 
-| Model | Source (twin) | Size | Notes |
+| Model | Source (twin) | Reduced size @ 50 Hz | Notes |
 |---|---|---|---|
-| **QUAD** | `twin/outputs/quad_reduced.npz` | 75 states, 36 in, 42 out, ~108 KB | modal truncation of the 1483-state full QUAD; the flagship reduction |
-| **HSTS** (triple) | modal-truncation of `aligo-suspension-models/hsts_full.mat` via the twin's `sus_modal` | ~36 states | triples are already compact (a 50 Hz cut is a near-no-op); regenerated in the QUAD format for consistency |
+| **QUAD** | modal-truncation of `aligo-suspension-models/quad_full.mat` (1483 states) via `sus_modal.compute_reduction("quad", 50)` | **59 states**, 36 in, 42 out, 31 modes (≤49.3 Hz) | the flagship reduction; real quad rigid-body modes (0.43/0.46/0.52 Hz pendulums …) |
+| **HSTS** (triple) | modal-truncation of `hsts_full.mat` (36 states) via `sus_modal.compute_reduction("hsts", 50)` | **36 states**, 24 in, 18 out, 18 modes (0.672–40.4 Hz) | a 50 Hz cut keeps all 36; **captures the exact SRM modes** — the 0.672/0.676 spatial doublet, the 1.512/1.516/1.527 triplet, 0.848, 2.038 Hz — so it is the SRM physics, portable and self-contained |
+
+**Regen confirmed (2026-07-06).** Both run **from the sysid env** (`sus_modal`/`plant_loader` are
+pure numpy/scipy — no `control`/`slycot`), reading the full `.mat` from `$DIGITAL_TWIN_DIR/
+aligo-suspension-models`. `ReducedPlant.inputs`/`.outputs` carry clean physical channel labels
+(`gnd.disp.L`, `M0.drive.L`, `m1.disp.L`, …). Modes for the oracle come from `kept_freqs_hz` /
+`eigvals_red` (authoritative), **not** raw `np.linalg.eigvals(A)` (which reads spurious high
+values on the prescaled realization).
 
 Each `.npz` carries `A, B, C, D, eigvals_red, f_mode_cut`. The modes preserve each real-plant
 mode's **frequency and Q exactly** (modal truncation is eigenvalue-preserving), so the
@@ -122,14 +129,19 @@ row to the twin-fidelity ledger: "reduced SS ≈ compiled twin to X% over [0.1, 
 - No migration of examples 01–03 (keep the simple lumped on-ramp).
 - HLTS and other suspension types are out of scope (QUAD + HSTS only).
 
-## 7. Open items to resolve in implementation
-1. **HSTS reduced generation.** The twin has an ASC-specific `hsts_asc_reduced_order32.npz`; we
-   want the general damping-DOF HSTS. Regenerate via the twin's `sus_modal` modal truncation on
-   `hsts_full.mat` (keeps all ~36 states) into the QUAD `.npz` format, and pick the DOF sub-block
-   the SRM/MIMO work uses.
-2. **Channel-label extraction.** Pull the real `sic` input/output labels from the twin and write
+## 7. Model regeneration (decided) + open implementation items
+
+**Both models are (re)generated fresh at the canonical `f_c = 50 Hz`** (owner decision,
+2026-07-06) via the twin's modal-truncation reducer (`twin/src/twin/sus_modal.py`) on the full
+`quad_full.mat` / `hsts_full.mat`, emitted in one common `.npz` format (`A,B,C,D,eigvals_red,
+f_mode_cut`). We do **not** reuse the committed 100 Hz `quad_reduced.npz` or the ASC-specific
+`hsts_asc_reduced_order32.npz`. The regen is a documented step that runs in the twin (its env);
+the *outputs* are copied + committed into `system_ident`.
+
+Open items to resolve during implementation:
+1. **Channel-label extraction.** Pull the real `sic` input/output labels from the twin and write
    them to the sidecars (the raw `.npz` `input_labels` is a placeholder string).
-3. **Backend noise model.** Reuse the existing sensor-noise convention (the SISO/MIMO campaigns'
+2. **Backend noise model.** Reuse the existing sensor-noise convention (the SISO/MIMO campaigns'
    `sensor_asd`/`Pyy`) so drive/SNR semantics match the rest of the pipeline.
-4. **QUAD cutoff.** The committed `quad_reduced.npz` used `f_c = 100 Hz` (36 modes to 427 Hz);
-   confirm this is the intended canonical cut vs the doc's 50 Hz, or re-reduce.
+3. **HSTS DOF sub-block.** Pick the damping-DOF I/O sub-block of the ~36-state HSTS the SRM/MIMO
+   work targets (the 6 top-mass DOFs), via `.subplant`.
