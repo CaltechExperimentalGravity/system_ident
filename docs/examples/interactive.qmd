@@ -2,9 +2,11 @@
 title: "Run it live — the real package in your browser"
 ---
 
-The [landing-page game](../index.qmd) is a stylised, JavaScript version of one real
-computation. Here is that computation in **actual `system_ident`**, running in your browser
-through WebAssembly (Pyodide) — no install, no server. The same `TFModel`,
+The [landing-page game](../index.qmd) and the [excitation playground](../playground.qmd) are
+stylised, JavaScript versions of one real computation — the playground lets you race every kind
+of drive (swept sines, noise, Schroeder multisines…) on two axes. Here is that computation in
+**actual `system_ident`**, running in your browser through WebAssembly (Pyodide) — no install,
+no server. The same `TFModel`,
 `optimal_excitation`, and Cramér–Rao code the rest of these docs run, only this time *you*
 drive it. Edit the cell and press **Run**.
 

@@ -1,0 +1,51 @@
+---
+title: "Excitation playground"
+subtitle: "Ten ways to spend one drive-power budget — race them all"
+page-layout: full
+listing: false
+---
+
+One resonant plant, one fixed drive-power budget, and every excitation you might reach for:
+**optimal, flat, and shaped multisines** (Schroeder, random, or cophased phase), **linear and
+logarithmic swept sines**, and **broadband and shaped noise**. Pick any of them and watch two
+numbers — and the whole scoreboard — update live, all in your browser, no install.
+
+```{=html}
+<div id="excitation-playground" class="excitation-playground"></div>
+<script src="assets/excitation-playground.js"></script>
+```
+
+## The two axes
+
+Every drive here spends the **same total power**. What changes is *how* it spends it, and that
+splits cleanly into two independent stories:
+
+- **Time to identify to 5%** — set by the drive's **power spectrum** $P_{xx}(f)$ alone. This is
+  the real Cramér–Rao bound (the same Fisher kernel as the [landing-page game](index.qmd) and the
+  [`system_ident` pipeline](examples/interactive.qmd)). Pile power where the plant's modal
+  parameters are least certain and the clock plummets; spread it flat and you wait ~40× longer.
+  Notice that *every* flat-spectrum drive — flat multisine, white noise, a linear sweep — shares
+  the **same** time, whatever its phase. Fisher can't tell them apart.
+
+- **Crest factor at the DAC** — set by the **phases**, not the power. Two drives with an identical
+  spectrum can differ 8× in crest: a **Schroeder** multisine flattens the waveform toward the
+  $\sqrt2$ single-tone floor, **random** phases give a noise-like ~3.4, and **cophased** lines pile
+  into an impulse (~15) that a real actuator would clip. Crest is measured on the actual samples the
+  DAC would emit — no whitening-filter sleight of hand.
+
+## Why the optimal multisine wins
+
+Put the two together and the champion (★) is the **Fisher-optimal multisine with Schroeder
+phase**: fastest *and* low-crest. A swept sine matches its crest but wastes power off-resonance;
+broadband noise is beaten on both axes (and, not shown here, pays a further leakage / variance
+penalty for being aperiodic). That is the entire case for
+[optimal excitation](tutorial/why-optimal-excitation.qmd) — here it is something you can *feel* by
+clicking, before a single equation.
+
+::: {.callout-tip appearance="simple"}
+## Then make it real
+This page is a fast JavaScript twin for playing. When you want the genuine article — the real
+`optimal_excitation`, `TFModel`, and Cramér–Rao code running on an actual reduced aLIGO
+suspension — the [**Run it live**](examples/interactive.qmd) page executes the real `system_ident`
+package in your browser through WebAssembly.
+:::
