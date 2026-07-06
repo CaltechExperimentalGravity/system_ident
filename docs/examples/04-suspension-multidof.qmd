@@ -11,6 +11,8 @@ categories: [multi-DoF, campaign]
 - Reading per-DoF convergence and the standard diagnostics across a suspension.
 :::
 
+> **On a real reduced plant:** the same multi-DoF MIMO campaign runs on the committed 59-state reduced aLIGO **quad** (numpy-only, CI/Binder) in [example 11](11-reduced-quad.qmd) — lumped teaching plant here, real reduced dynamics there.
+
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/04-suspension-multidof.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 A 3-DoF suspension (POS / PIT / YAW) identified the **Pintelon–Schoukens** way — the same

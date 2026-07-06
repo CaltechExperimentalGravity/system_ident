@@ -12,6 +12,8 @@ freeze: true
 - The theory behind it: [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
 
+> **On real reduced plants:** the identical rank-1 joint modal fit runs on a real reduced aLIGO **quad** in [example 11](11-reduced-quad.qmd) (CI/Binder, no twin), and the reduced **HSTS** reproduces the SRM spatial-doublet resolution portably (`tests/test_reduced_hsts_oracle.py`).
+
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/09-rank1-modal-mimo.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The earlier MIMO example identifies a 2×2 plant element by element. This one fits the whole

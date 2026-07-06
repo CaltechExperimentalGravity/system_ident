@@ -11,6 +11,8 @@ categories: [MIMO, coupling]
 - Element-by-element recovery — the step before the *joint* modal fit of examples 09–10.
 :::
 
+> **On a real reduced plant:** for genuine coupled aLIGO dynamics (a 4×4 reduced-quad yaw chain, not a lumped 2×2), see [example 11](11-reduced-quad.qmd) — the same rank-1 modal recovery, numpy-only.
+
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/06-two-by-two-coupled.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
