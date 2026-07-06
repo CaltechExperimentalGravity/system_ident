@@ -1,0 +1,131 @@
+{
+  "inputs": [
+    "gnd.disp.L",
+    "gnd.disp.T",
+    "gnd.disp.V",
+    "gnd.disp.Y",
+    "gnd.disp.P",
+    "gnd.disp.R",
+    "m1.drive.L",
+    "m1.drive.T",
+    "m1.drive.V",
+    "m1.drive.Y",
+    "m1.drive.P",
+    "m1.drive.R",
+    "m2.drive.L",
+    "m2.drive.T",
+    "m2.drive.V",
+    "m2.drive.Y",
+    "m2.drive.P",
+    "m2.drive.R",
+    "m3.drive.L",
+    "m3.drive.T",
+    "m3.drive.V",
+    "m3.drive.Y",
+    "m3.drive.P",
+    "m3.drive.R"
+  ],
+  "outputs": [
+    "m1.disp.L",
+    "m1.disp.T",
+    "m1.disp.V",
+    "m1.disp.Y",
+    "m1.disp.P",
+    "m1.disp.R",
+    "m2.disp.L",
+    "m2.disp.T",
+    "m2.disp.V",
+    "m2.disp.Y",
+    "m2.disp.P",
+    "m2.disp.R",
+    "m3.disp.L",
+    "m3.disp.T",
+    "m3.disp.V",
+    "m3.disp.Y",
+    "m3.disp.P",
+    "m3.disp.R"
+  ],
+  "modes": [
+    [
+      0.6724966928459635,
+      49.9999999999931
+    ],
+    [
+      0.6758337722749075,
+      50.00000000004149
+    ],
+    [
+      0.8483906713287775,
+      49.999999999999304
+    ],
+    [
+      1.0051028374716096,
+      50.000000000014914
+    ],
+    [
+      1.0917876363926993,
+      49.999999999998145
+    ],
+    [
+      1.511968572555738,
+      49.999999999976794
+    ],
+    [
+      1.515588574335785,
+      49.99999999999677
+    ],
+    [
+      1.5267338042251695,
+      49.99999999999639
+    ],
+    [
+      2.038095052836999,
+      50.00000000000057
+    ],
+    [
+      2.1844695229059927,
+      49.99999999999927
+    ],
+    [
+      2.761710616305092,
+      50.00000000000582
+    ],
+    [
+      2.806705490907823,
+      49.999999999999396
+    ],
+    [
+      2.981694906681143,
+      49.999999999994934
+    ],
+    [
+      3.2092564938987684,
+      50.00000000000112
+    ],
+    [
+      3.4240130800273936,
+      49.99999999999639
+    ],
+    [
+      3.781359719251859,
+      50.00000000000076
+    ],
+    [
+      27.320105108526928,
+      49.9999999999998
+    ],
+    [
+      40.36901302011595,
+      49.999999999999815
+    ]
+  ],
+  "provenance": {
+    "sus_type": "hsts",
+    "source": "aligo-suspension-models/hsts_full.mat",
+    "method": "modal truncation (twin/src/twin/sus_modal.py::compute_reduction)",
+    "cutoff_hz": 50.0,
+    "n_full": 36,
+    "n_states": 36,
+    "note": "Reduced-order aLIGO suspension model, modal truncation to the control band. Redistribution approved by the repo owner. QUAD near-undamped modes carry a uniform structural shift, so their Q is model-set, not physical; HSTS modes carry structural Q=50."
+  }
+}
