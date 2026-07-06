@@ -2,6 +2,13 @@
 title: "Fisher information & optimal excitation"
 ---
 
+::: {.callout-note appearance="simple"}
+## Prerequisites
+Assumes [The method](overview.qmd) (the loop) and [The model](model.qmd) (how a plant is
+parameterized). This page uses Fisher information and the Cramér–Rao bound throughout — see
+the [glossary](glossary.qmd) for **CRB**, **dispersion**, and **D-optimal** if they are new.
+:::
+
 ## From model to measurement budget
 
 Every measurement experiment faces the same tension: you have a finite amount of

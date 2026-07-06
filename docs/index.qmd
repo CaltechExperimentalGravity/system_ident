@@ -161,6 +161,25 @@ display(HTML(f"""
 </div>
 
 <div class="page-section">
+  <p class="section-label">New here?</p>
+  <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
+    A reading path
+  </h2>
+  <p>Read in this order — each step builds on the last:</p>
+  <ol style="line-height:1.9; padding-left:1.3rem;">
+    <li><a href="tutorial/overview.html"><strong>The method</strong></a> — the whole loop in one page (start here).</li>
+    <li><a href="tutorial/model.html"><strong>The model</strong></a> — how a plant is parameterized.</li>
+    <li><a href="tutorial/fisher.html"><strong>Fisher &amp; excitation</strong></a> — where to spend the drive, and when two modes are resolvable.</li>
+    <li><a href="tutorial/closing-the-loop.html"><strong>Closing the loop</strong></a> — the ML fit, inverse-variance accumulation, closed-loop identification.</li>
+    <li><a href="tutorial/mimo-modal.html"><strong>MIMO &amp; joint modal</strong></a> — from one DoF to a coupled suspension.</li>
+    <li><a href="tutorial/safety-and-ops.html"><strong>Safety &amp; operations</strong></a> — watchdog, ramps, safe handoff.</li>
+    <li><a href="examples/01-single-resonance.html"><strong>Worked examples</strong></a> — the executable ladder, 01 → 10.</li>
+  </ol>
+  <p>New to the vocabulary? The <a href="tutorial/glossary.html">glossary</a> defines every
+     load-bearing term with a pointer to where it is used.</p>
+</div>
+
+<div class="page-section">
   <p class="section-label">Get started</p>
   <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
     Run the twin demo

@@ -1,0 +1,148 @@
+---
+title: "Glossary"
+---
+
+The load-bearing terms in `system_ident`, each defined once with a pointer to where it is
+used. If a tutorial or example page drops a term cold, it is defined here.
+
+## Measurement
+
+Periodic multisine
+:   The excitation waveform: a sum of harmonically related sinusoids whose period is exactly
+    the analysis window, tiled over the record and Tukey-ramped at the leading edge. Because
+    it is periodic over the window, the response DFT is **leakage-free**.
+    See [The method](overview.qmd#why-a-periodic-multisine).
+
+Excited lines / synchronous bins
+:   The DFT bins that carry drive power — placed on the integer-period grid so each sinusoid
+    lands exactly on a bin. A parametric fit uses only these bins. "Synchronous" means the
+    capture spans an integer number of drive periods, which is what makes the DFT leakage-free.
+
+Leakage-free FRF
+:   A frequency response measured with no spectral leakage: a sharp resonance is measured at
+    its true peak with no near-resonance bias, because the synchronous DFT of a periodic drive
+    puts all of a line's power in one bin. Contrast a one-off random record, whose non-periodic
+    DFT smears resonance power into neighbouring bins.
+
+Reference-based FRF (ratio-of-averages)
+:   The estimator $\hat H = \overline{Y}/\overline{X}$ — the ratio of the *period-averaged*
+    output and input spectra, **not** the cross-/auto-spectrum $S_{yx}/S_{xx}$. Averaging the
+    complex spectra projects onto the deterministic multisine, which cancels loop and sensor
+    noise; in **closed loop** it returns the open-loop plant with no controller model.
+    See [The method](overview.qmd#why-a-reference-based-frf).
+
+Schroeder phases
+:   The deterministic per-line phases (P&S §4) that make the multisine's peak-to-RMS ratio
+    (crest factor) near-minimal, so a saturation-limited actuator carries the most in-band
+    power for a fixed peak.
+
+Crest factor
+:   Peak-to-RMS ratio of a waveform. Low crest = more RMS (in-band) power under a hard peak
+    limit. Note the crest that matters is the one **at the DAC/actuator node**, after any
+    whitening or coil-driver filtering — not the plant-referred waveform.
+
+## Design & Fisher information
+
+Fisher information $I(\theta)$
+:   How many *nats* of information the experiment carries about each model parameter, for a
+    given drive PSD $P_{xx}$, readout-noise PSD $P_{yy}$, and time $T$. Its inverse is the
+    Cramér–Rao bound. See [Fisher & excitation](fisher.qmd#from-model-to-measurement-budget).
+
+Cramér–Rao bound (CRB)
+:   $I(\theta)^{-1}$ — the smallest parameter covariance any unbiased estimator can achieve.
+    The ML fit attains it asymptotically, so the CRB is both the design target and the reported
+    error bar. **Compute it before calling anything a limit.**
+
+Dispersion function $\nu(f)$
+:   $\nu(f) = P_\text{tot}\,\mathrm{tr}[I(\theta)^{-1} M(f)]$, the sensitivity of the
+    information ellipsoid to a unit of drive power placed at $f$. High $\nu$ = the most
+    informative bins. See [Fisher & excitation](fisher.qmd#the-dispersion-function).
+
+D-optimal design / Kiefer–Wolfowitz equivalence
+:   The design criterion "maximise $\log\det I(\theta)$" (the log-volume of the information
+    ellipsoid). The equivalence theorem says the optimum is the drive for which
+    $\nu(f) = n_\theta$ on the support of $P_{xx}$ — the fixed point the dispersion reweighting
+    converges to.
+
+Prior-robust excitation
+:   The **first pass** drive: the optimal spectrum averaged over the prior's plausible
+    resonance band $f_0(1\pm u)$, so even a far (±50 %) prior still puts power where the true
+    resonance is. Later passes concentrate once the model is trusted.
+    See [The method](overview.qmd#the-loop).
+
+Inverse-variance accumulation
+:   Combining each pass's FRF estimate bin-by-bin, weighted by $1/\sigma^2$, so broadband
+    early-pass coverage is never discarded, only enriched by later concentrated passes.
+    See [Closing the loop](closing-the-loop.qmd#inverse-variance-accumulation).
+
+## Estimation & fitting
+
+Maximum likelihood (GML)
+:   The Gaussian maximum-likelihood fit that minimises $\sum_k |\hat H - G|^2/\sigma^2(f_k)$ —
+    asymptotically unbiased and efficient (attains the CRB). Each residual is weighted by its
+    own measured variance. See [Closing the loop](closing-the-loop.qmd).
+
+Fractional uncertainty (stop criterion)
+:   $\max_i \sqrt{\mathrm{Cov}(\theta)_{ii}}/|\theta_i|$ from the accumulated CRB — the loop's
+    DONE test. A target of 0.05 (5 %) is conservative for most suspension campaigns.
+
+Sample-ML / equation error / errors-in-variables (EIV)
+:   The MIMO estimator's cost: it fits the equation error $e = \hat Y - G\,\hat U$ weighted by
+    the projected input/output sample covariance. Because it carries the noise on *both* $Y$
+    and the measured input $U$, it is unbiased in closed loop and needs **no** FRF matrix
+    inverse. See [MIMO & joint modal](mimo-modal.qmd#the-estimator-sample-ml-no-matrix-inverse).
+
+dof (degrees of freedom)
+:   The number of periods/blocks behind the sample covariance. P&S require $\text{dof} \ge
+    n_y + 8$ for a trustworthy MIMO CRB (⇒ 14 for a 6-DoF suspension); fewer can converge but
+    the error bars are not yet trustworthy.
+
+## Models & modes
+
+Q (quality factor)
+:   $Q = |\lambda|/(-2\,\mathrm{Re}\,\lambda)$ for a pole $\lambda$ — how sharp/long-ringing a
+    resonance is. High-Q modes ring for $\tau = Q/(\pi f_0)$ seconds and need a long record to
+    resolve.
+
+Ringdown $\tau$ / linewidth $\Gamma$
+:   A mode's time constant $\tau = Q/(\pi f_0)$ and its full-width $\Gamma = f_0/Q$. Together
+    they size the campaign: resolving $Q$ needs $df \le \Gamma/(\text{a few bins})$ and
+    $T \gtrsim Q/f_0$. See [MIMO & joint modal](mimo-modal.qmd#sizing-the-measurement-resolution-from-the-ringdown).
+
+Rank-1 modal model / mode shape
+:   The MIMO parameterization $G_{ij}(s) = \sum_k \varphi_{k,i}\psi_{k,j}/(s_n^2+b_k s_n+a_k)$:
+    shared modal poles $(a_k,b_k)$ with a rank-1 residue $R_k = \varphi_k\psi_k^\top$ per mode
+    (sensor shape $\varphi_k$, actuator shape $\psi_k$). Coupling lives in the mode shapes, not
+    the residue rank. See [MIMO & joint modal](mimo-modal.qmd#shared-poles-coupled-elements).
+
+Common-denominator model ($B/A$)
+:   P&S's default MIMO form: one scalar shared denominator (the poles) with a free numerator
+    polynomial per I/O element. Correct when residues are full-rank; for reciprocal,
+    proportionally-damped suspensions the rank-1 modal form is used instead because free
+    numerators otherwise absorb pole errors at MIMO scale.
+
+## Resolution & near-degeneracy
+
+Spatial doublet
+:   Two modes coincident in *frequency* but living in *orthogonal DOF subspaces* (e.g. the
+    $\{L,P,V\}$ vs $\{T,R,Y\}$ planes of a suspension). A shared-pole fit collapses them —
+    a parameterization artifact — but `fit_block_decoupled` resolves both by fitting each
+    block alone, with **no** finer $df$. See [example 10](../examples/10-srm-hsts.qmd).
+
+Super-resolution
+:   Parametric ML resolving two modes closer than one linewidth — impossible for
+    non-parametric peak-picking. The CRB says at what budget: the required $\text{SNR}\cdot N$
+    grows as a steep but finite power of $\Gamma/\Delta f$. A cost, not a wall.
+    See [When are two modes resolvable?](fisher.qmd#when-are-two-modes-resolvable).
+
+Rayleigh limit (non-parametric)
+:   The classical "can't resolve closer than one bin / one linewidth" rule. It applies to
+    peak-picking, **not** to a parametric fit — never quote it against ML. It is the vertical
+    line the resolvability map crosses.
+
+## Safety & operations
+
+Watchdog / safe handoff
+:   The monitor that checks actuator saturation and RMS every read segment; a breach — or an
+    operator STOP — triggers a ramped safe handoff outside the measured record.
+    See [Safety & operations](safety-and-ops.qmd).

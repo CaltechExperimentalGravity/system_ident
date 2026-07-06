@@ -15,6 +15,16 @@ The answer to *where* comes from Fisher information theory; the answer to *how t
 measure and fit* comes from the periodic-multisine, leakage-free FRF and the
 Gaussian maximum-likelihood estimator.
 
+::: {.callout-tip}
+## New here? A reading path
+This is the place to start — no prerequisites beyond basic signals / linear-systems
+familiarity. Then read, in order: [The model](model.qmd) → [Fisher &
+excitation](fisher.qmd) → [Closing the loop](closing-the-loop.qmd) → [MIMO & joint
+modal](mimo-modal.qmd) → [Safety & operations](safety-and-ops.qmd), and work the
+[examples](../examples/index.qmd) 01 → 10 alongside. Unsure of a term? The
+[glossary](glossary.qmd) defines every load-bearing one.
+:::
+
 ## The loop
 
 ```{mermaid}

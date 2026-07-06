@@ -47,6 +47,8 @@ website:
             text: MIMO & joint modal
           - href: tutorial/safety-and-ops.qmd
             text: Safety & operations
+          - href: tutorial/glossary.qmd
+            text: Glossary
       - href: examples/index.qmd
         text: Examples
       - href: reference/index.qmd

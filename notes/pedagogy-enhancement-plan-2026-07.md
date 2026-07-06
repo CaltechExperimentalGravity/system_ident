@@ -14,7 +14,10 @@
 > Top-5 action **#3 ✅ done** — new `tutorial/mimo-modal.qmd` (shared poles, rank-1 residue,
 > sample-ML/no-inverse, data-driven `find_modes`, CRB→f0/Q + dof≥n_y+8, `recommend_resolution`,
 > spatial vs frequency doublets; wired into the Tutorial nav; cross-links to fisher.qmd/ex09/ex10).
-> Remaining: #4 glossary + on-ramp, #5 Fisher info-ellipse.
+> Top-5 action **#4 ✅ done** — new `tutorial/glossary.qmd` (~22 terms, definition lists, each
+> cross-linked to where it's used; wired into nav) + newcomer on-ramp ("A reading path" section on
+> `index.qmd`, reading-path callout on `overview.qmd`, prerequisites callout on `fisher.qmd`).
+> Remaining: #5 Fisher info-ellipse.
 
 ## 1 · Verdict
 
