@@ -11,7 +11,10 @@
 > `doublet_resolved_fig`/`doublet_table` added (commit on `main`). Top-5 action **#2 ✅ done** —
 > `sp.resolvability_map` + `fisher.qmd` §"When are two modes resolvable?" (CRB-computed boundary,
 > exponent fitted from data ≈ 3.2, SRM within-plane pair marked; reciprocal cross-link with ex10).
-> Remaining: #3 MIMO tutorial page, #4 glossary + on-ramp, #5 Fisher info-ellipse.
+> Top-5 action **#3 ✅ done** — new `tutorial/mimo-modal.qmd` (shared poles, rank-1 residue,
+> sample-ML/no-inverse, data-driven `find_modes`, CRB→f0/Q + dof≥n_y+8, `recommend_resolution`,
+> spatial vs frequency doublets; wired into the Tutorial nav; cross-links to fisher.qmd/ex09/ex10).
+> Remaining: #4 glossary + on-ramp, #5 Fisher info-ellipse.
 
 ## 1 · Verdict
 

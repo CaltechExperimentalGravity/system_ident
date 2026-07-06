@@ -43,6 +43,8 @@ website:
             text: Fisher & excitation
           - href: tutorial/closing-the-loop.qmd
             text: Closing the loop
+          - href: tutorial/mimo-modal.qmd
+            text: MIMO & joint modal
           - href: tutorial/safety-and-ops.qmd
             text: Safety & operations
       - href: examples/index.qmd
