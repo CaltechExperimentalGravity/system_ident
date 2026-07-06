@@ -29,47 +29,15 @@ toc: false
 </div>
 ```
 
-::: {.column-screen-inset style="max-width:980px; margin:1.5rem auto 0;"}
+::: {.column-screen-inset style="max-width:1080px; margin:1.5rem auto 0;"}
 
-Press **Play** to watch the Pintelon–Schoukens fixed-point iteration reshape a flat drive
-into the Fisher-optimal excitation, concentrating power near the resonance where each Hz
-contributes the most information.
+**Drag the gold curve** to redistribute the drive energy across frequency, then watch how long
+it takes to identify the plant to 5%. Two resonances share one power budget — feed the mode
+whose **Q** is least certain. The tall peak is a trap; the flat sweep is slow. Can you reach par?
 
-```{python}
-#| echo: false
-#| output: true
-#| warning: false
-import sys, pathlib
-_p = pathlib.Path.cwd()
-for _c in [_p, *_p.parents]:
-    for _d in (_c, _c / "docs"):
-        if (_d / "sysid_plots.py").exists() and str(_d) not in sys.path:
-            sys.path.insert(0, str(_d))
-import numpy as np
-import sysid_plots as sp
-from system_ident.model import TFModel
-from system_ident.design.pintelon import optimal_excitation
-from system_ident.fisher import parameter_covariance
-
-freq   = np.linspace(0.1, 4.0, 600)
-model  = TFModel.from_resonances([(1.0, 20.0)], gain=1.0)
-Pyy, Px_tot = np.ones_like(freq), 1.0
-resp = np.abs(model.eval(freq))
-
-# every fixed-point iteration, flat -> Fisher-optimal (one call records them all)
-Pxx_rec, _, _ = optimal_excitation(freq, model, Pyy, Px_tot, n_iter=8, rec_progress=True)
-flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
-asd_iters = [np.sqrt(flat)] + [np.sqrt(p) for p in Pxx_rec]
-
-cov_opt  = parameter_covariance(freq, model, Pxx_rec[-1], Pyy, 256.0)
-cov_flat = parameter_covariance(freq, model, flat,        Pyy, 256.0)
-ratio    = np.max(np.diag(cov_flat)) / np.max(np.diag(cov_opt))
-
-fig = sp.animate_design(freq, resp, asd_iters, height=470)
-fig.update_layout(title=dict(
-    text=f"<b>The optimal drive forming</b>  —  {ratio:.0f}× lower parameter variance than a flat sweep",
-    x=0.5, xanchor="center", y=0.98))
-fig.show()
+```{=html}
+<div id="excitation-arcade" class="excitation-arcade"></div>
+<script src="assets/excitation-arcade.js"></script>
 ```
 
 :::
@@ -81,10 +49,17 @@ fig.show()
 ```{python}
 #| echo: false
 #| output: true
-# Emit the stat row, populating the headline pill with the SAME computed `ratio`
-# used in the figure title above (single source of truth — no hardcoded number,
-# no dead placeholder). display(HTML(...)) passes through as raw HTML, so the
-# rendered page carries the real number statically (no markdown reprocessing).
+# Emit the stat row. The headline pill shows the arcade's own flat-vs-optimal gap
+# (time to 5% ∝ worst-parameter variance), computed from the same reference the
+# game uses (docs/arcade_reference.py) — single source of truth, no hardcoded number.
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "arcade_reference.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+import arcade_reference as _ar
+ratio = _ar.eta_seconds(_ar.flat_drive())[0] / _ar.eta_seconds(_ar.optimal_drive())[0]
 from IPython.display import display, HTML
 display(HTML(f"""
 <div class="stat-row">

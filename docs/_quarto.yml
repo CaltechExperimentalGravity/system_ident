@@ -7,6 +7,8 @@ project:
   type: website
   output-dir: _site
   execute-dir: project   # run every page from docs/ so `import sysid_plots` resolves
+  resources:
+    - assets/excitation-arcade.js   # the landing-page arcade engine (referenced via <script src>)
   pre-render:
     - python -m quartodoc build
   render:
