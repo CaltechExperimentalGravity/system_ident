@@ -111,7 +111,9 @@ Identification: A Frequency Domain Approach*, 2nd ed., Wiley-IEEE Press, 2012 โ€
 periodic excitation and leakage-free measurement). Tiling many periods also gives
 an *internal*, model-free noise estimate: the scatter of the per-period response
 about its average is the measurement uncertainty on each bin, with no assumption
-about the noise shape.
+about the noise shape. See [the same high-Q mode measured with and without
+leakage](why-optimal-excitation.qmd#broadband-random-noise-leaks-and-is-variance-inefficient),
+side by side, for what this buys.
 
 The **Schroeder phases** (P&S ยง4) set the relative phase of each line so the
 waveform's peak-to-RMS ratio (crest factor) is near-minimal. Under a hard actuator

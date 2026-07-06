@@ -6,6 +6,12 @@ categories: [calibration, closed-loop, DARM]
 freeze: true
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- The multisine pipeline applied to the **gravitational-wave readout** (DARM).
+- Recovering the sensing function and per-stage actuation, leakage-free.
+:::
+
 The earlier examples identify suspensions. This one identifies the **gravitational-wave
 readout itself** — the DARM loop a LIGO calibration group characterises every run. The
 method does not change: a periodic multisine, a leakage-free reference FRF, a measured

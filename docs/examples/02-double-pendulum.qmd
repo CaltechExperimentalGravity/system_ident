@@ -5,6 +5,12 @@ image: thumbnails/02.svg
 categories: [SISO, multi-mode]
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- How the optimal drive splits a *fixed* power budget across two resonances (the idea the [landing-page game](../index.qmd) makes interactive).
+- Recovering both modes (0.6 Hz / 1.5 Hz) jointly, each with its own CRB.
+:::
+
 The canonical two-mode plant: a double pendulum with modes at 0.6 Hz (Q = 20) and
 1.5 Hz (Q = 30), gain 300. We run the **identical full diagnostic set** as
 [example 01](01-single-resonance.qmd) — excitation design, time series, a

@@ -31,9 +31,10 @@ if str(_DOCS) not in sys.path:
     sys.path.insert(0, str(_DOCS))
 
 import sysid_plots as sp  # noqa: E402
-from sysid_campaign import run_siso_passes  # noqa: E402
+from sysid_campaign import run_siso_passes, physical_value, param_sigmas  # noqa: E402
 
 from system_ident.model import TFModel  # noqa: E402
+from system_ident.estimators.gml import GMLEstimator  # noqa: E402
 from system_ident.plant import (  # noqa: E402
     SuspensionPlant, double_pendulum, coupled_suspension,
     ALIGO_LONG_MODES_HZ, ALIGO_PITCH_MODES_HZ,
@@ -747,3 +748,67 @@ def headtohead_table(head, leak, sweep, cl):
                 f"column is shown). The closed-loop reference FRF recovered the "
                 f"open-loop plant to {cl.rel*100:.1f}% through a {cl.suppression:.0f}× "
                 "suppressing loop.")
+
+
+# ─── CRB pull test: does the ML fit actually attain the Cramér–Rao bound? ──────────
+_PULL = SimpleNamespace(f0=1.0, Q=40.0, gain=1.0, fs=64.0, nperseg=2048, nper=16,
+                        asd=0.5, fmin=0.3, fmax=4.0)
+
+
+def crb_pull_campaign(n_seeds=140):
+    """Monte-Carlo efficiency test. Fit a single resonance from ``n_seeds`` independent
+    noisy measurements at a FIXED optimal drive; normalise each recovered parameter's error
+    by its predicted CRB σ. If the fit is efficient and the bound honest, the pulls
+    ``(fit − true)/σ`` are standard normal.
+
+    Shown for **Q and the gain** — the parameters whose precision is set by measurement
+    noise here. (f₀ is pinned ~1000× tighter by the resonance's phase crossing, so its error
+    is numerical, not statistical — not a useful pull test. See §2.)
+    """
+    P = _PULL
+    G = TFModel.from_resonances([(P.f0, P.Q)], P.gain)
+    fa = np.fft.rfftfreq(P.nperseg, 1 / P.fs)
+    band = (fa >= P.fmin) & (fa <= P.fmax)
+    freq = fa[band]
+    Pyy = np.full_like(freq, P.asd ** 2)
+    Pxx = optimal_excitation(freq, G, Pyy, PX_TOTAL, n_iter=6)
+    T = P.nperseg * P.nper / P.fs
+    cov = parameter_covariance(freq, G, Pxx, Pyy, T)      # the package's CRB
+    sig = param_sigmas(G, cov, ("Q", "gain"))
+    true = {n: physical_value(G, n) for n in ("Q", "gain")}
+    est = GMLEstimator()
+    pulls = {"Q": [], "gain": []}
+    for s in range(n_seeds):
+        be = TwinBackend(SuspensionPlant({"POS": G}, P.fs), {"E": "POS"}, {"R": "POS"},
+                         fs=P.fs, sensor_asd=P.asd, seed=s, ramp_s=0.0)
+        x = multisine_from_psd(Pxx, P.fs, P.nperseg, P.nper, freq,
+                               seed=np.random.default_rng(9000 + s))
+        be.inject("E", x, P.fs)
+        seg = be.read(["E", "R"], T)
+        H, He, _ = SysIDLoop._estimate_tf_periodic(seg["E"], seg["R"], P.fs, P.nperseg,
+                                                   band, n_transient=1)
+        m = est.fit(freq, H, He, G)
+        for n in pulls:
+            pulls[n].append((physical_value(m, n) - true[n]) / sig[n])
+    allp = np.array(pulls["Q"] + pulls["gain"])
+    return SimpleNamespace(pulls=pulls, sig=sig, true=true, n_seeds=n_seeds,
+                           Q=P.Q, nper=P.nper, pooled=allp,
+                           emp_std=float(allp.std()), emp_mean=float(allp.mean()))
+
+
+def crb_pull_fig(c, *, height=440):
+    """Histogram of the normalised errors (fit − true)/σ_CRB, pooled over Q and gain,
+    against the standard normal. Standing on the Cramér–Rao bound looks like 𝒩(0,1)."""
+    fig = go.Figure()
+    fig.add_histogram(x=c.pooled, histnorm="probability density", nbinsx=26,
+                      marker=dict(color=sp._fade(sp.GOLD, 0.5),
+                                  line=dict(color=sp._fade(sp.GOLD, 0.9), width=1)),
+                      name="normalised error")
+    xs = np.linspace(-4, 4, 200)
+    fig.add_scatter(x=xs, y=np.exp(-0.5 * xs ** 2) / np.sqrt(2 * np.pi), mode="lines",
+                    line=dict(color=sp.SKY, width=2.8), name="standard normal 𝒩(0,1)")
+    fig.update_xaxes(title_text="normalised error   (fit − true) / σ<sub>CRB</sub>", range=[-4, 4])
+    fig.update_yaxes(title_text="probability density")
+    fig.update_layout(title=f"The ML fit stands on the Cramér–Rao bound — pulls are 𝒩(0,1) "
+                            f"(empirical σ = {c.emp_std:.2f} over {c.n_seeds} seeds × 2 params)")
+    return sp.style(fig, height=height)

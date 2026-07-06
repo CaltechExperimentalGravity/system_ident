@@ -50,6 +50,39 @@ modes.  Adding modes is a modelling decision made at campaign setup time,
 not an automatic step.
 :::
 
+## Does the fit actually reach the bound?
+
+"Efficient" is a claim you can test. Run the fit on many independent noisy measurements of the
+same plant at a fixed optimal drive, and normalise each recovered parameter's error by its
+**predicted** Cramér–Rao σ. If the estimator is efficient and the bound honest, those normalised
+errors — the *pulls* $(\hat\theta - \theta_0)/\sigma$ — are standard normal: no bias (centred on
+zero) and no over-optimism (unit width).
+
+```{python}
+#| code-summary: "Setup — import the presentation glue"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    for _d in (_c, _c / "docs"):
+        if (_d / "method_demo.py").exists() and str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
+import method_demo as md
+```
+
+```{python}
+#| label: fig-crb-pull
+#| fig-cap: "Normalised parameter errors (fit − true)/σ_CRB, pooled over Q and gain across 140 independent noisy measurements, against the standard normal. Landing on 𝒩(0,1) means the ML fit attains the Cramér–Rao bound and the reported σ is the real one."
+#| code-summary: "Monte-Carlo pull test against the CRB"
+c = md.crb_pull_campaign()
+md.crb_pull_fig(c)
+```
+
+The pulls fall on $\mathcal{N}(0,1)$: the ML fit **sits on the Cramér–Rao bound**, and the σ it
+reports is the real one — not an over-optimistic underestimate. (Shown for $Q$ and the gain, the
+noise-limited parameters here; $f_0$ is pinned so tightly by the resonance's phase crossing that
+its error is numerical, not statistical — a happy problem.) The slight residual width above 1 is
+finite-sample inflation, which shrinks toward 1 as the period count grows.
+
 ## Inverse-variance accumulation
 
 Each pass produces a new complex transfer function estimate `H⁽ⁿ⁾(f)` with
@@ -145,7 +178,9 @@ The open-loop plant FRF uses **X = the after-controller drive `u`** (the plant i
 **Y = the response `y`**; the ratio of period-averaged spectra projects onto the
 deterministic multisine and yields `G` for **either injection point** (the controller
 cancels). The after-controller drive must be its own channel: under *before-controller*
-injection the injected signal is **not** `u`.
+injection the injected signal is **not** `u`. See [the recovered open-loop plant through a
+live damping loop](why-optimal-excitation.qmd#a-closed-loop-is-not-an-obstacle) for this
+cancellation shown on a real closed-loop measurement — controller *cancelled, not fit*.
 
 Declare it in the config:
 

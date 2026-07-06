@@ -6,6 +6,12 @@ categories: [MIMO, closed-loop, modal]
 freeze: true
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- The rank-1 **joint MIMO modal fit**: shared poles, per-mode rank-1 residues, data-driven mode-finding.
+- The theory behind it: [MIMO & joint modal](../tutorial/mimo-modal.qmd).
+:::
+
 The earlier MIMO example identifies a 2×2 plant element by element. This one fits the whole
 coupled plant **jointly**: a six-degree-of-freedom suspension running in a closed damping
 loop, where every transfer-function element shares the same modal poles. The measurement is

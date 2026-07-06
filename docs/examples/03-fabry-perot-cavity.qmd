@@ -5,6 +5,12 @@ image: thumbnails/03.svg
 categories: [SISO, SNR-limited]
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- What identification looks like with **no resonance to aim at** — a plain low-pass.
+- Why a flat in-band drive is the right design when there is nothing to concentrate on.
+:::
+
 Different physics: an optical cavity is a single-pole low-pass,
 
 $$G(s) = \frac{\omega_c}{s + \omega_c},$$

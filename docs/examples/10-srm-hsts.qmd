@@ -6,6 +6,12 @@ categories: [twin, closed-loop, MIMO, modal]
 freeze: true
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- The joint modal fit on the **real L1-SRM** through its production damping loops.
+- τ-driven resolution design and resolving the spatial doublet — grounded in [MIMO & joint modal](../tutorial/mimo-modal.qmd).
+:::
+
 Example [09](09-rank1-modal-mimo.qmd) demonstrates the joint-MIMO modal fit on a teaching
 plant. This page runs the same step on the **real thing**: the SRM is an HSTS suspension, and
 it is identified here through its **real production L1-SRM top-mass dampers** — the foton

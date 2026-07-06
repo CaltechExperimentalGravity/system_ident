@@ -5,6 +5,12 @@ image: thumbnails/06.svg
 categories: [MIMO, coupling]
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- A genuine 2×2 coupled MIMO plant: shared normal modes, diagonal notches, real cross-coupling.
+- Element-by-element recovery — the step before the *joint* modal fit of examples 09–10.
+:::
+
 Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
 **not** a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
 the *same normal modes*, so the honest model is a coupled 2×2 matrix

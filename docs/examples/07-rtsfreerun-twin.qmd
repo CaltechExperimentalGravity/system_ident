@@ -6,6 +6,12 @@ categories: [twin, closed-loop, MIMO]
 freeze: true
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- The same P&S pipeline on the real **compiled-CDS** front-end (RTSfreerun twin).
+- Open-loop recovery under twin seismic + readout noise, then the 6-DoF plant with production loops closed.
+:::
+
 Examples [01–06](index.qmd) identify *teaching* plants — lumped resonances and a coupled
 normal-mode expansion. This one identifies the **real thing**: a compiled
 [`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun) advligorts front-end model

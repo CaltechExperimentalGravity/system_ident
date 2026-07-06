@@ -5,6 +5,12 @@ image: thumbnails/05.svg
 categories: [closed-loop]
 ---
 
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- Identifying with the damping loop **closed**, using no controller model.
+- How the reference-based FRF cancels the controller — see [closing the loop](../tutorial/closing-the-loop.qmd#identifying-in-closed-loop-controller-aware).
+:::
+
 The most realistic case: a suspension identified **with its damping loop closed**. The
 feedback fights the very resonance we are measuring, so the instrument shows the
 *closed-loop* response $T = P/(1+PC)$, whose peak is suppressed by the loop gain $1+PC$.
