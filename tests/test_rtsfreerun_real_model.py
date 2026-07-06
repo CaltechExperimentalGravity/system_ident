@@ -18,6 +18,7 @@ campaign recovers the HSTS drive→sensor plant (the order-10 ``HSTS_DRV_TF`` ca
 5 modes ~0.67–3.78 Hz each Q≈50), the fractional uncertainty falls pass over pass,
 and the recovered plant matches the oracle in FRF and modal frequencies.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -30,8 +31,10 @@ from system_ident.backends.rtsfreerun_adapter import RTSfreerunBackend
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docs"))
 from sysid_campaign import run_siso_passes  # noqa: E402  (the P&S campaign the examples use)
 
-# The twin scenario the model was built from. Path is machine-specific; skip if absent.
-SCENARIO = Path("/Users/rana/Desktop/Dropbox/GIT/digital_twin/twin/scenarios/hsts.yaml")
+# The twin scenario the model was built from. Machine-specific; skip if absent.
+# Override the twin location with $DIGITAL_TWIN_DIR (defaults to the local checkout).
+_TWIN = os.environ.get("DIGITAL_TWIN_DIR") or Path.home() / "Desktop" / "Dropbox" / "GIT" / "digital_twin"
+SCENARIO = Path(_TWIN) / "twin" / "scenarios" / "hsts.yaml"
 
 EXC, DRIVE_MON, SENSOR = "COIL_DRIVER_EXC", "COIL_DRIVER_OUT", "READOUT_NOISE_OUT"
 FS, NPER, NPERIODS = 256.0, 4096, 6

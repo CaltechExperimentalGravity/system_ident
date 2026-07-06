@@ -21,13 +21,15 @@ not the scenario-YAML ZPK cascade the single-DOF ``x1hsts`` rungs use.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 
 # Machine-specific twin checkout (the one carrying the foton/SDF/.mat archives).
-TWIN = Path("/Users/rana/GIT/digital_twin")
+# Override with $DIGITAL_TWIN_DIR; defaults to ~/GIT/digital_twin.
+TWIN = Path(os.environ.get("DIGITAL_TWIN_DIR") or Path.home() / "GIT" / "digital_twin")
 EXAMPLE = TWIN / "twin" / "examples" / "sus_hsts_6dof"
 
 

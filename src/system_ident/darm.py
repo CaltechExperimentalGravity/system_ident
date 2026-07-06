@@ -85,8 +85,14 @@ class DARMLoop:
         rolloff pole, and the sensing transport delay — shaped for a stable loop
         with healthy phase margin.  D is then derived so G = A·D·C exactly."""
         f = np.asarray(freq, dtype=float)
-        return (self.f_ugf / (1j * f)) / (1.0 + 1j * f / self.f_hi) \
-            * np.exp(-2j * np.pi * f * self.tau)
+        # The 1/f integrator diverges at DC (f=0, the rfft grid's first bin, always
+        # out of band). Compute with the expected divide/invalid warnings silenced,
+        # then set the DC bin to 0 so nothing downstream (1+G, C/(1+G), …) trips an
+        # invalid-value warning on the propagated infinity.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            g = (self.f_ugf / (1j * f)) / (1.0 + 1j * f / self.f_hi) \
+                * np.exp(-2j * np.pi * f * self.tau)
+        return np.where(f == 0.0, 0.0, g)
 
     def G(self, freq) -> np.ndarray:
         return self._ol_shape(freq)

@@ -47,7 +47,7 @@ strategy:
 
 rtsfreerun:
   model: x1hsts                 # the built rtsfreerun module to import
-  scenario: /Users/rana/Desktop/Dropbox/GIT/digital_twin/twin/scenarios/hsts.yaml
+  scenario: ${DIGITAL_TWIN_DIR}/twin/scenarios/hsts.yaml   # $DIGITAL_TWIN_DIR = the twin checkout
   warmup_s: 24.0                # settle the high-Q low-frequency modes before recording (discarded)
   noise:                        # the twin's realistic background, injected each read
     - {channel: ISI_RESIDUAL_EXC,  kind: seismic, params: {preset: ligo-india}}

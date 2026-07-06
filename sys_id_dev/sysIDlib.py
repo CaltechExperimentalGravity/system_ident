@@ -1,7 +1,14 @@
-"""
-Hang Yu
-hang.yu2@montana.edu
-Jan, 2024
+"""Frequency-domain system-identification engine (SISO Pintelon–Schoukens reference).
+
+The original optimal-excitation / maximum-likelihood-fit routines, first written
+Jan 2024. This is the reference implementation the packaged pipeline is validated
+against and ported from (see ``system_ident.estimators.invfreqs``).
+
+Authors: Hang Yu (hang.yu2@montana.edu), Nathan Holland, Rana X. Adhikari.
+
+Copyright (C) 2024 Hang Yu, Nathan Holland, Rana X. Adhikari.
+Released under the GNU General Public License v3.0-or-later; see the LICENSE file
+at the repository root.
 """
 
 

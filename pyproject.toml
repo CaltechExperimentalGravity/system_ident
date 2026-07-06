@@ -9,7 +9,11 @@ description = "Real-time, optimal-excitation system identification for LIGO susp
 readme = "src/system_ident/README.md"
 requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
-authors = [{ name = "LIGO SysID contributors" }]
+authors = [
+    { name = "Hang Yu", email = "hang.yu2@montana.edu" },
+    { name = "Nathan Holland" },
+    { name = "Rana X. Adhikari", email = "rana@caltech.edu" },
+]
 keywords = ["LIGO", "system-identification", "suspension", "controls", "CDS"]
 
 # Core runtime deps. The CDS backend (nds2/awg) is optional and lazy-imported

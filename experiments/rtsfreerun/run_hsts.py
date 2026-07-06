@@ -21,6 +21,7 @@ digital twin"). Writes a Bode overlay PNG next to this file.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -46,7 +47,9 @@ def main() -> int:
     import yaml
     raw = yaml.safe_load(open(CONFIG))
     rc = RunConfig(raw=raw)
-    scen_path = raw["rtsfreerun"]["scenario"]
+    # Resolve $DIGITAL_TWIN_DIR (and ~) in the scenario path; default to the local checkout.
+    _twin = os.environ.get("DIGITAL_TWIN_DIR") or str(Path.home() / "Desktop" / "Dropbox" / "GIT" / "digital_twin")
+    scen_path = os.path.expanduser(raw["rtsfreerun"]["scenario"].replace("${DIGITAL_TWIN_DIR}", _twin))
     if not Path(scen_path).exists():
         sys.exit(f"scenario not found: {scen_path}")
     scen = orc.load_scenario(scen_path)

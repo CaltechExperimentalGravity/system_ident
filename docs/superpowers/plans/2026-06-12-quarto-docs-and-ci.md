@@ -10,7 +10,7 @@
 
 **Conventions for this plan:**
 - All commands run in the `sysid` conda env: prefix with `conda run --no-capture-output -n sysid`.
-- Repo root is `/Users/rana/Desktop/Dropbox/GIT/system_ident`; paths below are relative to it.
+- Repo root is the `system_ident` checkout; paths below are relative to it.
 - Commit author: `git -c user.name="RXA" -c user.email="rana@caltech.edu" commit`.
 
 ---
