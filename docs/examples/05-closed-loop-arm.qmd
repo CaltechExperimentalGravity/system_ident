@@ -11,7 +11,7 @@ categories: [closed-loop]
 - How the reference-based FRF cancels the controller — see [closing the loop](../tutorial/closing-the-loop.qmd#identifying-in-closed-loop-controller-aware).
 :::
 
-[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/05-closed-loop-arm.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/05-closed-loop-arm.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The most realistic case: a suspension identified **with its damping loop closed**. The
 feedback fights the very resonance we are measuring, so the instrument shows the

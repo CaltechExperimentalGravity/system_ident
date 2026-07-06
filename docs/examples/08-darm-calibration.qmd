@@ -12,7 +12,7 @@ freeze: true
 - Recovering the sensing function and per-stage actuation, leakage-free.
 :::
 
-[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/08-darm-calibration.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The earlier examples identify suspensions. This one identifies the **gravitational-wave
 readout itself** — the DARM loop a LIGO calibration group characterises every run. The

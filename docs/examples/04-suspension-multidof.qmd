@@ -11,7 +11,7 @@ categories: [multi-DoF, campaign]
 - Reading per-DoF convergence and the standard diagnostics across a suspension.
 :::
 
-[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/04-suspension-multidof.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/04-suspension-multidof.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 A 3-DoF suspension (POS / PIT / YAW) identified the **Pintelon–Schoukens** way — the same
 sequential, one-DoF-at-a-time campaign the CLI runs. Each degree of freedom gets the

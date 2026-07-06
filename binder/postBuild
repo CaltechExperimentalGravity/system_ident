@@ -3,8 +3,17 @@
 # avoids the slycot/control source builds pip would otherwise attempt).
 set -e
 pip install --no-deps -e .
-# Open .qmd as notebooks by default in this JupyterLab (so a ?urlpath=…/NN.qmd link
-# launches a runnable notebook, not the text editor).
+
+# Pre-convert the pip-runnable examples to native notebooks. The Binder badges point at
+# these .ipynb so they open runnable immediately (no jupytext/quarto viewer round-trip at
+# open time). A single conversion failure must not fail the whole image build.
+for f in 01-single-resonance 02-double-pendulum 03-fabry-perot-cavity 04-suspension-multidof \
+         05-closed-loop-arm 06-two-by-two-coupled 08-darm-calibration 09-rank1-modal-mimo; do
+    quarto convert "docs/examples/$f.qmd" -o "docs/examples/$f.ipynb" \
+        || echo "WARN: quarto convert $f failed (badge for it will be missing)"
+done
+
+# Also let jupytext open the raw .qmd as notebooks (for browsing beyond the converted set).
 mkdir -p "${HOME}/.jupyter/labconfig"
 cat > "${HOME}/.jupyter/labconfig/default_setting_overrides.json" <<'JSON'
 { "@jupyterlab/docmanager-extension:plugin": {

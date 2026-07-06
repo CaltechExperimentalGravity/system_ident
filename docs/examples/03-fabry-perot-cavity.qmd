@@ -11,7 +11,7 @@ categories: [SISO, SNR-limited]
 - Why a flat in-band drive is the right design when there is nothing to concentrate on.
 :::
 
-[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/03-fabry-perot-cavity.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/03-fabry-perot-cavity.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 Different physics: an optical cavity is a single-pole low-pass,
 

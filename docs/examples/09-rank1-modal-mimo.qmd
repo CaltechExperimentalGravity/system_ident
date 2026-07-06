@@ -12,7 +12,7 @@ freeze: true
 - The theory behind it: [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
 
-[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/main?urlpath=lab/tree/docs/examples/09-rank1-modal-mimo.qmd)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
+[![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/09-rank1-modal-mimo.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The earlier MIMO example identifies a 2×2 plant element by element. This one fits the whole
 coupled plant **jointly**: a six-degree-of-freedom suspension running in a closed damping

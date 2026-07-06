@@ -23,7 +23,7 @@
       cell.style.position = "relative";
       const badge = document.createElement("a");
       badge.className = "gallery-binder";
-      badge.href = `https://mybinder.org/v2/gh/${REPO}/HEAD?urlpath=lab/tree/docs/examples/${m[1]}.qmd`;
+      badge.href = `https://mybinder.org/v2/gh/${REPO}/HEAD?urlpath=lab/tree/docs/examples/${m[1]}.ipynb`;
       badge.target = "_blank";
       badge.rel = "noopener";
       badge.title = "Launch this example live in Binder";
