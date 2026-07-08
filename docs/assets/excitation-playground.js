@@ -154,10 +154,9 @@
     for (let b = 0; b < N_BINS; b++) { const a = amp[b], w = 2 * Math.PI * FREQ[b], p = phi[b]; if (a === 0) continue; for (let j = 0; j < NT; j++) x[j] += a * Math.cos(w * TVEC[j] + p); }
     return x;
   }
-  function sweptSine(kind) {
-    const T = NT / FS, x = new Float64Array(NT);
-    if (kind === "lin") { const mu = (F_HI - F_LO) / T; for (let j = 0; j < NT; j++) { const t = TVEC[j]; x[j] = Math.sin(2 * Math.PI * (F_LO * t + 0.5 * mu * t * t)); } }
-    else { const K = Math.log(F_HI / F_LO); for (let j = 0; j < NT; j++) { const t = TVEC[j]; x[j] = Math.sin(2 * Math.PI * F_LO * T / K * (Math.exp(K * t / T) - 1)); } }
+  function sweptSine() {                  // constant-amplitude linear sweep over the band (crest ~ sqrt2)
+    const T = NT / FS, mu = (F_HI - F_LO) / T, x = new Float64Array(NT);
+    for (let j = 0; j < NT; j++) { const t = TVEC[j]; x[j] = Math.sin(2 * Math.PI * (F_LO * t + 0.5 * mu * t * t)); }
     return x;
   }
 
@@ -168,8 +167,7 @@
     { key: "flat_schroeder", label: "Flat · Schroeder", group: "Multisine", power: "flat" },
     { key: "flat_random", label: "Flat · random phase", group: "Multisine", power: "flat" },
     { key: "cophased", label: "Cophased (impulse)", group: "Multisine", power: "flat" },
-    { key: "chirp_lin", label: "Swept sine · linear", group: "Swept sine", power: "flat" },
-    { key: "chirp_log", label: "Swept sine · logarithmic", group: "Swept sine", power: "pink" },
+    { key: "chirp_lin", label: "Swept sine", group: "Swept sine", power: "flat" },
     { key: "white", label: "Broadband white noise", group: "Noise", power: "flat" },
     { key: "pink", label: "Shaped noise · 1/f", group: "Noise", power: "pink" },
     { key: "shaped_fisher", label: "Shaped noise · Fisher-matched", group: "Noise", power: "optimal" },
@@ -183,8 +181,7 @@
       case "flat_schroeder": return multisine(P, "schroeder");
       case "flat_random": return multisine(P, "random");
       case "cophased": return multisine(P, "zero");
-      case "chirp_lin": return sweptSine("lin");
-      case "chirp_log": return sweptSine("log");
+      case "chirp_lin": return sweptSine();
       case "white": return multisine(P, "random");
       case "pink": return multisine(P, "random");
       case "shaped_fisher": return multisine(P, "random");

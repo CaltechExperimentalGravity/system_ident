@@ -36,7 +36,6 @@ GOLDEN = {
     "flat_random": (1768.63, 3.421),
     "cophased": (1768.63, 14.922),
     "chirp_lin": (1768.63, 1.415),
-    "chirp_log": (933.31, 1.414),
     "white": (1768.63, 3.421),
     "pink": (933.31, 3.407),
     "shaped_fisher": (45.00, 2.002),
@@ -60,11 +59,9 @@ def test_estimation_speed_depends_only_on_the_power_spectrum():
     # optimal-power drives (any phase) tie
     assert b["opt_schroeder"][0] == pytest.approx(b["opt_random"][0], rel=1e-9)
     assert b["opt_schroeder"][0] == pytest.approx(b["shaped_fisher"][0], rel=1e-9)
-    # flat-power drives tie (multisine phases, cophased, linear chirp, white noise)
+    # flat-power drives tie (multisine phases, cophased, swept sine, white noise)
     flat = [b[k][0] for k in ("flat_schroeder", "flat_random", "cophased", "chirp_lin", "white")]
     assert max(flat) == pytest.approx(min(flat), rel=1e-9)
-    # 1/f-power drives tie (log chirp, pink noise)
-    assert b["chirp_log"][0] == pytest.approx(b["pink"][0], rel=1e-9)
 
 
 def test_crest_depends_on_phase_not_power():

@@ -96,7 +96,7 @@ def power_of(kind):
         return power_optimal()
     if kind in ("flat_schroeder", "flat_random", "cophased", "chirp_lin", "white"):
         return power_flat()
-    if kind in ("chirp_log", "pink"):
+    if kind == "pink":
         return power_shaped(1.0)
     raise KeyError(kind)
 
@@ -140,16 +140,11 @@ def multisine(P, phase="schroeder", seed=SEED):
     return x, _crest(x)
 
 
-def swept_sine(kind="lin"):
-    """Constant-amplitude swept sine over the band; return (waveform, crest)."""
+def swept_sine():
+    """Constant-amplitude linear swept sine over the band; return (waveform, crest)."""
     T = NT / FS
-    if kind == "lin":
-        mu = (F_HI - F_LO) / T
-        ph = 2 * np.pi * (F_LO * TVEC + 0.5 * mu * TVEC ** 2)
-    else:  # logarithmic sweep
-        K = np.log(F_HI / F_LO)
-        ph = 2 * np.pi * F_LO * T / K * (np.exp(K * TVEC / T) - 1)
-    x = np.sin(ph)
+    mu = (F_HI - F_LO) / T
+    x = np.sin(2 * np.pi * (F_LO * TVEC + 0.5 * mu * TVEC ** 2))
     return x, _crest(x)
 
 
@@ -172,9 +167,7 @@ def waveform_of(kind):
     if kind == "cophased":
         return multisine(power_flat(), "zero")
     if kind == "chirp_lin":
-        return swept_sine("lin")
-    if kind == "chirp_log":
-        return swept_sine("log")
+        return swept_sine()
     if kind == "white":
         return noise(0.0)
     if kind == "pink":
@@ -186,7 +179,7 @@ def waveform_of(kind):
 
 CATALOG = [
     "opt_schroeder", "opt_random", "flat_schroeder", "flat_random", "cophased",
-    "chirp_lin", "chirp_log", "white", "pink", "shaped_fisher",
+    "chirp_lin", "white", "pink", "shaped_fisher",
 ]
 
 

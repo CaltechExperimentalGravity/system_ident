@@ -6,8 +6,8 @@ listing: false
 ---
 
 One resonant plant, one fixed drive-power budget, and every excitation you might reach for:
-**optimal, flat, and shaped multisines** (Schroeder, random, or cophased phase), **linear and
-logarithmic swept sines**, and **broadband and shaped noise**. Pick any of them and watch two
+**optimal, flat, and shaped multisines** (Schroeder, random, or cophased phase), a **swept
+sine**, and **broadband and shaped noise**. Pick any of them and watch two
 numbers — and the whole scoreboard — update live, all in your browser, no install.
 
 ```{=html}
