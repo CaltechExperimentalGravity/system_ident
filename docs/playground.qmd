@@ -27,20 +27,29 @@ splits cleanly into two independent stories:
   Notice that *every* flat-spectrum drive — flat multisine, white noise, a linear sweep — shares
   the **same** time, whatever its phase. Fisher can't tell them apart.
 
-- **Crest factor at the DAC** — set by the **phases**, not the power. Two drives with an identical
-  spectrum can differ 8× in crest: a **Schroeder** multisine flattens the waveform toward the
-  $\sqrt2$ single-tone floor, **random** phases give a noise-like ~3.4, and **cophased** lines pile
-  into an impulse (~15) that a real actuator would clip. Crest is measured on the actual samples the
-  DAC would emit — no whitening-filter sleight of hand.
+- **Crest factor at the DAC** — set by the **phases**, but *only when the power is spread over many
+  lines*. Take a **broadband** multisine (all 120 lines, equal power) and the phase choice swings the
+  crest 8×: **random** phases give a noise-like ~3.4, **cophased** lines pile into an impulse (~15)
+  that a real actuator would clip, and a **Schroeder** multisine flattens the waveform back toward the
+  $\sqrt2$ single-tone floor (~1.9). Crest is measured on the actual samples the DAC would emit — no
+  whitening-filter sleight of hand.
 
-## Why the optimal multisine wins
+## Why the optimal spectrum wins — and where Schroeder actually helps
 
-Put the two together and the champion (★) is the **Fisher-optimal multisine with Schroeder
-phase**: fastest *and* low-crest. A swept sine matches its crest but wastes power off-resonance;
-broadband noise is beaten on both axes (and, not shown here, pays a further leakage / variance
-penalty for being aperiodic). That is the entire case for
-[optimal excitation](tutorial/why-optimal-excitation.qmd) — here it is something you can *feel* by
-clicking, before a single equation.
+The champion (★) is the **Fisher-optimal spectrum**, and its win is the *spectrum*, not the phase.
+It collapses almost entirely onto **two tones** (all the budget sits on the two resonances —
+effective line count ≈ 2). A two-tone drive already has crest ≈ 2 *whatever the phase*, so here
+`Optimal · Schroeder` and `Optimal · random phase` come out **identical** — Schroeder is doing no
+work. The concentrated spectrum buys you both speed (~40×) and low crest for free.
+
+Schroeder phase earns its keep the moment you are pushed **broadband** — a flat or prior-robust
+multisine that deliberately spreads the budget across all 120 lines for robustness. *There*, random
+phase gives crest ~3.4 and Schroeder claws it back to ~1.9. So the honest recipe: **optimal spectrum
+for speed and naturally low crest; Schroeder phase for when robustness makes you spread the power
+out.** Either way a swept sine matches the crest but wastes power off-resonance, and broadband noise
+loses on speed (and pays a further leakage / variance penalty for being aperiodic). That is the case
+for [optimal excitation](tutorial/why-optimal-excitation.qmd) — something you can *feel* by clicking,
+before a single equation.
 
 ::: {.callout-tip appearance="simple"}
 ## Then make it real

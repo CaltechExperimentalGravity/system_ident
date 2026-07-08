@@ -6,7 +6,9 @@
  *   • time-to-5%  — Fisher/Cramer-Rao, a function of the power spectrum Pxx ALONE.
  *   • crest factor — max|x|/rms of the synthesized DAC waveform, set by the PHASES.
  * The lesson the sandbox makes you feel: estimation speed lives in the spectrum, headroom
- * lives in the phases, and the Fisher-optimal multisine with Schroeder phase wins both.
+ * lives in the phases. The Fisher-optimal spectrum collapses onto ~2 tones, so it is fast AND
+ * low-crest for ANY phase (Schroeder == random there); Schroeder's low-crest win is real only
+ * for BROADBAND multisines, where the power is spread over many comparable lines.
  *
  * The Fisher/CRB kernel is the arcade's (docs/assets/excitation-arcade.js), and the whole
  * engine is the Python twin of docs/playground_reference.py, guarded by
@@ -242,10 +244,12 @@
         <div class="xpg-board">
           <div class="xpg-board-h">Scoreboard <span>same power budget · lower is better</span></div>
           <div class="xpg-rows" id="xpg-rows"></div>
-          <p class="xpg-note">Estimation speed is set by the <b>power spectrum</b>; crest by the
-          <b>phases</b>. The Fisher-optimal multisine with Schroeder phase wins both — a swept sine
-          matches its crest but wastes power off-resonance; broadband noise loses on both (and pays
-          an extra leakage penalty not shown here). This is the whole
+          <p class="xpg-note">Speed is set by the <b>power spectrum</b>, crest by the <b>phases</b>.
+          The optimal drive is nearly <b>two tones</b>, so it is fast <i>and</i> low-crest for any
+          phase — <code>Optimal · Schroeder</code> ≈ <code>Optimal · random</code> here. Schroeder
+          phase only matters once you go <b>broadband</b>: it pulls a flat multisine's crest from
+          ~3.4 down to ~1.9. Swept sines match the crest but waste off-resonance power; broadband
+          noise loses on speed. The whole
           <a href="tutorial/why-optimal-excitation.html">why-optimal-excitation</a> story, to play with.
           <a href="examples/interactive.html">▶ run it in the real package →</a></p>
         </div>

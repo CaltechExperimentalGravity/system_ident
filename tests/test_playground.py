@@ -77,6 +77,27 @@ def test_crest_depends_on_phase_not_power():
     assert b["flat_schroeder"][1] < 2.5                  # Schroeder tames the crest
 
 
+def test_optimal_drive_is_essentially_two_tones():
+    """The optimal spectrum collapses onto ~2 lines (the two resonances) — which is *why* its
+    crest is phase-independent, and why the page must not credit Schroeder for its low crest."""
+    P = pr.power_optimal()
+    p = P / P.sum()
+    n_eff = 1.0 / np.sum(p ** 2)                          # participation ratio
+    assert n_eff < 4.0, f"optimal drive should be a few-tone drive, got N_eff={n_eff:.1f}"
+
+
+def test_schroeder_helps_broadband_not_the_few_tone_optimal():
+    """The corrected claim the page now makes: for the ~2-tone optimal drive, Schroeder and random
+    phase give the SAME crest (phase is moot); Schroeder's real, large win is on broadband drives."""
+    b = pr.scoreboard()
+    # few-tone optimal: Schroeder buys essentially nothing over random phase
+    assert abs(b["opt_schroeder"][1] - b["opt_random"][1]) < 0.1
+    # broadband (all 120 lines): Schroeder's low-crest advantage is large
+    _, flat_s = pr.multisine(pr.power_flat(), "schroeder")
+    _, flat_r = pr.multisine(pr.power_flat(), "random")
+    assert flat_r - flat_s > 1.3
+
+
 def test_champion_is_pareto_optimal():
     """The Fisher-optimal + Schroeder multisine is not dominated: no drive is at least as fast
     AND strictly lower-crest. It is the drive the pipeline actually uses."""
