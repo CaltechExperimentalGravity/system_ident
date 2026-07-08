@@ -9,13 +9,14 @@ The plant and the Fisher/CRB machinery are reused verbatim from ``arcade_referen
 locked constants), which ``tests/test_arcade.py`` already pins to the package's ``TFModel``
 pole convention. This module adds the two things the playground needs beyond the arcade:
 
-1. **Excitation power spectra** ``Pxx(f)`` for each drive family (optimal / flat / shaped
-   multisine, linear & log swept sine, white & shaped noise). ``ETA = C_TIME * worst_frac**2``
-   is a function of ``Pxx`` alone — estimation speed is set by the *power spectrum*.
-2. **Crest factors** of the actual time-domain drive. Crest is set by the *phases*, not the
-   power: a Schroeder multisine and a random-phase multisine can share one ``Pxx`` yet have
-   wildly different crest. Crest is measured on the synthesized waveform the DAC would emit
-   (no whitening-filter conflation) — ``max|x| / rms(x)``.
+1. **Excitation power spectra** ``Pxx(f)`` for each drive family (optimal multisine, linear
+   swept sine, white & shaped noise). ``ETA = C_TIME * worst_frac**2`` is a function of ``Pxx``
+   alone — estimation speed is set by the *power spectrum*.
+2. **Crest factors** of the actual time-domain drive (``max|x| / rms(x)``) — how peaky the drive
+   is, hence the DAC headroom it needs. The Fisher-optimal drive is ~2 tones, so it is
+   intrinsically low-crest; cophasing many lines explodes it. NB crest is a DAC-referred quantity
+   and phase games at synthesis do not survive the actuation/whitening chain, so this module makes
+   no phase-optimization (e.g. Schroeder) claims — the headroom lever is the spectrum.
 
 ``tests/test_playground.py`` pins the golden ETAs and crest factors the JS is calibrated to.
 Keep this file and the JS numerically in lock-step: edit both, or neither.
@@ -92,9 +93,9 @@ POWER = {
 
 def power_of(kind):
     """Power spectrum for a named drive family (used for ETA)."""
-    if kind in ("opt_schroeder", "opt_random"):
+    if kind == "opt":
         return power_optimal()
-    if kind in ("flat_schroeder", "flat_random", "cophased", "chirp_lin", "white"):
+    if kind in ("cophased", "chirp_lin", "white"):
         return power_flat()
     if kind == "pink":
         return power_shaped(1.0)
@@ -113,26 +114,11 @@ def _crest(x):
     return float(np.max(np.abs(x)) / rms) if rms > 0 else 0.0
 
 
-def schroeder_phases(P):
-    """Schroeder (1970) low-crest phases for line powers P: phi_k = -2*pi*sum_{l<k}(k-l)q_l."""
-    q = np.asarray(P, float) / np.sum(P)
-    phi = np.zeros(len(q))
-    acc = 0.0
-    run = 0.0  # running sum of q_l
-    for k in range(1, len(q)):
-        run += q[k - 1]
-        acc += run
-        phi[k] = -2 * np.pi * acc
-    return phi
-
-
-def multisine(P, phase="schroeder", seed=SEED):
+def multisine(P, phase="random", seed=SEED):
     """Synthesize a multisine drive from line-power spectrum P; return (waveform, crest)."""
     P = np.asarray(P, float)
     amp = np.sqrt(2 * np.clip(P, 0, None) * DF)  # amplitude per line
-    if phase == "schroeder":
-        phi = schroeder_phases(np.clip(P, 1e-30, None))
-    elif phase == "random":
+    if phase == "random":
         phi = _rand_phases(len(P), seed)
     else:  # cophased / zero
         phi = np.zeros(len(P))
@@ -156,15 +142,9 @@ def noise(alpha=0.0, seed=SEED):
 # ── the catalog: everything the scoreboard races ────────────────────────────────────
 def waveform_of(kind):
     """Synthesized drive (waveform, crest) for a named family."""
-    if kind == "opt_schroeder":
-        return multisine(power_optimal(), "schroeder")
-    if kind == "opt_random":
+    if kind == "opt":                    # ~2 tones -> crest ~2 for any phase
         return multisine(power_optimal(), "random")
-    if kind == "flat_schroeder":
-        return multisine(power_flat(), "schroeder")
-    if kind == "flat_random":
-        return multisine(power_flat(), "random")
-    if kind == "cophased":
+    if kind == "cophased":               # all lines in phase -> impulse (naive)
         return multisine(power_flat(), "zero")
     if kind == "chirp_lin":
         return swept_sine()
@@ -175,10 +155,7 @@ def waveform_of(kind):
     raise KeyError(kind)
 
 
-CATALOG = [
-    "opt_schroeder", "opt_random", "flat_schroeder", "flat_random", "cophased",
-    "chirp_lin", "white", "pink",
-]
+CATALOG = ["opt", "cophased", "chirp_lin", "white", "pink"]
 
 
 def scoreboard():

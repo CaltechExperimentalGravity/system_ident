@@ -1,14 +1,15 @@
 /* Excitation playground — the "try every drive" sandbox.
  *
- * A fixed drive-power budget, ten ways to spend it: optimal / flat / shaped multisines
- * (Schroeder, random, or cophased phase), linear & log swept sines, and white / shaped noise.
- * Each is scored on TWO axes at the same budget:
+ * A fixed drive-power budget, several ways to spend it: the Fisher-optimal multisine, a naive
+ * cophased multisine, a linear swept sine, and white / shaped noise. Each is scored on TWO axes
+ * at the same budget:
  *   • time-to-5%  — Fisher/Cramer-Rao, a function of the power spectrum Pxx ALONE.
- *   • crest factor — max|x|/rms of the synthesized DAC waveform, set by the PHASES.
- * The lesson the sandbox makes you feel: estimation speed lives in the spectrum, headroom
- * lives in the phases. The Fisher-optimal spectrum collapses onto ~2 tones, so it is fast AND
- * low-crest for ANY phase (Schroeder == random there); Schroeder's low-crest win is real only
- * for BROADBAND multisines, where the power is spread over many comparable lines.
+ *   • crest factor — max|x|/rms of the synthesized waveform (peakiness -> DAC headroom).
+ * The lesson: both prizes come from the SPECTRUM. The Fisher-optimal drive collapses onto ~2
+ * tones, so it is fast (~40x) AND intrinsically low-crest (~2). Concentrate the spectrum and you
+ * win speed and headroom together; spread it flat (noise, sweep) and you lose speed; cophase the
+ * lines and the crest explodes. Phase tricks are NOT a real headroom lever here — crest is a
+ * DAC-referred quantity and the actuation/whitening chain scrambles synthesis-time phases.
  *
  * The Fisher/CRB kernel is the arcade's (docs/assets/excitation-arcade.js), and the whole
  * engine is the Python twin of docs/playground_reference.py, guarded by
@@ -138,18 +139,11 @@
   // ── time-domain synthesis + crest factor ───────────────────────────────────────────
   function crest(x) { let s = 0, mx = 0; for (let j = 0; j < x.length; j++) { s += x[j] * x[j]; const a = Math.abs(x[j]); if (a > mx) mx = a; } const rms = Math.sqrt(s / x.length); return rms > 0 ? mx / rms : 0; }
 
-  function schroederPhases(P) {           // -2*pi*sum_{l<k}(k-l) q_l, q = P/sum(P)
-    let tot = 0; for (let b = 0; b < N_BINS; b++) tot += P[b];
-    const phi = new Float64Array(N_BINS); let run = 0, acc = 0;
-    for (let k = 1; k < N_BINS; k++) { run += P[k - 1] / tot; acc += run; phi[k] = -2 * Math.PI * acc; }
-    return phi;
-  }
   function multisine(P, phase, seed) {
     const amp = new Float64Array(N_BINS); for (let b = 0; b < N_BINS; b++) amp[b] = Math.sqrt(2 * Math.max(P[b], 0) * DF);
     let phi;
-    if (phase === "schroeder") { const Pf = new Float64Array(N_BINS); for (let b = 0; b < N_BINS; b++) Pf[b] = Math.max(P[b], 1e-30); phi = schroederPhases(Pf); }
-    else if (phase === "random") { const rnd = mulberry32(seed || SEED); phi = new Float64Array(N_BINS); for (let b = 0; b < N_BINS; b++) phi[b] = 2 * Math.PI * rnd(); }
-    else phi = new Float64Array(N_BINS);
+    if (phase === "random") { const rnd = mulberry32(seed || SEED); phi = new Float64Array(N_BINS); for (let b = 0; b < N_BINS; b++) phi[b] = 2 * Math.PI * rnd(); }
+    else phi = new Float64Array(N_BINS);  // "zero" -> cophased
     const x = new Float64Array(NT);
     for (let b = 0; b < N_BINS; b++) { const a = amp[b], w = 2 * Math.PI * FREQ[b], p = phi[b]; if (a === 0) continue; for (let j = 0; j < NT; j++) x[j] += a * Math.cos(w * TVEC[j] + p); }
     return x;
@@ -162,11 +156,8 @@
 
   // ── the catalog: everything the scoreboard races ───────────────────────────────────
   const CATALOG = [
-    { key: "opt_schroeder", label: "Optimal · Schroeder", group: "Multisine", power: "optimal", champ: true },
-    { key: "opt_random", label: "Optimal · random phase", group: "Multisine", power: "optimal" },
-    { key: "flat_schroeder", label: "Flat · Schroeder", group: "Multisine", power: "flat" },
-    { key: "flat_random", label: "Flat · random phase", group: "Multisine", power: "flat" },
-    { key: "cophased", label: "Cophased (impulse)", group: "Multisine", power: "flat" },
+    { key: "opt", label: "Optimal multisine", group: "Multisine", power: "optimal", champ: true },
+    { key: "cophased", label: "Cophased multisine (naive)", group: "Multisine", power: "flat" },
     { key: "chirp_lin", label: "Swept sine", group: "Swept sine", power: "flat" },
     { key: "white", label: "Broadband white noise", group: "Noise", power: "flat" },
     { key: "pink", label: "Shaped noise · 1/f", group: "Noise", power: "pink" },
@@ -175,11 +166,8 @@
   function waveOf(e) {
     const P = powerOf(e);
     switch (e.key) {
-      case "opt_schroeder": return multisine(P, "schroeder");
-      case "opt_random": return multisine(P, "random");
-      case "flat_schroeder": return multisine(P, "schroeder");
-      case "flat_random": return multisine(P, "random");
-      case "cophased": return multisine(P, "zero");
+      case "opt": return multisine(P, "random");     // ~2 tones -> crest ~2 for any phase
+      case "cophased": return multisine(P, "zero");  // all lines in phase -> impulse (naive)
       case "chirp_lin": return sweptSine();
       case "white": return multisine(P, "random");
       case "pink": return multisine(P, "random");
@@ -190,7 +178,7 @@
   const ENGINE = {
     N_BINS, FREQ, DF, TVEC, THETA: () => THETA, C_TIME, CATALOG,
     frf, fisher, fracPerParam, etaPerParam, etaOverall, rebuildPlant,
-    powerFlat, powerShaped, powerOptimal, multisine, sweptSine, crest, schroederPhases,
+    powerFlat, powerShaped, powerOptimal, multisine, sweptSine, crest,
     powerOf, waveOf, scoreOf, mulberry32,
   };
   if (typeof module !== "undefined" && module.exports) { module.exports = ENGINE; return; }
@@ -239,12 +227,12 @@
         <div class="xpg-board">
           <div class="xpg-board-h">Scoreboard <span>same power budget · fuller bar = better (faster / lower crest)</span></div>
           <div class="xpg-rows" id="xpg-rows"></div>
-          <p class="xpg-note">Speed is set by the <b>power spectrum</b>, crest by the <b>phases</b>.
-          The optimal drive is nearly <b>two tones</b>, so it is fast <i>and</i> low-crest for any
-          phase — <code>Optimal · Schroeder</code> ≈ <code>Optimal · random</code> here. Schroeder
-          phase only matters once you go <b>broadband</b>: it pulls a flat multisine's crest from
-          ~3.4 down to ~1.9. Swept sines match the crest but waste off-resonance power; broadband
-          noise loses on speed. The whole
+          <p class="xpg-note">Both prizes come from the <b>spectrum</b>. The optimal drive is nearly
+          <b>two tones</b>, so it is fast (~40×) <i>and</i> intrinsically low-crest (~2) — no phase
+          tuning. A swept sine is gentle too but wastes off-resonance power; broadband noise loses on
+          speed; cophasing the lines explodes the crest. Crest is a <b>DAC</b> limit, and phase games
+          at synthesis don't survive the actuation chain — so concentrate the spectrum, don't chase
+          phases. The whole
           <a href="tutorial/why-optimal-excitation.html">why-optimal-excitation</a> story, to play with.
           <a href="examples/interactive.html">▶ run it in the real package →</a></p>
         </div>
@@ -261,7 +249,7 @@
 
     const specCv = root.querySelector("#xpg-spec"), waveCv = root.querySelector("#xpg-wave");
     const sctx = specCv.getContext("2d"), wctx = waveCv.getContext("2d");
-    let sel = "opt_schroeder", scores = {}, racing = false;
+    let sel = "opt", scores = {}, racing = false;
 
     function css(v, d) { return getComputedStyle(root).getPropertyValue(v).trim() || d; }
     function recomputeAll() { scores = {}; CATALOG.forEach((e) => { scores[e.key] = scoreOf(e); }); }

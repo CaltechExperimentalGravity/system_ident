@@ -30,10 +30,7 @@ import playground_reference as pr  # noqa: E402
 
 # Golden scoreboard (kind -> (ETA seconds, crest factor)) the JS is calibrated to reproduce.
 GOLDEN = {
-    "opt_schroeder": (45.00, 1.999),
-    "opt_random": (45.00, 2.002),
-    "flat_schroeder": (1768.63, 1.868),
-    "flat_random": (1768.63, 3.421),
+    "opt": (45.00, 2.002),
     "cophased": (1768.63, 14.922),
     "chirp_lin": (1768.63, 1.415),
     "white": (1768.63, 3.421),
@@ -52,55 +49,42 @@ def test_golden_scoreboard():
 
 
 def test_estimation_speed_depends_only_on_the_power_spectrum():
-    """Drives that share a Pxx share an ETA — the sandbox's core claim. Phase is irrelevant
-    to Fisher, so optimal/Schroeder == optimal/random, and the whole flat family ties."""
+    """Drives that share a Pxx share an ETA — the sandbox's core claim. Phase is irrelevant to
+    Fisher, so the flat-power drives (cophased, swept sine, white noise) all tie."""
     b = pr.scoreboard()
-    # optimal-power drives (any phase) tie
-    assert b["opt_schroeder"][0] == pytest.approx(b["opt_random"][0], rel=1e-9)
-    # flat-power drives tie (multisine phases, cophased, swept sine, white noise)
-    flat = [b[k][0] for k in ("flat_schroeder", "flat_random", "cophased", "chirp_lin", "white")]
+    flat = [b[k][0] for k in ("cophased", "chirp_lin", "white")]
     assert max(flat) == pytest.approx(min(flat), rel=1e-9)
 
 
-def test_crest_depends_on_phase_not_power():
-    """Same Pxx, different phases -> different crest. Schroeder < random < cophased impulse;
-    a constant-envelope swept sine sits near the sqrt(2) single-tone floor."""
-    b = pr.scoreboard()
-    assert b["flat_schroeder"][1] < b["flat_random"][1] < b["cophased"][1]
-    assert b["chirp_lin"][1] == pytest.approx(np.sqrt(2), abs=0.02)
-    assert b["cophased"][1] > 10.0                       # cophased lines pile into an impulse
-    assert b["flat_schroeder"][1] < 2.5                  # Schroeder tames the crest
-
-
 def test_optimal_drive_is_essentially_two_tones():
-    """The optimal spectrum collapses onto ~2 lines (the two resonances) — which is *why* its
-    crest is phase-independent, and why the page must not credit Schroeder for its low crest."""
+    """The optimal spectrum collapses onto ~2 lines (the two resonances). This is *why* it is
+    intrinsically low-crest (~2) with no phase tuning, and why the page makes no Schroeder /
+    phase-optimization claim: there is nothing for a phase trick to improve."""
     P = pr.power_optimal()
     p = P / P.sum()
     n_eff = 1.0 / np.sum(p ** 2)                          # participation ratio
     assert n_eff < 4.0, f"optimal drive should be a few-tone drive, got N_eff={n_eff:.1f}"
+    assert pr.waveform_of("opt")[1] < 2.5                 # low crest, from the concentration alone
 
 
-def test_schroeder_helps_broadband_not_the_few_tone_optimal():
-    """The corrected claim the page now makes: for the ~2-tone optimal drive, Schroeder and random
-    phase give the SAME crest (phase is moot); Schroeder's real, large win is on broadband drives."""
+def test_crest_reflects_drive_concentration_not_a_phase_trick():
+    """Crest ranks by how the power is packed, not by any phase cleverness: the swept sine sits
+    near the sqrt(2) constant-envelope floor, the optimal few-tone drive is low, broadband noise
+    is moderate, and cophasing many equal lines detonates into an impulse."""
     b = pr.scoreboard()
-    # few-tone optimal: Schroeder buys essentially nothing over random phase
-    assert abs(b["opt_schroeder"][1] - b["opt_random"][1]) < 0.1
-    # broadband (all 120 lines): Schroeder's low-crest advantage is large
-    _, flat_s = pr.multisine(pr.power_flat(), "schroeder")
-    _, flat_r = pr.multisine(pr.power_flat(), "random")
-    assert flat_r - flat_s > 1.3
+    assert b["chirp_lin"][1] == pytest.approx(np.sqrt(2), abs=0.02)
+    assert b["opt"][1] < b["white"][1] < b["cophased"][1]
+    assert b["cophased"][1] > 10.0                        # cophased lines pile into an impulse
 
 
 def test_champion_is_pareto_optimal():
-    """The Fisher-optimal + Schroeder multisine is not dominated: no drive is at least as fast
-    AND strictly lower-crest. It is the drive the pipeline actually uses."""
+    """The Fisher-optimal multisine is not dominated: no drive is at least as fast AND strictly
+    lower-crest. It is the drive the pipeline actually uses."""
     b = pr.scoreboard()
-    ch_eta, ch_cr = b["opt_schroeder"]
+    ch_eta, ch_cr = b["opt"]
     assert ch_eta == pytest.approx(min(e for e, _ in b.values()), rel=1e-9)  # fastest
     dominated = [k for k, (e, c) in b.items()
-                 if k != "opt_schroeder" and e <= ch_eta * (1 + 1e-9) and c < ch_cr - 1e-6]
+                 if k != "opt" and e <= ch_eta * (1 + 1e-9) and c < ch_cr - 1e-6]
     assert not dominated, f"champion dominated by {dominated}"
 
 

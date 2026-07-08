@@ -1,14 +1,14 @@
 ---
 title: "Excitation playground"
-subtitle: "Ten ways to spend one drive-power budget — race them all"
+subtitle: "Spend one drive-power budget every way — race them all"
 page-layout: full
 listing: false
 ---
 
 One resonant plant, one fixed drive-power budget, and every excitation you might reach for:
-**optimal, flat, and shaped multisines** (Schroeder, random, or cophased phase), a **swept
-sine**, and **broadband and shaped noise**. Pick any of them and watch two
-numbers — and the whole scoreboard — update live, all in your browser, no install.
+the **Fisher-optimal multisine**, a naive **cophased** multisine, a **swept sine**, and
+**broadband and shaped noise**. Pick any of them and watch two numbers — and the whole
+scoreboard — update live, all in your browser, no install.
 
 ```{=html}
 <div id="excitation-playground" class="excitation-playground"></div>
@@ -27,29 +27,34 @@ splits cleanly into two independent stories:
   Notice that *every* flat-spectrum drive — flat multisine, white noise, a linear sweep — shares
   the **same** time, whatever its phase. Fisher can't tell them apart.
 
-- **Crest factor at the DAC** — set by the **phases**, but *only when the power is spread over many
-  lines*. Take a **broadband** multisine (all 120 lines, equal power) and the phase choice swings the
-  crest 8×: **random** phases give a noise-like ~3.4, **cophased** lines pile into an impulse (~15)
-  that a real actuator would clip, and a **Schroeder** multisine flattens the waveform back toward the
-  $\sqrt2$ single-tone floor (~1.9). Crest is measured on the actual samples the DAC would emit — no
-  whitening-filter sleight of hand.
+- **Crest factor** — how peaky the drive is, `max|x|/rms`. It matters because the actuator's DAC has
+  a fixed range: a peaky drive clips (or forces you to turn the whole thing down, throwing away SNR).
+  The **Fisher-optimal drive is naturally gentle** — it collapses onto ~2 tones, so its crest is ~2
+  with nothing to tune. A **swept sine** is gentlest of all (~$\sqrt2$, a constant-envelope sine);
+  broadband **noise** sits ~3.4; and a naively **cophased** multisine detonates into an impulse (~15)
+  that would clip instantly. So the lever for headroom is the same as for speed — *concentrate the
+  spectrum* — not any phase cleverness (see the caveat below).
 
-## Why the optimal spectrum wins — and where Schroeder actually helps
+## Why the optimal spectrum wins
 
-The champion (★) is the **Fisher-optimal spectrum**, and its win is the *spectrum*, not the phase.
-It collapses almost entirely onto **two tones** (all the budget sits on the two resonances —
-effective line count ≈ 2). A two-tone drive already has crest ≈ 2 *whatever the phase*, so here
-`Optimal · Schroeder` and `Optimal · random phase` come out **identical** — Schroeder is doing no
-work. The concentrated spectrum buys you both speed (~40×) and low crest for free.
-
-Schroeder phase earns its keep the moment you are pushed **broadband** — a flat or prior-robust
-multisine that deliberately spreads the budget across all 120 lines for robustness. *There*, random
-phase gives crest ~3.4 and Schroeder claws it back to ~1.9. So the honest recipe: **optimal spectrum
-for speed and naturally low crest; Schroeder phase for when robustness makes you spread the power
-out.** Either way a swept sine matches the crest but wastes power off-resonance, and broadband noise
-loses on speed (and pays a further leakage / variance penalty for being aperiodic). That is the case
-for [optimal excitation](tutorial/why-optimal-excitation.qmd) — something you can *feel* by clicking,
+The champion (★) is the **Fisher-optimal spectrum**. It collapses almost entirely onto **two tones**
+(all the budget sits on the two resonances — effective line count ≈ 2), and that one fact buys both
+prizes: it identifies the plant ~40× faster than any flat drive, *and* two tones are intrinsically
+low-crest (~2), so it stays inside the actuator range for free. A swept sine matches that crest but
+wastes power off-resonance; broadband noise loses on speed (and pays a further leakage / variance
+penalty for being aperiodic). That is the case for
+[optimal excitation](tutorial/why-optimal-excitation.qmd) — something you can *feel* by clicking,
 before a single equation.
+
+::: {.callout-note appearance="simple"}
+## A caveat on crest, and on phase tricks
+Crest is the quantity the **DAC** sees, and this page measures it on the raw synthesized samples.
+In a real actuator the drive is shaped by the whitening / actuation chain on its way to the DAC,
+which reassigns the per-frequency phases — so a crest carefully minimized at synthesis (e.g. by a
+Schroeder phase schedule) does **not** survive to where the range limit actually bites. The
+dependable way to keep the drive within range is to keep its spectrum concentrated, which the
+optimal design does anyway; phase-shaping is not a lever you can bank on here.
+:::
 
 ::: {.callout-tip appearance="simple"}
 ## Then make it real
