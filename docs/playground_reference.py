@@ -92,7 +92,7 @@ POWER = {
 
 def power_of(kind):
     """Power spectrum for a named drive family (used for ETA)."""
-    if kind in ("opt_schroeder", "opt_random", "shaped_fisher"):
+    if kind in ("opt_schroeder", "opt_random"):
         return power_optimal()
     if kind in ("flat_schroeder", "flat_random", "cophased", "chirp_lin", "white"):
         return power_flat()
@@ -172,14 +172,12 @@ def waveform_of(kind):
         return noise(0.0)
     if kind == "pink":
         return noise(1.0)
-    if kind == "shaped_fisher":
-        return multisine(power_optimal(), "random")
     raise KeyError(kind)
 
 
 CATALOG = [
     "opt_schroeder", "opt_random", "flat_schroeder", "flat_random", "cophased",
-    "chirp_lin", "white", "pink", "shaped_fisher",
+    "chirp_lin", "white", "pink",
 ]
 
 

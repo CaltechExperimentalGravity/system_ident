@@ -170,7 +170,6 @@
     { key: "chirp_lin", label: "Swept sine", group: "Swept sine", power: "flat" },
     { key: "white", label: "Broadband white noise", group: "Noise", power: "flat" },
     { key: "pink", label: "Shaped noise · 1/f", group: "Noise", power: "pink" },
-    { key: "shaped_fisher", label: "Shaped noise · Fisher-matched", group: "Noise", power: "optimal" },
   ];
   function powerOf(e) { return e.power === "optimal" ? powerOptimal() : e.power === "pink" ? powerShaped(1) : powerFlat(); }
   function waveOf(e) {
@@ -184,7 +183,6 @@
       case "chirp_lin": return sweptSine();
       case "white": return multisine(P, "random");
       case "pink": return multisine(P, "random");
-      case "shaped_fisher": return multisine(P, "random");
     }
   }
   function scoreOf(e) { const P = powerOf(e); return { eta: etaOverall(P), crest: crest(waveOf(e)), Pxx: P }; }
