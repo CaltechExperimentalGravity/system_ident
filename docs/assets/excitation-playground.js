@@ -237,7 +237,7 @@
         </div>
 
         <div class="xpg-board">
-          <div class="xpg-board-h">Scoreboard <span>same power budget · lower is better</span></div>
+          <div class="xpg-board-h">Scoreboard <span>same power budget · fuller bar = better (faster / lower crest)</span></div>
           <div class="xpg-rows" id="xpg-rows"></div>
           <p class="xpg-note">Speed is set by the <b>power spectrum</b>, crest by the <b>phases</b>.
           The optimal drive is nearly <b>two tones</b>, so it is fast <i>and</i> low-crest for any
@@ -320,12 +320,13 @@
       const rowsEl = root.querySelector("#xpg-rows");
       const etas = CATALOG.map((e) => scores[e.key].eta), crs = CATALOG.map((e) => scores[e.key].crest);
       const etaLo = Math.min.apply(null, etas), etaHi = Math.max.apply(null, etas);
-      const crHi = Math.max.apply(null, crs);
+      const crLo = Math.min.apply(null, crs), crHi = Math.max.apply(null, crs);
       const lg = (x) => Math.log(x);
       rowsEl.innerHTML = CATALOG.map((e) => {
         const sc = scores[e.key];
-        const etaW = 6 + (1 - (lg(sc.eta) - lg(etaLo)) / (lg(etaHi) - lg(etaLo) || 1)) * 94; // shorter bar = slower? invert: longer=faster
-        const crW = Math.min(sc.crest / crHi, 1) * 100;
+        // both bars read the same way: fuller = better (lower ETA / lower crest -> longer bar)
+        const etaW = 6 + (1 - (lg(sc.eta) - lg(etaLo)) / (lg(etaHi) - lg(etaLo) || 1)) * 94;
+        const crW = 6 + (1 - (sc.crest - crLo) / (crHi - crLo || 1)) * 94;
         return `<div class="xpg-row${e.key === sel ? " on" : ""}${e.champ ? " champ" : ""}" data-k="${e.key}">
           <span class="xpg-row-l">${e.label}</span>
           <span class="xpg-row-bars">
