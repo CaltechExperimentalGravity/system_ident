@@ -90,9 +90,10 @@ quad actuation stages *are* suspensions):
    integer‑period DFT is leakage‑free: the sharp `f_cc` roll‑off and any resonance are measured
    **without the windowing bias** that a one‑off record incurs. This directly attacks the O3b
    frequency‑dependent‑modelling error. [15,3]
-3. **Per‑bin nonparametric noise covariance** from the period‑to‑period scatter (the Local
-   Polynomial Method). The error bar on each FRF bin is *measured*, not assumed — which is what the
-   calibration envelope needs, and what GP‑regression is currently doing the job of. [15,1]
+3. **Per‑bin nonparametric noise covariance** from the period‑to‑period scatter (the
+   period‑variance / sample‑covariance estimator — *not* the Local Polynomial Method, which is a
+   distinct across‑bin technique). The error bar on each FRF bin is *measured*, not assumed — which
+   is what the calibration envelope needs, and what GP‑regression is currently doing the job of. [15,1]
 4. **ML parametric fit + Fisher/CRB**, then **optimal experiment design**: allocate the Pcal power
    budget to the bins that most constrain the *parameters you care about* — `f_cc`, `H_C`, the
    delay, the stage gains — instead of spreading it uniformly. The Cramér–Rao bound says where a

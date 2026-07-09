@@ -13,7 +13,7 @@ pendulum-stage actuators, and a UGF≈50 Hz open-loop gain shaped for stability.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -25,6 +25,26 @@ def sensing_model(freq, g_c: float, f_cc: float, tau: float) -> np.ndarray:
     """Optical sensing response C(f) = g_c/(1+i f/f_cc)·exp(-i 2π f τ) [ct/m]."""
     f = np.asarray(freq, dtype=float)
     return g_c / (1.0 + 1j * f / f_cc) * np.exp(-2j * np.pi * f * tau)
+
+
+def drift_profile(t, base: float, *, amp_frac: float = 0.05,
+                  period_s: float = 7200.0, kind: str = "sine",
+                  phase: float = 0.0) -> np.ndarray:
+    """A simple, *known* slow time-variation θ(t) for one drifting scalar parameter.
+
+    ``kind="sine"`` → base·(1 + amp_frac·sin(2π t/period_s + phase));
+    ``kind="ramp"`` → base·(1 + amp_frac·t/period_s).
+
+    Deliberately deterministic so the injected truth is exactly known when scoring
+    the recovered drift.  This is the round-1 "basic time variation" placeholder; a
+    seeded stochastic / GP wander and physically-accurate drift are a later swap.
+    """
+    t = np.asarray(t, dtype=float)
+    if kind == "sine":
+        return base * (1.0 + amp_frac * np.sin(2 * np.pi * t / period_s + phase))
+    if kind == "ramp":
+        return base * (1.0 + amp_frac * (t / period_s))
+    raise ValueError(f"unknown drift kind {kind!r}")
 
 
 def _pendulum_stage(f_pend: float, q: float, gain: float) -> TFModel:
@@ -68,6 +88,28 @@ class DARMLoop:
     @property
     def ports(self) -> list[str]:
         return ["PCAL", "UIM", "PUM", "TST"]
+
+    def with_params(self, **overrides) -> "DARMLoop":
+        """Copy of the loop with scalar parameters or stage strengths overridden.
+
+        Recognised keys: the sensing/shape fields ``g_c, f_cc, tau, f_ugf, f_hi`` and
+        ``kappa_<STAGE>`` (e.g. ``kappa_TST=0.09``) to set one actuation strength.
+        Everything else is inherited.  Lets a caller evaluate the loop at a drifted
+        operating point without mutating the base twin — the locally-stationary
+        snapshot at one instant of a slowly time-varying plant.
+        """
+        stages = dict(self.stages)
+        scalar = {}
+        for key, val in overrides.items():
+            if key.startswith("kappa_"):
+                name = key[len("kappa_"):]
+                if name not in stages:
+                    raise KeyError(f"unknown stage {name!r}")
+                tf, _ = stages[name]
+                stages[name] = (tf, float(val))
+            else:
+                scalar[key] = val
+        return replace(self, stages=stages, **scalar)
 
     # -- elements ----------------------------------------------------------
     def C(self, freq) -> np.ndarray:
