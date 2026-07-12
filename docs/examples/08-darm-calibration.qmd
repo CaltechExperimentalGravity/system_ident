@@ -126,7 +126,8 @@ display(dd.fom_table(c))
 ## Honest gaps
 
 This twin is a single DARM loop with a one-pole sensing function and static strengths. It
-omits the optical spring / SRC detuning, time-dependent coefficients (TDCF tracking lines),
+omits the optical spring / SRC detuning, time-dependent coefficients (TDCF tracking lines —
+though [example 13](13-darm-drift-tracking.qmd) now tracks a drifting strength κ(t) directly),
 and the cross-couplings of a real interferometer. The efficiency claim above is a
 *demonstration on a twin*; the real test is to run both injections on the same instrument
 state and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.

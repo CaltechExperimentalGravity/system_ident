@@ -185,6 +185,30 @@ def thumb_10():
     return _curve_thumb(f, mag, np.sqrt(Pxx), extra=extra)
 
 
+def thumb_13():
+    # DARM drift tracking: a slowly-drifting κ(t) (GOLD) with its CRB band and the
+    # per-record snapshot points (SKY) — the signature of the round-1 time-varying sysID.
+    # Linear time axis (not the log-frequency of the other thumbs).
+    rng = np.random.default_rng(13)
+    t = np.linspace(0.0, 60.0, 400)
+    k = 1.0 + 0.05 * np.sin(2 * np.pi * t / 150.0)       # gentle hour-scale drift
+    band = 0.012
+    ts = np.linspace(3.0, 57.0, 12)
+    ks = 1.0 + 0.05 * np.sin(2 * np.pi * ts / 150.0) + rng.normal(0, 0.009, ts.size)
+    fig = go.Figure()
+    fig.add_scatter(x=t, y=k + band, mode="lines", line=dict(width=0))
+    fig.add_scatter(x=t, y=k - band, mode="lines", line=dict(width=0), fill="tonexty",
+                    fillcolor="rgba(200,151,58,0.18)")
+    fig.add_scatter(x=t, y=k, mode="lines", line=dict(color=sp.GOLD, width=4))
+    fig.add_scatter(x=ts, y=ks, mode="markers", marker=dict(color=sp.SKY, size=10))
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_layout(template="plotly_white", showlegend=False,
+                      margin=dict(l=0, r=0, t=0, b=0),
+                      paper_bgcolor="white", plot_bgcolor="white")
+    return fig
+
+
 def og_card():
     f = np.linspace(0.2, 8, 800)
     m = TFModel.from_resonances([(1.0, 20.0)], 100.0)
@@ -214,7 +238,8 @@ def og_card():
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
               "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07,
-              "09": thumb_09, "10": thumb_10, "11": thumb_11, "12": thumb_12}
+              "09": thumb_09, "10": thumb_10, "11": thumb_11, "12": thumb_12,
+              "13": thumb_13}
 
 if __name__ == "__main__":
     # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.

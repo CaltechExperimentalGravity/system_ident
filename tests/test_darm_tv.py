@@ -113,3 +113,17 @@ def test_tracks_injected_drift_within_crb():
                            record_s=16 * 4096 / loop.fs)
     assert res["resolve_ratio"] > 5.0                       # drift amp >> tracking σ
     assert res["local_stationarity_err"] < 0.05             # record << drift timescale
+
+
+def test_docs_glue_imports_and_builds_figures():
+    """The example-13 presentation module imports fresh (no circular import) and builds its
+    panels — this is the render path, so it guards against the darm↔darm_adapter cycle."""
+    import importlib
+    import pathlib
+    import sys as _sys
+    _sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "docs"))
+    dtd = importlib.import_module("darm_tv_demo")
+    c = dtd.campaign(seed=1)
+    assert dtd.drift_fig(c).data and dtd.tracking_error_fig(c).data
+    assert dtd.resolvability_table(c) is not None
+    assert c.res["resolve_ratio"] > 5.0

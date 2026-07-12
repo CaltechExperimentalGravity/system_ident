@@ -26,8 +26,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+# Import .darm FIRST: it defines DARMLoop and then does a cycle-safe *bottom* import of
+# darm_adapter, so darm must be fully initialised before we pull DARMBackend — otherwise a
+# fresh `import darm_tv` (e.g. the docs render, where nothing has loaded darm yet) hits the
+# darm ↔ darm_adapter cycle mid-initialisation.
+from .darm import DARMLoop, recover_actuation  # noqa: F401  (DARMLoop re-exported for callers)
 from .backends.darm_adapter import DARMBackend
-from .darm import DARMLoop, recover_actuation
 from .excitation import multisine_from_psd
 from .loop import SysIDLoop
 

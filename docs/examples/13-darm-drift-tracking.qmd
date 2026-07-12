@@ -1,0 +1,117 @@
+---
+title: "13 — Tracking a drifting DARM parameter"
+description: "The DARM loop's calibration parameters drift, forcing continuous re-measurement. Inject a known slow variation into an actuation strength and recover κ(t) with a Lataire–Pintelon basis fit on leakage-free P&S snapshots — within an honest Cramér–Rao band, with the drift's resolvability proven by a computed bound."
+image: thumbnails/13.svg
+categories: [calibration, closed-loop, DARM, time-varying]
+freeze: true
+---
+
+::: {.callout-tip appearance="simple"}
+## What you'll learn
+- Why a *drifting* plant is a system-ID problem, not a re-measurement chore.
+- Recovering a time-varying parameter **κ(t)** from leakage-free snapshots, with a real CRB.
+- Proving the drift is **resolvable** with a computed bound — not eyeballing the plot.
+:::
+
+The [DARM calibration page](08-darm-calibration.qmd) recovers the loop's sensing, actuation,
+and response at **one instant**. But the reason DARM calibration is the slowest recurring LIGO
+measurement is that those parameters **drift** — the optical gain, the coupled-cavity pole, and
+the actuation strengths wander over minutes to hours, so the calibration is re-measured again and
+again. This page treats that drift head-on: as a slowly time-varying system to *identify*, not a
+nuisance to average away.
+
+::: {.callout-note appearance="simple"}
+## Round 1 — the sysID, not the physics
+This is the first, deliberately narrow step: a **known, simple** drift (a smooth deterministic
+profile) injected into one actuation strength, real sensing pole, no optical spring. The goal is
+only to show the machinery **tracks a drifting parameter within its error bar**. A physically
+faithful drift (a stochastic/GP wander, the SRC-detuning optical spring that carries the DARM
+pole from real to complex, several parameters at once) is a later round. Rendered with
+`freeze: true`.
+:::
+
+```{python}
+#| code-summary: "Setup — import the presentation glue"
+import sys, pathlib
+_p = pathlib.Path.cwd()
+for _c in [_p, *_p.parents]:
+    if (_c / "docs" / "darm_tv_demo.py").exists() and str(_c / "docs") not in sys.path:
+        sys.path.insert(0, str(_c / "docs"))
+    if (_c / "darm_tv_demo.py").exists() and str(_c) not in sys.path:
+        sys.path.insert(0, str(_c))
+import numpy as np
+import darm_tv_demo as dd
+from IPython.display import display
+```
+
+## The idea: locally stationary snapshots
+
+The plant drifts far more slowly than one measurement record (an hour-scale drift versus a
+~16 s record), so within any single record it is **locally stationary** — the Pintelon–Schoukens
+picture of a linear model around a slowly-moving operating point. That licenses a two-step
+estimator:
+
+1. **Snapshot.** At a sequence of times, take one leakage-free periodic-multisine measurement and
+   recover the instantaneous actuation strength with **Pcal as the ruler**. Because the sensing
+   `C` cancels in the stage-to-Pcal ratio, each snapshot is *immune to sensing drift* and carries
+   an honest per-estimate σ.
+2. **Basis fit.** Fit `κ(t) = Σ cₖ bₖ(t)` in a time-basis (Legendre) to the snapshot series by
+   weighted least squares — a Lataire–Pintelon basis expansion in two-step form. The coefficient
+   covariance **is** the Cramér–Rao bound on the drift curve κ(t) and its rate.
+
+We drift the **ESD (TST) stage** — the one whose strength really wanders in an interferometer, as
+charge builds on the reaction mass — with a 5 %, hour-scale profile.
+
+```{python}
+#| code-summary: "Run the campaign — snapshot the drift, fit κ(t)"
+c = dd.campaign(seed=777)
+```
+
+## Tracking the drift
+
+The injected truth, the per-record snapshots with their error bars, and the recovered κ(t) with
+its CRB band:
+
+```{python}
+#| code-summary: "κ(t): injected truth, snapshots ± σ, LP fit ± CRB"
+dd.drift_fig(c)
+```
+
+The fit rides straight through the snapshots and follows the injected drift — a 5 % excursion
+resolved cleanly, even though each single snapshot only pins κ to about a percent.
+
+## Is the recovery honest?
+
+A curve through points is easy; a curve that knows its own uncertainty is the point. The recovery
+residual (recovered − truth) stays inside the ±σ Cramér–Rao band — the error bar neither
+collapses (which would be fabricated confidence) nor balloons (which would be uselessly
+conservative):
+
+```{python}
+#| code-summary: "Tracking error vs the CRB band"
+dd.tracking_error_fig(c)
+```
+
+## The feasibility gate: is the drift resolvable?
+
+Before calling a drift "trackable" or "buried in noise," compute the bound. The tracking σ from the
+fit is far below the injected drift amplitude, so the drift is genuinely **resolved**, not noise —
+and the local-stationarity approximation costs a fraction of a percent, well under the per-snapshot
+error:
+
+```{python}
+#| code-summary: "Resolvability — a computed bound, not an eyeball"
+display(dd.resolvability_table(c))
+```
+
+The resolve ratio is a knob, not a limit: more periods per snapshot, more snapshots, or a stronger
+drive all buy it down further — the same Fisher levers as everywhere else in the pipeline.
+
+## Honest gaps
+
+The drift here is a *known, deterministic* profile on a *single* scalar with the sensing pole held
+real. It does not yet include a stochastic (GP) wander, the SRC-detuning optical spring that turns
+the DARM pole complex, several parameters drifting at once, or the one-shot (rather than two-step)
+Lataire–Pintelon fit. Those are the next rounds. What this page establishes is the foundation they
+build on: the machinery **tracks a time-varying parameter within a Cramér–Rao bound**, and the
+"can we track it?" question gets a numeric answer — see `notes/darm-calibration-via-pns.md`.
