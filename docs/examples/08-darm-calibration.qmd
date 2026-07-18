@@ -131,3 +131,38 @@ though [example 13](13-darm-drift-tracking.qmd) now tracks a drifting strength �
 and the cross-couplings of a real interferometer. The efficiency claim above is a
 *demonstration on a twin*; the real test is to run both injections on the same instrument
 state and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
+
+## Roadmap
+
+The through-line never changes — a periodic multisine, a leakage-free reference FRF, a
+maximum-likelihood fit toward the Cramér–Rao bound. Each step below raises the *twin's* fidelity
+toward a real DARM calibration, keeping that one method.
+
+**Done**
+
+- **Static single-loop calibration** (this page). Sensing `C`, three-stage actuation `κ`, the
+  response `R(f)` with a measured CRB envelope, and a swept-sine head-to-head on the same twin.
+- **Round 1 — track a drifting parameter** ([example 13](13-darm-drift-tracking.qmd)). A known slow
+  drift on the ESD strength `κ(t)`, recovered with a Lataire–Pintelon time-basis fit inside an
+  honest CRB band, with resolvability proven by a computed bound rather than eyeballed.
+
+**Next — raising fidelity, roughly in order**
+
+1. **Realistic drift** — replace the deterministic profile with a stochastic (GP) wander at a
+   physical correlation time; score the recovery statistically.
+2. **SRC-detuning optical spring** — replace the single real sensing pole with an optical biquad
+   parametrized on the physical detuning `φ`, so the DARM pole migrates **real → complex** as `φ`
+   drifts (the crossing stays analytic in `φ`).
+3. **Several parameters at once** — the optical gain, the cavity-pole / detuning, and the stage
+   `κ_i` drifting jointly, not one scalar in isolation.
+4. **One-shot Lataire–Pintelon fit** — fit the time-basis coefficients directly to the record,
+   alongside today's two-step snapshot form, as a cross-check.
+5. **Continuous TDCF lines** — always-on calibration lines tracking `κ(t)` between full sweeps, the
+   operational counterpart to the snapshot campaign.
+6. **The actuation / DAC chain** — whitening / de-whitening and coil-driver shaping with a
+   pre-injection saturation check at the DAC, plus ESD charge / voltage limits.
+7. **Real filters & couplings** — import real DARM / actuation filter shapes and the interferometer
+   cross-couplings (MIMO), toward a calibration of an actual instrument state.
+
+Live-CDS / hardware injection is a separate, later phase. The full design and citations live in
+`notes/darm-calibration-via-pns.md`.
