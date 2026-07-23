@@ -40,6 +40,10 @@ math, not fixed constraints. Only present "it's a limit / give up" AFTER the bou
   escape.
 - **Run everything via `conda run -n sysid`** (not bare binaries). **Trunk-based:** commit and
   push to `main` (no PRs/branches). **Plots:** SVG, in Git LFS, data-driven limits.
+- **Use python-control** (`import control`) for anything the controls lib covers — state-space,
+  `c2d`/`sample_system`, frequency response, `feedback`/interconnection, `tf`/`zpk`/`ss`. Never
+  hand-roll these in pure numpy/scipy; drop down only when nothing in python-control fits, and
+  say why. (Details: `.llm/engineering-practices.md` §Tooling.)
 - **Don't guess** LIGO CDS / operational specifics — ask short, direct questions. **Phase 1
   (RTSfreerun digital twin) only** — no real-hardware (pyepics/pyawg/cdsutils) work until
   explicitly told.
