@@ -23,10 +23,21 @@ class ReducedStateSpacePlant:
     _modes: list[tuple[float, float]]
     f_mode_cut: float
 
+    #: Filename suffix for the twin-derived modal-truncation plants (quad, hsts).
+    DEFAULT_SUFFIX = "_reduced_50hz"
+
     @classmethod
-    def load(cls, name: str) -> "ReducedStateSpacePlant":
-        npz = np.load(_MODELS / f"{name}_reduced_50hz.npz")
-        side = json.loads((_MODELS / f"{name}_reduced_50hz.json").read_text())
+    def load(cls, name: str, *, suffix: str = DEFAULT_SUFFIX) -> "ReducedStateSpacePlant":
+        """Load ``<name><suffix>.{npz,json}`` from ``models/``.
+
+        ``suffix`` defaults to the modal-truncation naming used by the twin-derived plants.
+        Analytically-built plants that were never modally truncated pass their own stem —
+        e.g. ``load("sos", suffix="_6dof")`` — so the filename does not assert a 50 Hz
+        cutoff and a reduction that never happened.
+        """
+        stem = f"{name}{suffix}"
+        npz = np.load(_MODELS / f"{stem}.npz")
+        side = json.loads((_MODELS / f"{stem}.json").read_text())
         return cls(
             A=npz["A"], B=npz["B"], C=npz["C"], D=npz["D"],
             inputs=list(side["inputs"]), outputs=list(side["outputs"]),
