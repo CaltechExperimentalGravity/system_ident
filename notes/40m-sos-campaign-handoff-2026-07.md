@@ -166,11 +166,27 @@ Resumed on the Linux box. Corrections to the exploration findings above, and the
 - **Tests:** `tests/test_sos_plant.py` (26) pass; full suite **246 passed, 17 skipped** (skips are
   compiled-twin/browser deps absent on this box), no regressions.
 
-**Next (was checkpointed for review): Stage 1** — 6-DOF MIMO P&S recovery in-process against this
-plant (ReducedPlantBackend open-loop rung first, then MIMOTwinBackend closed-loop), Fisher/CRB via
-`mimo_fit.py`, recovery-within-CRB gate. Then Stage 2 (rtsfree composite; reuse the salvaged
-`run_X1SUS_CP.py` precedent). `simplant-salvage/` lives in `digital_twin/`, which is a separate repo
-from `system_ident` — decide whether to commit it there or relocate it.
+## Stage 1 DONE (2026-07-23) — open-loop recovery within CRB; closed-loop deferred to Stage 2
+
+- **Open-loop rung (the signoff gate), committed `e13fc26` + pushed.** `src/system_ident/sos_campaign.py`
+  + `tests/test_sos_sysid.py` (8). 6-DOF MIMO P&S recovery vs the plant oracle **within the CRB**
+  (worst 1.64σ; well-excited f0 to <2e-3). Two focused Fisher-clustered campaigns (a single broadband
+  sweep collapses the per-bin covariance to rank-1 off-resonance → singular {L,P} whitening): **low
+  0.4–1.2 Hz drives L,P,T,Y; high 14–26 Hz drives V,R.** Block-decoupled fit (only L–P coupled); the
+  L/T 1.8 mHz spatial doublet is resolved and scored per-DOF. Full suite 254 pass / 17 skip.
+- **Closed-loop rung → moved to Stage 2 (Rana's call).** The nominal SOS damping design already
+  exists in the salvage — `simplant-salvage/X1SUS_CP.txt` bank `OPT_CTRL_SUS{POS,PIT,YAW,SIDE}`
+  (L/P/Y/T), native digital foton biquads @32768 Hz, each with a **BounceRoll notch**; **V (bounce)
+  and R (roll) are undamped by design** (nominal — the OSEMs are rank-4 and can't reach V/R, Stage 0).
+  Do NOT hand-roll velocity dampers. rtsfree loads these foton banks natively, so identify through the
+  real loops in Stage 2 rather than converting foton→continuous for a pyctl loop.
+
+**Next: Stage 2 (rtsfree composite).** Author `gen_x1sos6dof.py` (derivative of the twin's
+`scripts/gen_x1hsts6dof.py`) driving the SOS ABCD via `ss_set_abcd`; load the nominal
+`OPT_CTRL_SUS*` damping bank; identify through the loops; analytic↔rtsfree validation gate. Reuse the
+salvaged `run_X1SUS_CP.py` + `x1sus_cp_funcs_freerun.py` rtsfree-SUS precedent. Needs the `twin`
+conda env + advligorts toolchain (Linux). `simplant-salvage/` is in `digital_twin/` (separate repo) —
+kept local for now (Rana), commit-location still open.
 
 ## Resume checklist (on the Linux box)
 
