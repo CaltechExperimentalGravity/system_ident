@@ -135,6 +135,12 @@ class DARMLoop:
     spring_Q: float = 2.0       # optical-spring quality factor (f_s≈184 Hz at δ=7°)
     # actuation: name -> (stage TFModel, kappa strength)
     stages: dict = field(default_factory=dict)
+    # hierarchical control allocation: name -> distribution filter (any object with .eval(freq)),
+    # so the per-stage actuation is A_i = κ_i · D_i(f) · N_i(f). Absent → unity (stages sum raw,
+    # no crossover). The crossover between adjacent stages lives entirely in these filters — the
+    # mechanical columns N_i don't cross (TST always dominates). Populate from the twin's DARM
+    # actuation design; cal lines then measure where |A_i| = |A_{i+1}|.
+    distribution: dict = field(default_factory=dict)
     # open-loop-gain shape (used to derive the servo D = G/(A·C))
     f_ugf: float = 50.0         # unity-gain frequency [Hz]
     f_hi: float = 400.0         # high-frequency control rolloff pole [Hz]
@@ -152,8 +158,10 @@ class DARMLoop:
         return cls(stages=stages)
 
     #: Reduced-quad actuator column per DARM stage: (drive channel, κ). Test mass = L3,
-    #: DARM DOF = longitudinal (.L). UIM/PUM/TST push the chain at L1/L2/L3; all read out at L3.
-    _REDUCED_MAP = {"UIM": ("L1.drive.L", 1.00),
+    #: DARM DOF = longitudinal (.L). The hierarchical DARM actuation drives M0 (top), PUM (L2),
+    #: TST (L3); all read out at L3.disp.L. (Channel↔stage map — adjust if the 40m convention
+    #: differs.)
+    _REDUCED_MAP = {"M0":  ("M0.drive.L", 1.00),
                     "PUM": ("L2.drive.L", 0.40),
                     "TST": ("L3.drive.L", 0.08)}
 
@@ -172,19 +180,20 @@ class DARMLoop:
         acts = [ch for ch, _ in cls._REDUCED_MAP.values()]
         sub = plant.subplant(sensors=["L3.disp.L"], actuators=acts)
         f_anchor = np.array([100.0])
-        placeholder = cls.default().stages
         stages = {}
         for j, (name, (chan, kappa)) in enumerate(cls._REDUCED_MAP.items()):
             col_at_anchor = abs(sub.eval(f_anchor)[0, 0, j])
-            ph_tf, ph_k = placeholder[name]
-            target = abs(ph_k * ph_tf.eval(f_anchor)[0])           # |placeholder stage| at 100 Hz
-            gain = target / (kappa * col_at_anchor)                # so κ·gain·|col| == target
+            # anchor each stage's mechanical shape to unit magnitude at 100 Hz, so |stage_i(100)|
+            # = κ_i. Absolute scale is irrelevant (loop depends only on shapes via D=G/(A·C));
+            # this just keeps κ semantics and plot scales O(1). Real counts→force gains and the
+            # hierarchical `distribution` filters are supplied separately (from the twin design).
+            gain = 1.0 / col_at_anchor
             stages[name] = (ReducedStageShape(sub, in_idx=j, gain=gain), kappa)
         return cls(stages=stages, fmin=fmin)
 
     @property
     def ports(self) -> list[str]:
-        return ["PCAL", "UIM", "PUM", "TST"]
+        return ["PCAL"] + list(self.stages)
 
     def with_params(self, **overrides) -> "DARMLoop":
         """Copy of the loop with scalar parameters or stage strengths overridden.
@@ -225,8 +234,14 @@ class DARMLoop:
                                      self.fs2(), self.spring_Q)
 
     def stage(self, name: str, freq) -> np.ndarray:
+        """Per-stage actuation A_i(f) = κ_i · D_i(f) · N_i(f) [counts→DARM displacement], where
+        D_i is the hierarchical distribution filter (unity if none set for this stage)."""
         tf, kappa = self.stages[name]
-        return kappa * tf.eval(freq)
+        out = kappa * tf.eval(freq)
+        dist = self.distribution.get(name)
+        if dist is not None:
+            out = out * dist.eval(freq)
+        return out
 
     def A(self, freq) -> np.ndarray:
         return sum(self.stage(n, freq) for n in self.stages)

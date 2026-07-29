@@ -92,6 +92,45 @@ def track_kappa(base_loop, name, times, profile, *, nperseg=4096, n_periods=16,
     return times, khat, sig
 
 
+def cal_line_response(base_loop, freqs, *, nperseg=4096, n_periods=16, px_total=1.0, seed=0):
+    """Inject calibration lines on every actuation stage; return the ruler-calibrated per-stage
+    actuation ``A_i = κ_i·D_i·N_i`` at the line frequencies.
+
+    The hierarchical DARM actuation drives several quad masses (M0/PUM/TST); to see the crossover
+    of each stage with the one below, put cal lines near where the stages hand off and compare
+    ``|A_i|`` across stages. Each line is a fixed tone on one stage's drive; measured against a
+    Pcal reference, ``H_stage/H_pcal = A_i`` cancels the sensing ``C`` and the loop ``1/(1+G)``,
+    leaving the stage actuation itself — exactly the calibration quantity. (The crossover only
+    appears once the ``distribution`` filters are populated; without them the raw mechanical
+    columns don't cross.)
+
+    Parameters
+    ----------
+    freqs : cal-line frequencies [Hz], shared across stages (snapped to the rfft grid so the
+        lines are leakage-free). Place them near the expected crossovers.
+
+    Returns ``{stage: (lines_hz, A_complex, A_sigma)}`` — the per-stage actuation and its 1σ at
+    each cal line. ``A_sigma`` propagates the stage- and Pcal-FRF errors (the honest CRB on the
+    line measurement).
+    """
+    loop = base_loop
+    fa = np.fft.rfftfreq(int(nperseg), d=1.0 / loop.fs)
+    bins = np.unique([int(round(f * nperseg / loop.fs)) for f in np.atleast_1d(freqs)])
+    bins = bins[(fa[bins] >= loop.fmin) & (fa[bins] <= loop.fmax)]
+    if len(bins) == 0:
+        raise ValueError("no cal-line frequencies fall in the loop band")
+    lines = fa[bins]
+    band = np.zeros(len(fa), bool); band[bins] = True
+    Hp, Hp_err, _ = _frf(loop, "PCAL", lines, band, nperseg, n_periods, px_total, seed)
+    out = {}
+    for k, name in enumerate(loop.stages):
+        Hi, Hi_err, _ = _frf(loop, name, lines, band, nperseg, n_periods, px_total, seed + 1 + k)
+        A = Hi / Hp                                      # = κ_i·D_i·N_i (ruler-calibrated)
+        A_sigma = np.abs(A) * np.hypot(Hi_err / np.abs(Hi), Hp_err / np.abs(Hp))
+        out[name] = (lines, A, A_sigma)
+    return out
+
+
 def snapshot_delta(base_loop, delta_value, *, nperseg=4096, n_periods=16,
                    px_total=1.0, seed=0, delta_init=None):
     """One leakage-free snapshot of the SRC detuning δ at an operating point.

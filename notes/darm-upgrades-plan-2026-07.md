@@ -21,6 +21,17 @@
 >   Tests `tests/test_darm_detuned.py` (8). Note: δ is well-identified even near tuning (the √f_s²
 >   damping term is steep there) — it is NOT unidentifiable at BRSE.
 
+> **UPDATE 2026-07-29 (hierarchical actuation + calibration lines).** DARM now drives the quad
+> hierarchically across **M0 / PUM / TST** (`_REDUCED_MAP`; `default_reduced()` stage set changed
+> from UIM→M0 per Rana). Added an optional per-stage **`distribution` filter** slot so the
+> actuation is `A_i = κ_i·D_i(f)·N_i(f)` — the inter-stage crossovers live entirely in these
+> filters (the mechanical columns don't cross; TST always dominates), to be populated from the
+> twin actuation design. Added `darm_tv.cal_line_response(loop, freqs)`: injects calibration
+> lines on each stage and returns the ruler-calibrated per-stage actuation `A_i = H_stage/H_pcal`
+> at the lines (for measuring where each stage crosses the one below). Tests
+> `tests/test_darm_callines.py` (4); full suite 282 pass. (The placeholder `default()` loop keeps
+> its UIM/PUM/TST toy stages.)
+
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
 (1) fold the committed reduced-order QUAD suspension plant into the DARM loop, and
