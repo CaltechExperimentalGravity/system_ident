@@ -19,6 +19,7 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from .model import TFModel
+from .reduced_plant import ReducedStateSpacePlant
 
 
 def sensing_model(freq, g_c: float, f_cc: float, tau: float) -> np.ndarray:
@@ -56,6 +57,36 @@ def _pendulum_stage(f_pend: float, q: float, gain: float) -> TFModel:
     return TFModel.from_resonances([(f_pend, q)], gain)
 
 
+class ReducedStageShape:
+    """A DARM actuation-stage shape backed by one column of the reduced QUAD plant.
+
+    Duck-types the ``TFModel`` interface the loop uses — just ``.eval(freq)`` — so it drops into
+    ``DARMLoop.stage``/``A``/``with_params(kappa_*)`` and ``snapshot_kappa``/``recover_actuation``
+    with no signature changes: the shape is ``gain * [L3.disp.L / L_i.drive.L](f)``, the real
+    reduced-order quad longitudinal chain (test mass = L3, DARM DOF = ``.L``) instead of a lumped
+    pendulum. ``gain`` folds the per-stage counts→force calibration; its absolute value is
+    irrelevant to the closed-loop FRFs because ``D = G/(A·C)`` is derived (only stage *shapes*
+    matter). ``.eval`` is memoised per ``freq``-array identity so repeated snapshots on the same
+    grid don't re-solve the 59-state system per bin.
+    """
+
+    def __init__(self, subplant, in_idx: int, gain: float = 1.0, out_idx: int = 0):
+        self._sub = subplant
+        self._ii = int(in_idx)
+        self._oi = int(out_idx)
+        self.gain = float(gain)
+        self._cache: dict = {}
+
+    def eval(self, freq) -> np.ndarray:
+        freq = np.asarray(freq, dtype=float)
+        key = (id(freq), freq.shape, float(freq[0]), float(freq[-1]))
+        col = self._cache.get(key)
+        if col is None:
+            col = self._sub.eval(freq)[:, self._oi, self._ii]
+            self._cache[key] = col
+        return self.gain * col
+
+
 @dataclass
 class DARMLoop:
     """Representative closed-loop DARM twin (single loop, three actuation stages)."""
@@ -84,6 +115,37 @@ class DARMLoop:
             "TST": (_pendulum_stage(3.40, 100.0, 1.2e4), 0.08),
         }
         return cls(stages=stages)
+
+    #: Reduced-quad actuator column per DARM stage: (drive channel, κ). Test mass = L3,
+    #: DARM DOF = longitudinal (.L). UIM/PUM/TST push the chain at L1/L2/L3; all read out at L3.
+    _REDUCED_MAP = {"UIM": ("L1.drive.L", 1.00),
+                    "PUM": ("L2.drive.L", 0.40),
+                    "TST": ("L3.drive.L", 0.08)}
+
+    @classmethod
+    def default_reduced(cls, *, fmin: float = 0.3) -> "DARMLoop":
+        """DARM loop whose actuation stages are the real reduced-order QUAD longitudinal chain.
+
+        Each stage's shape is a column of ``quad_reduced_50hz`` (``L_i.drive.L → L3.disp.L``)
+        instead of a lumped pendulum, so the twin carries the true multi-resonance structure and
+        cross-stage shapes. ``fmin`` defaults to 0.3 Hz so the quad longitudinal modes (~0.43–2 Hz)
+        sit in band. Per-stage counts→force gains are anchored so each ``|stage_i|`` matches the
+        placeholder ``default()`` magnitude at 100 Hz — the absolute scale is irrelevant (the loop
+        depends only on stage shapes via ``D = G/(A·C)``), this just preserves κ semantics/plots.
+        """
+        plant = ReducedStateSpacePlant.load("quad")
+        acts = [ch for ch, _ in cls._REDUCED_MAP.values()]
+        sub = plant.subplant(sensors=["L3.disp.L"], actuators=acts)
+        f_anchor = np.array([100.0])
+        placeholder = cls.default().stages
+        stages = {}
+        for j, (name, (chan, kappa)) in enumerate(cls._REDUCED_MAP.items()):
+            col_at_anchor = abs(sub.eval(f_anchor)[0, 0, j])
+            ph_tf, ph_k = placeholder[name]
+            target = abs(ph_k * ph_tf.eval(f_anchor)[0])           # |placeholder stage| at 100 Hz
+            gain = target / (kappa * col_at_anchor)                # so κ·gain·|col| == target
+            stages[name] = (ReducedStageShape(sub, in_idx=j, gain=gain), kappa)
+        return cls(stages=stages, fmin=fmin)
 
     @property
     def ports(self) -> list[str]:
