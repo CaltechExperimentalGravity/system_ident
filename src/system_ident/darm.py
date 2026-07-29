@@ -23,9 +23,38 @@ from .reduced_plant import ReducedStateSpacePlant
 
 
 def sensing_model(freq, g_c: float, f_cc: float, tau: float) -> np.ndarray:
-    """Optical sensing response C(f) = g_c/(1+i f/f_cc)·exp(-i 2π f τ) [ct/m]."""
+    """Optical sensing response C(f) = g_c/(1+i f/f_cc)·exp(-i 2π f τ) [ct/m].
+
+    The BRSE (tuned SRC) response — a single real coupled-cavity pole. The detuned case is
+    :func:`sensing_model_detuned`, which multiplies this by an optical-spring factor and reduces
+    to exactly this expression at zero detuning.
+    """
     f = np.asarray(freq, dtype=float)
     return g_c / (1.0 + 1j * f / f_cc) * np.exp(-2j * np.pi * f * tau)
+
+
+def optical_spring_factor(freq, fs2: float, Qs: float) -> np.ndarray:
+    """The Cahillane optical-spring / SRC-detuning factor  f² / (f² + f_s² − i·f·f_s/Q_s).
+
+    ``fs2`` is the **signed** optical-spring frequency-squared [Hz²] (``f_s² = K·sin 2δ``, so it
+    is positive for a restoring spring, negative for the anti-restoring/unstable spring on the
+    other side of the tuned point). At ``fs2 = 0`` (tuned) the factor is identically 1, so the
+    detuned sensing reduces to the single-pole BRSE model. Cahillane et al., PRD 96, 102001.
+    """
+    f = np.asarray(freq, dtype=float)
+    if fs2 == 0.0:
+        return np.ones_like(f, dtype=complex)
+    fs = np.sign(fs2) * np.sqrt(abs(fs2))
+    return f ** 2 / (f ** 2 + fs2 - 1j * f * fs / Qs)
+
+
+def sensing_model_detuned(freq, g_c: float, f_cc: float, tau: float,
+                          fs2: float, Qs: float) -> np.ndarray:
+    """Detuned DARM sensing: BRSE single pole × the Cahillane optical-spring factor.
+
+    ``fs2 = 0`` reproduces :func:`sensing_model` exactly (verified to machine precision).
+    """
+    return sensing_model(freq, g_c, f_cc, tau) * optical_spring_factor(freq, fs2, Qs)
 
 
 def drift_profile(t, base: float, *, amp_frac: float = 0.05,
@@ -98,6 +127,12 @@ class DARMLoop:
     g_c: float = 1.0e6          # optical gain [ct/m]
     f_cc: float = 360.0         # coupled-cavity pole [Hz]
     tau: float = 77.0e-6        # light-travel / processing delay [s]
+    # SRC-detuning optical spring (Cahillane). delta = 0 is BRSE (tuned): C() is the single
+    # cavity pole exactly. Detuning gives an optical-spring resonance f_s = sqrt(spring_K·sin2δ),
+    # quality spring_Q. delta is the physical knob the TV tracker drifts (±~7° in practice).
+    delta: float = 0.0          # SRC detuning phase [rad]
+    spring_K: float = 1.4e5     # optical-spring stiffness [Hz²]; f_s²=spring_K·sin(2·delta)
+    spring_Q: float = 2.0       # optical-spring quality factor (f_s≈184 Hz at δ=7°)
     # actuation: name -> (stage TFModel, kappa strength)
     stages: dict = field(default_factory=dict)
     # open-loop-gain shape (used to derive the servo D = G/(A·C))
@@ -174,8 +209,20 @@ class DARMLoop:
         return replace(self, stages=stages, **scalar)
 
     # -- elements ----------------------------------------------------------
+    def fs2(self) -> float:
+        """Signed optical-spring frequency-squared f_s² = spring_K·sin(2·δ) [Hz²]."""
+        return float(self.spring_K * np.sin(2.0 * self.delta))
+
+    def spring_pole(self) -> tuple[float, float]:
+        """(f_s, Q_s) of the optical-spring resonance at the current δ. f_s is signed:
+        >0 restoring (complex pair), <0 anti-restoring; 0 at the tuned BRSE point."""
+        fs2 = self.fs2()
+        return (float(np.sign(fs2) * np.sqrt(abs(fs2))), float(self.spring_Q))
+
     def C(self, freq) -> np.ndarray:
-        return sensing_model(freq, self.g_c, self.f_cc, self.tau)
+        # Detuned Cahillane sensing; δ=0 (default) reduces to the single-pole BRSE model exactly.
+        return sensing_model_detuned(freq, self.g_c, self.f_cc, self.tau,
+                                     self.fs2(), self.spring_Q)
 
     def stage(self, name: str, freq) -> np.ndarray:
         tf, kappa = self.stages[name]

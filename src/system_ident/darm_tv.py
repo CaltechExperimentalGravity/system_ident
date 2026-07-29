@@ -92,6 +92,58 @@ def track_kappa(base_loop, name, times, profile, *, nperseg=4096, n_periods=16,
     return times, khat, sig
 
 
+def snapshot_delta(base_loop, delta_value, *, nperseg=4096, n_periods=16,
+                   px_total=1.0, seed=0, delta_init=None):
+    """One leakage-free snapshot of the SRC detuning δ at an operating point.
+
+    δ is a **sensing** parameter (it does not cancel in the κ ruler), so it is recovered from
+    the **Pcal FRF shape**: ``C_meas = H_pcal·(1+G)`` (G is the designed, known open-loop gain),
+    then a weighted complex least-squares fit of the Cahillane detuned sensing model for δ, with
+    the other sensing params held at their loop values. Returns ``(delta_hat, sigma_delta)``.
+
+    The optical-spring damping term ``∝ f_s = sign·√|f_s²|`` has a steep slope through the tuned
+    point, so — perhaps counter-intuitively — δ is well-identified even near BRSE (small detuning
+    leaves a measurable phase asymmetry in ``C``); ``sigma_delta`` does not blow up at δ→0.
+    """
+    from scipy.optimize import least_squares
+    from .darm import sensing_model_detuned
+
+    loop = base_loop.with_params(delta=delta_value)
+    fa, band, freq = _band_grid(loop, nperseg)
+    Hp, Hp_err, _ = _frf(loop, "PCAL", freq, band, nperseg, n_periods, px_total, seed)
+    one_plus_G = 1.0 + loop.G(freq)
+    C_meas = Hp * one_plus_G                        # = C exactly, plus measurement noise
+    C_err = np.maximum(Hp_err * np.abs(one_plus_G), 1e-30)
+
+    def model(delta):
+        fs2 = loop.spring_K * np.sin(2.0 * delta)
+        return sensing_model_detuned(freq, loop.g_c, loop.f_cc, loop.tau, fs2, loop.spring_Q)
+
+    def resid(p):
+        r = (C_meas - model(p[0])) / C_err
+        return np.concatenate([r.real, r.imag])
+
+    p0 = 0.5 * delta_value if delta_init is None else delta_init   # init off the truth
+    sol = least_squares(resid, [p0 if p0 != 0 else 0.02], method="lm")
+    delta_hat = float(sol.x[0])
+    # Gauss–Newton CRB: cov = (JᵀJ)⁻¹ on the whitened residual
+    JtJ = sol.jac.T @ sol.jac
+    sigma = float(np.sqrt(np.linalg.inv(JtJ)[0, 0])) if JtJ[0, 0] > 0 else np.inf
+    return delta_hat, sigma
+
+
+def track_delta(base_loop, times, profile, *, nperseg=4096, n_periods=16,
+                px_total=1.0, seed=0):
+    """Snapshot δ at every t (true value ``profile(t)``). Returns ``(times, delta_hat, sigma)``
+    for :func:`fit_tv` — the same TV machinery as κ, since it is parameter-agnostic."""
+    times = np.asarray(times, dtype=float)
+    dhat = np.empty(len(times)); sig = np.empty(len(times))
+    for j, t in enumerate(times):
+        dhat[j], sig[j] = snapshot_delta(base_loop, float(profile(t)), nperseg=nperseg,
+                                         n_periods=n_periods, px_total=px_total, seed=seed + j)
+    return times, dhat, sig
+
+
 # ── time-basis expansion + CRB (the Lataire–Pintelon TV fit) ────────────────────────
 def basis_matrix(t, *, kind="legendre", order=4, t0=None, t1=None):
     """Design matrix ``B[j,k]=b_k(t_j)`` and its time-derivative ``dB[j,k]=ḃ_k(t_j)``.

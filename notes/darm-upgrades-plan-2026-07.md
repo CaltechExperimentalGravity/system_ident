@@ -8,12 +8,18 @@
 >   biases κ recovery (Q≈50 modes, ~0.01 Hz linewidth, unresolvable at the 1 Hz bin spacing), so
 >   κ is measured in the smooth 10–1500 Hz region. Per-stage counts→force gains anchored at
 >   100 Hz; absolute scale is irrelevant (loop invariant).
-> - **Upgrade 2 below is WRONG as written — DO NOT IMPLEMENT IT.** The optical-spring factor
->   `ωs²(δ)/(s²+bs+ωs²(δ))` with `ωs²=K·sin2δ` gives `C(δ=0)≡0` (not the single-pole sensing) and
->   corrupts the in-band shape at *every* δ (verified: |C|@100 Hz = 0.066 vs cavity 0.964). It
->   must be rebuilt from the physical detuned-cavity response with the δ=0=BRSE single-pole limit
->   enforced and tested *at* δ=0. Nominal is BRSE (tuned); drift is ±7° (both spring signs,
->   incl. anti-spring). See the corrected plan for details.
+> - **Upgrade 2 is DONE — but NOT with the broken form below.** The agent's optical-spring factor
+>   `ωs²(δ)/(s²+bs+ωs²(δ))` with `ωs²=K·sin2δ` was wrong (`C(δ=0)≡0`; in-band shape corrupted at
+>   every δ). Replaced with the **Cahillane form** (Rana's choice; PRD 96, 102001):
+>   `C = [single cavity pole] · f²/(f² + f_s² − i·f·f_s/Q_s)`, with **signed** `f_s²=spring_K·sin2δ`.
+>   At δ=0 the spring factor is identically 1 ⇒ C == the single-pole BRSE model **exactly**
+>   (verified atol=0). Detuning lifts a complex spring resonance in band (restoring for δ>0,
+>   anti-restoring for δ<0), spanning the split at δ=0 across the ±7° drift. `darm.py`:
+>   `optical_spring_factor`, `sensing_model_detuned`, `DARMLoop.{delta,spring_K,spring_Q,fs2,
+>   spring_pole}`, `C()` routed through the detuned model. δ recovered from the Pcal FRF
+>   (`darm_tv.snapshot_delta`/`track_delta`) within CRB, both signs; reuses `fit_tv`/`resolvability`.
+>   Tests `tests/test_darm_detuned.py` (8). Note: δ is well-identified even near tuning (the √f_s²
+>   damping term is steep there) — it is NOT unidentifiable at BRSE.
 
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
