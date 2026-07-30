@@ -68,8 +68,9 @@ def snapshot_kappa(base_loop, name, kappa_value, *, nperseg=4096, n_periods=16,
     fa, band, freq = _band_grid(loop, nperseg)
     Hp, Hp_err, _ = _frf(loop, "PCAL", freq, band, nperseg, n_periods, px_total, seed)
     Hi, Hi_err, _ = _frf(loop, name, freq, band, nperseg, n_periods, px_total, seed + 1)
-    tf, _ = loop.stages[name]
-    N = tf.eval(freq)
+    # Full actuation shape D_i·N_i (excludes only κ), so the ruler recovers κ even when a
+    # hierarchical distribution filter D_i is set. Without distribution this is just N_mech.
+    N = loop.stage(name, freq) / kappa_value
     comb_err = np.hypot(Hi_err / np.abs(Hi), Hp_err / np.abs(Hp)) * np.abs(Hi / Hp)
     return recover_actuation(freq, Hi, Hp, N, comb_err)
 

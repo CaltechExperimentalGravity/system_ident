@@ -160,13 +160,19 @@ class DARMLoop:
     #: Reduced-quad actuator column per DARM stage: (drive channel, κ). Test mass = L3,
     #: DARM DOF = longitudinal (.L). The hierarchical DARM actuation drives M0 (top), PUM (L2),
     #: TST (L3); all read out at L3.disp.L. (Channel↔stage map — adjust if the 40m convention
-    #: differs.)
+    #: differs.) κ here are placeholders for the non-hierarchical loop; the hierarchical loop
+    #: uses the physical per-stage authorities in ``_STAGE_GAINS``.
     _REDUCED_MAP = {"M0":  ("M0.drive.L", 1.00),
                     "PUM": ("L2.drive.L", 0.40),
                     "TST": ("L3.drive.L", 0.08)}
 
+    #: Drive-referred per-stage DC authority (relative), from the twin's hierarchical experiment
+    #: (G1200692 table): TOP=M0, PUM, ESD=TST. Used as κ for the hierarchical loop so the stages
+    #: carry their real relative strengths (M0 strong at low f, TST weak but fast).
+    _STAGE_GAINS = {"M0": 334.3, "PUM": 1.0, "TST": 0.001697}
+
     @classmethod
-    def default_reduced(cls, *, fmin: float = 0.3) -> "DARMLoop":
+    def default_reduced(cls, *, fmin: float = 0.3, hierarchical: bool = False) -> "DARMLoop":
         """DARM loop whose actuation stages are the real reduced-order QUAD longitudinal chain.
 
         Each stage's shape is a column of ``quad_reduced_50hz`` (``L_i.drive.L → L3.disp.L``)
@@ -180,16 +186,27 @@ class DARMLoop:
         acts = [ch for ch, _ in cls._REDUCED_MAP.values()]
         sub = plant.subplant(sensors=["L3.disp.L"], actuators=acts)
         f_anchor = np.array([100.0])
+        # A common scale keeps numbers O(1) (absolute scale is irrelevant — the loop depends only
+        # on stage shapes via D=G/(A·C)). Hierarchical: preserve the natural relative column
+        # magnitudes and set κ = physical stage authorities. Non-hierarchical: normalize each
+        # column to unity at 100 Hz (|stage_i(100)| = κ_i) with the placeholder κ.
+        c_ref = abs(sub.eval(f_anchor)[0, 0, list(cls._REDUCED_MAP).index("TST")])
         stages = {}
         for j, (name, (chan, kappa)) in enumerate(cls._REDUCED_MAP.items()):
-            col_at_anchor = abs(sub.eval(f_anchor)[0, 0, j])
-            # anchor each stage's mechanical shape to unit magnitude at 100 Hz, so |stage_i(100)|
-            # = κ_i. Absolute scale is irrelevant (loop depends only on shapes via D=G/(A·C));
-            # this just keeps κ semantics and plot scales O(1). Real counts→force gains and the
-            # hierarchical `distribution` filters are supplied separately (from the twin design).
-            gain = 1.0 / col_at_anchor
+            if hierarchical:
+                gain, kappa = 1.0 / c_ref, cls._STAGE_GAINS[name]     # natural cols × authority
+            else:
+                gain = 1.0 / abs(sub.eval(f_anchor)[0, 0, j])         # unit at 100 Hz
             stages[name] = (ReducedStageShape(sub, in_idx=j, gain=gain), kappa)
-        return cls(stages=stages, fmin=fmin)
+        # Hierarchical control allocation: the nested-offload distribution filters from the twin
+        # actuation experiment (darm_actuation, FRF-identical to that lib). With them,
+        # A_i = κ_i·D_i·N_i; the strong-but-slow M0 dominates the DARM actuation at low frequency
+        # and hands off up the chain, so adjacent stages cross over — measurable with cal lines.
+        distribution = {}
+        if hierarchical:
+            from .darm_actuation import hierarchical_distribution
+            distribution = hierarchical_distribution()
+        return cls(stages=stages, fmin=fmin, distribution=distribution)
 
     @property
     def ports(self) -> list[str]:

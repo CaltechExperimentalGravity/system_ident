@@ -32,6 +32,18 @@
 > `tests/test_darm_callines.py` (4); full suite 282 pass. (The placeholder `default()` loop keeps
 > its UIM/PUM/TST toy stages.)
 
+> **UPDATE 2026-07-29 (twin offload filters wired in).** `default_reduced(hierarchical=True)` now
+> populates `DARMLoop.distribution` with the nested-offload filters reproduced from
+> `digital_twin/twin/experiments/cavity_arm_lsc_hierarchical/lib.py::offload_filters`
+> (`src/system_ident/darm_actuation.py`, FRF-identical — verified 0.0 diff): `D_TST=1`,
+> `D_PUM=O_A`, `D_M0=O_A·O_B`, with κ = the twin's per-stage authorities `STAGE_GAINS`
+> (M0/TOP 334.3, PUM 1.0, TST/ESD 0.001697). The strong, slow M0 dominates DARM actuation at low
+> f and hands off up the chain, so adjacent stages cross over (measurable with cal lines).
+> `snapshot_kappa` made distribution-aware (rules by the full `D_i·N_i` shape). Caveat: the offload
+> *filters* are exact-from-twin, but the labeled F_EP/F_PT=10/0.5 Hz crossovers belong to the
+> twin's full nested-offload *closed loop* — in this simplified derived-servo loop the M0/PUM
+> actuation crossover lands ~4 Hz. Tests `tests/test_darm_hierarchical.py` (6); suite 288 pass.
+
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
 (1) fold the committed reduced-order QUAD suspension plant into the DARM loop, and
