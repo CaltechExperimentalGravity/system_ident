@@ -32,17 +32,30 @@
 > `tests/test_darm_callines.py` (4); full suite 282 pass. (The placeholder `default()` loop keeps
 > its UIM/PUM/TST toy stages.)
 
-> **UPDATE 2026-07-29 (twin offload filters wired in).** `default_reduced(hierarchical=True)` now
+> **UPDATE 2026-07-29 (twin offload filters wired in).** `default_reduced(hierarchical=True)`
 > populates `DARMLoop.distribution` with the nested-offload filters reproduced from
 > `digital_twin/twin/experiments/cavity_arm_lsc_hierarchical/lib.py::offload_filters`
 > (`src/system_ident/darm_actuation.py`, FRF-identical — verified 0.0 diff): `D_TST=1`,
-> `D_PUM=O_A`, `D_M0=O_A·O_B`, with κ = the twin's per-stage authorities `STAGE_GAINS`
-> (M0/TOP 334.3, PUM 1.0, TST/ESD 0.001697). The strong, slow M0 dominates DARM actuation at low
-> f and hands off up the chain, so adjacent stages cross over (measurable with cal lines).
-> `snapshot_kappa` made distribution-aware (rules by the full `D_i·N_i` shape). Caveat: the offload
-> *filters* are exact-from-twin, but the labeled F_EP/F_PT=10/0.5 Hz crossovers belong to the
-> twin's full nested-offload *closed loop* — in this simplified derived-servo loop the M0/PUM
-> actuation crossover lands ~4 Hz. Tests `tests/test_darm_hierarchical.py` (6); suite 288 pass.
+> `D_PUM=O_A`, `D_M0=O_A·O_B`. `snapshot_kappa` made distribution-aware (rules by the full
+> `D_i·N_i` shape). Tests `tests/test_darm_hierarchical.py`.
+
+> **UPDATE 2026-07-30 (damp-first + force-unit offload — crossovers now land on target).** Rana:
+> "in twin, the reduced quad model is DAMPED and then the hierarchical loop is made; the damping
+> has ~no effect on the crossover frequencies." Two corrections to the 07-29 wiring:
+> (1) **Damp the quad first.** The twin's `build_damped_plant` closes the 6-DOF M0 velocity-damping
+> loop around the reduced quad BEFORE the offload design, so the 0.4–3 Hz suspension-mode forest
+> (Q~1e3) doesn't mask the smooth 1/f² compliance tails that set the crossovers. New
+> `darm_actuation.DampedQuadCompliance` closes that loop exactly in the frequency domain (the exact
+> H1 `ETMX_M0_DAMP` banks aren't vendored here, so a generic 6-DOF M0 velocity damper stands in —
+> faithful because the crossovers are damping-detail-independent: PUM/TST stays at 10.3 Hz from
+> undamped through every damping level). `hierarchical_stage_shapes` returns the three damped
+> compliances as stage shapes. (2) **Drop `STAGE_GAINS` from the loop.** The twin's offload runs in
+> FORCE units and explicitly does NOT use the drive-referred `STAGE_GAINS` (lib.py:90); the
+> compliances already carry the relative stage strengths, so folding them in double-counted and was
+> the real cause of the wrong crossover. With κ_i=1: **M0/PUM crosses at 0.487 Hz (≈F_PT=0.5) and
+> PUM/TST at 10.33 Hz (≈F_EP=10)**, single clean crossings — matching the twin's design targets. The
+> earlier "~4 Hz caveat" was wrong (it was the STAGE_GAINS double-count, not the closed-loop). Tests
+> `tests/test_darm_hierarchical.py` (`test_crossovers_land_at_design_targets`).
 
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
