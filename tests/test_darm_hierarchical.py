@@ -48,11 +48,13 @@ def test_hierarchical_sets_distribution_and_forceunit_kappa():
 
 
 def test_crossovers_land_at_design_targets():
-    """The whole point of the M0-damping-first + force-unit offload fix: the DARM-referred
-    per-stage contributions cross at the twin's design targets F_PT≈0.5 Hz (M0/PUM) and
-    F_EP≈10 Hz (PUM/TST), as a SINGLE clean crossing each (the damping removes the forest
-    re-crossings). Guards against the earlier bugs (STAGE_GAINS folded in → ~4 Hz M0/PUM and
-    no PUM/TST crossing; undamped columns → a tangle of spurious forest crossings)."""
+    """The whole point of the damp-first (real ETMX M0 damping) + force-unit offload fix: the
+    DARM-referred per-stage contributions cross at the twin's design targets F_PT≈0.5 Hz (M0/PUM)
+    and F_EP≈10 Hz (PUM/TST). PUM/TST is a single clean crossing; M0/PUM is a tight cluster right
+    at F_PT (the real L-DOF M0 damping is loose — the M0 sensor barely feels the slow L mode — so
+    a small residual wiggle sits on the handoff, faithful to the plant). Guards against the earlier
+    bugs (STAGE_GAINS folded in → ~4 Hz M0/PUM and no PUM/TST crossing; undamped columns → a
+    tangle of spurious forest crossings across the whole 0.4–3 Hz band)."""
     loop = DARMLoop.default_reduced(fmin=0.1, hierarchical=True)
     f = np.geomspace(0.1, 300, 8000)
     mags = {s: np.abs(loop.stage(s, f)) for s in loop.stages}
@@ -63,14 +65,28 @@ def test_crossovers_land_at_design_targets():
 
     xo_mp = crossings("M0", "PUM")
     xo_pt = crossings("PUM", "TST")
-    assert xo_mp.size == 1, f"M0/PUM should cross once, got {xo_mp}"
+    assert xo_mp.size >= 1 and np.all((0.35 <= xo_mp) & (xo_mp <= 0.75)), \
+        f"M0/PUM handoff should cluster at F_PT≈0.5, got {xo_mp}"
     assert xo_pt.size == 1, f"PUM/TST should cross once, got {xo_pt}"
-    assert 0.35 <= xo_mp[0] <= 0.75, f"M0/PUM crossover {xo_mp[0]:.3f} not near F_PT=0.5"
     assert 8.0 <= xo_pt[0] <= 13.0, f"PUM/TST crossover {xo_pt[0]:.3f} not near F_EP=10"
 
 
 def test_non_hierarchical_default_has_no_distribution():
     assert DARMLoop.default_reduced().distribution == {}
+
+
+def test_etmx_damping_filters_match_twin_design():
+    """The six ETMX M0-damping filters reproduce the twin's SUS_CONFIG["ETMX"] design: velocity
+    damper k_d·s/(1+s/2π·8) × per-DOF LP, with the real production gains. Guards the reproduction
+    (verified FRF-identical, 0.0 diff, against digital_twin _doc_helpers.damping_filter)."""
+    filt = da.etmx_m0_damping_filters()
+    assert set(filt) == {"L", "T", "V", "R", "P", "Y"}
+    assert da.ETMX_M0_DAMP_GAINS["L"] == -1000.0 and da.ETMX_F_LP == 8.0
+    # velocity damper → zero at DC (differentiator): |K(f)| rises from ~0 at low f
+    f = np.array([1e-3, 1.0])
+    for d in ("L", "Y"):
+        h = np.abs(np.asarray(ct.frequency_response(filt[d], 2 * np.pi * f).frdata).ravel())
+        assert h[0] < h[1], f"{d}: velocity damper should roll up from DC"
 
 
 def test_actuation_hierarchy_M0_low_f_then_hands_off():

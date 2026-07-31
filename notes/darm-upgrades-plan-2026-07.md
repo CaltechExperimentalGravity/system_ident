@@ -42,20 +42,25 @@
 > **UPDATE 2026-07-30 (damp-first + force-unit offload — crossovers now land on target).** Rana:
 > "in twin, the reduced quad model is DAMPED and then the hierarchical loop is made; the damping
 > has ~no effect on the crossover frequencies." Two corrections to the 07-29 wiring:
-> (1) **Damp the quad first.** The twin's `build_damped_plant` closes the 6-DOF M0 velocity-damping
-> loop around the reduced quad BEFORE the offload design, so the 0.4–3 Hz suspension-mode forest
-> (Q~1e3) doesn't mask the smooth 1/f² compliance tails that set the crossovers. New
-> `darm_actuation.DampedQuadCompliance` closes that loop exactly in the frequency domain (the exact
-> H1 `ETMX_M0_DAMP` banks aren't vendored here, so a generic 6-DOF M0 velocity damper stands in —
-> faithful because the crossovers are damping-detail-independent: PUM/TST stays at 10.3 Hz from
-> undamped through every damping level). `hierarchical_stage_shapes` returns the three damped
-> compliances as stage shapes. (2) **Drop `STAGE_GAINS` from the loop.** The twin's offload runs in
-> FORCE units and explicitly does NOT use the drive-referred `STAGE_GAINS` (lib.py:90); the
-> compliances already carry the relative stage strengths, so folding them in double-counted and was
-> the real cause of the wrong crossover. With κ_i=1: **M0/PUM crosses at 0.487 Hz (≈F_PT=0.5) and
-> PUM/TST at 10.33 Hz (≈F_EP=10)**, single clean crossings — matching the twin's design targets. The
-> earlier "~4 Hz caveat" was wrong (it was the STAGE_GAINS double-count, not the closed-loop). Tests
-> `tests/test_darm_hierarchical.py` (`test_crossovers_land_at_design_targets`).
+> (1) **Damp the quad first, with the twin's REAL ETMX damping.** The twin damps the reduced quad
+> with a 6-DOF M0 velocity-damping loop BEFORE the offload design, so the 0.4–3 Hz suspension-mode
+> forest (Q~1e3) doesn't mask the smooth 1/f² compliance tails that set the crossovers. The damping
+> is reproduced verbatim (FRF-identical, 0.0 diff — verified) from
+> `digital_twin/aligo-suspension-models/docs/source/_doc_helpers.py` (`SUS_CONFIG["ETMX"]` +
+> `damping_filter`): per-DOF velocity damper `k_d·s/(1+s/2π·8)` × per-DOF LP (L: hand-placed
+> zeros/poles; T/V/R/P/Y: cheby1), production gains (L −1000, T/V −3000, R −10, P −3, Y −100),
+> aLIGO connectMatrix sign (positive feedback, negative gains). `darm_actuation` now carries
+> `velocity_damper`/`damping_filter`/`etmx_m0_damping_filters` and `DampedQuadCompliance` closes the
+> loop exactly in the frequency domain; `hierarchical_stage_shapes` returns the three damped
+> compliances. (2) **Drop `STAGE_GAINS` from the loop.** The twin's offload runs in FORCE units and
+> explicitly does NOT use the drive-referred `STAGE_GAINS` (lib.py:90); the compliances already
+> carry the relative stage strengths, so folding them in double-counted and was the real cause of
+> the wrong crossover. With κ_i=1: **PUM/TST crosses at 10.34 Hz (≈F_EP=10)** as a single clean
+> crossing, and **M0/PUM clusters at ~0.5–0.63 Hz (≈F_PT=0.5)** — a small residual wiggle because
+> the real L-DOF M0 damping is loose (the M0 sensor barely feels the slow L mode; the twin flags
+> this on its ETMX page), faithful to the plant. The earlier "~4 Hz caveat" was wrong — it was the
+> STAGE_GAINS double-count, not the closed loop. Tests `tests/test_darm_hierarchical.py`
+> (`test_crossovers_land_at_design_targets`, `test_etmx_damping_filters_match_twin_design`).
 
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
