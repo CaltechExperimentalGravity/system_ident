@@ -104,6 +104,33 @@ d = dd.actuation_campaign(seed=2)
 display(dd.actuation_table(d))
 ```
 
+## Hierarchical actuation and the crossovers the cal lines measure
+
+DARM is actuated on all four quad masses hierarchically: the fast, weak ESD (**TST**) takes the
+command directly, and two nested offload filters push the low-frequency drive up the chain to the
+**PUM** and the strong, slow **M0** (top mass). Each stage's DARM-referred authority is
+`A_i = κ_i · D_i(f) · N_i(f)` — the M0-damped reduced-QUAD compliance `N_i` shaped by the
+distribution filter `D_M0 = O_A·O_B`, `D_PUM = O_A`, `D_TST = 1`. The offload runs in *force* units,
+so the compliances carry the hierarchy and `κ_i = 1`. M0 owns the lowest frequencies and hands off
+up the chain, so adjacent stages cross where their authority is equal — **M0/PUM near
+`F_PT ≈ 0.5 Hz`, PUM/TST near `F_EP ≈ 10 Hz`**. Those crossovers are exactly what a per-stage
+calibration line on each actuator measures (see `darm_tv.cal_line_response`). The 0.4–3 Hz peaks are
+the L1/L2/L3 forest, undamped by the M0-only local loop — the twin's real L1 ETMX damping, faithful
+to the plant.
+
+```{python}
+#| code-summary: "Per-stage actuation |A_i(f)| with the M0/PUM and PUM/TST crossovers"
+dd.hierarchical_actuation()
+```
+
+::: {.callout-note title="Future upgrade — damped quad plants from `ssprescale`"}
+The M0-damped compliances here are built from the reduced QUAD plus a reproduction of the twin's
+L1 ETMX M0-only velocity damping. A future upgrade will instead use the **new damped quad plants
+vendored by the `ssprescale` package** (work in progress) — a properly-scaled, multi-loop
+(M0 + L1 + L2) damped suspension model — so the in-band compliances and the exact crossover
+frequencies come from the production damping design rather than a single-loop M0 stand-in.
+:::
+
 ## Head-to-head with the swept sine
 
 Same twin, same disturbance + readout noise, same total wall-clock. The multisine measures

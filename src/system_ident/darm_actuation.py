@@ -183,6 +183,10 @@ class DampedQuadCompliance:
     TST]``, memoised per ``freq``-array identity so repeated snapshots on one grid don't re-solve.
     """
 
+    # FUTURE UPGRADE (WiP): swap this reproduced L1 ETMX M0-only velocity damping for the new
+    # damped quad plants vendored by the `ssprescale` package — a properly-scaled multi-loop
+    # (M0+L1+L2) damped suspension model — so the in-band compliances and crossover frequencies
+    # come from the production damping design instead of this single-loop M0 stand-in.
     STAGES = ("M0", "PUM", "TST")
 
     def __init__(self, plant: ReducedStateSpacePlant | None = None,

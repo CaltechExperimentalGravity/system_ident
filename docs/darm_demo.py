@@ -232,3 +232,68 @@ def fom_table(c=None):
     return sp.param_table(["figure of merit", "swept sine", "P&S multisine"], rows,
                           caption="Where the multisine method differs for DARM "
                                   "(representative; the efficiency is shown above, not asserted)")
+
+
+# ── hierarchical actuation: per-stage authority + inter-stage crossovers ────────
+def _crossings(freq, mag_a, mag_b):
+    """Frequencies where |A_a| = |A_b| (linear-interpolated sign changes of the log ratio)."""
+    d = np.log(mag_a) - np.log(mag_b)
+    idx = np.where(np.diff(np.sign(d)) != 0)[0]
+    out = []
+    for i in idx:
+        f0, f1, y0, y1 = freq[i], freq[i + 1], d[i], d[i + 1]
+        out.append(float(np.exp(np.interp(0.0, [y0, y1], [np.log(f0), np.log(f1)]))) if y1 != y0 else float(f0))
+    return np.array(out)
+
+
+def hierarchical_actuation(loop=None, *, fmin=0.1, fmax=100.0, npts=3000, height=560):
+    """Per-stage DARM actuation |A_i(f)| for the hierarchical (nested-offload) loop, with the
+    inter-stage crossovers marked.
+
+    Each stage's DARM-referred authority is A_i = κ_i·D_i(f)·N_i(f): the M0-damped reduced-QUAD
+    compliance N_i (M0→L3, PUM→L3, TST→L3) shaped by the nested-offload distribution filter
+    D_M0=O_A·O_B, D_PUM=O_A, D_TST=1, with κ_i=1 (the offload runs in force units — the compliances
+    carry the hierarchy). The strong, slow M0 owns low frequency and hands off up the chain: M0→PUM
+    near F_PT≈0.5 Hz, PUM→TST near F_EP≈10 Hz. Those crossovers are exactly what per-stage
+    calibration lines measure — the frequency where each stage's authority equals the one below.
+    Above its handoff a stage's authority collapses (M0 has effectively none in the DARM band), so
+    the y-range is clamped to ~10 decades: enough to show both crossovers and TST's high-band
+    dominance without the M0 tail (→1e-22 by 1 kHz) dictating the scale. The 0.4–3 Hz peaks are the
+    L1/L2/L3 forest, undamped by the M0-only local loop (faithful to the real plant)."""
+    if loop is None:
+        loop = DARMLoop.default_reduced(fmin=fmin, hierarchical=True)
+    freq = np.geomspace(fmin, fmax, npts)
+    stages = ["M0", "PUM", "TST"]
+    labels = {"M0": "M0 (top — strong, slow)", "PUM": "PUM (mid)", "TST": "TST (test mass — fast)"}
+    colors = {"M0": sp.SKY, "PUM": sp.GOLD, "TST": sp.GREEN}
+    mag = {s: np.abs(loop.stage(s, freq)) for s in stages}
+    yr = sp._logy_range(list(mag.values()), decades=10)
+
+    fig = go.Figure()
+    for s in stages:
+        fig.add_scatter(x=freq, y=mag[s], mode="lines", name=labels[s],
+                        line=dict(color=colors[s], width=2.6),
+                        hovertemplate="%{x:.3f} Hz   |A| = %{y:.4g}<extra>" + s + "</extra>")
+
+    # inter-stage crossovers: the design targets the cal lines measure
+    for a, b, target, tag in [("M0", "PUM", 0.5, "F_PT"), ("PUM", "TST", 10.0, "F_EP")]:
+        xs = _crossings(freq, mag[a], mag[b])
+        if xs.size == 0:
+            continue
+        xc = float(xs[np.argmin(np.abs(xs - target))])   # the handoff nearest the design target
+        yc = float(np.interp(np.log(xc), np.log(freq), mag[a]))
+        fig.add_vline(x=xc, line=dict(color=sp.GRAY, width=1.4, dash="dash"))
+        fig.add_scatter(x=[xc], y=[yc], mode="markers", showlegend=False,
+                        marker=dict(color=sp.INK, size=sp.MK_BIG, symbol="circle-open",
+                                    line=dict(width=2.5)),
+                        hovertemplate=f"{a}/{b} crossover<br>%{{x:.3f}} Hz<extra></extra>")
+        fig.add_annotation(x=np.log10(xc), y=(yr[1] if yr else np.log10(yc)), yanchor="top",
+                           text=f"<b>{a}/{b} ≈ {xc:.2f} Hz</b><br>{tag} ≈ {target:g} Hz",
+                           showarrow=False, yshift=-6, font=dict(size=sp.SZ_ANNOT, color=sp.INK),
+                           bgcolor="rgba(255,255,255,0.75)")
+
+    fig.update_xaxes(type="log", title_text="frequency [Hz]")
+    fig.update_yaxes(type="log", range=yr, title_text="|A_i(f)|   [DARM disp / count]")
+    fig.update_layout(title="Hierarchical DARM actuation — per-stage authority and the "
+                            "crossovers the cal lines measure")
+    return sp.style(fig, height=height)

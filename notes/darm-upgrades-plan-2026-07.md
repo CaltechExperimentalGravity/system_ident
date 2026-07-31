@@ -61,6 +61,14 @@
 > this on its ETMX page), faithful to the plant. The earlier "~4 Hz caveat" was wrong — it was the
 > STAGE_GAINS double-count, not the closed loop. Tests `tests/test_darm_hierarchical.py`
 > (`test_crossovers_land_at_design_targets`, `test_etmx_damping_filters_match_twin_design`).
+> Plot: `docs/darm_demo.py::hierarchical_actuation` → `docs/assets/darm_hierarchical_actuation.svg`,
+> wired into `docs/examples/08-darm-calibration.qmd` (§Hierarchical actuation).
+>
+> **FUTURE UPGRADE (WiP).** Replace the reproduced L1 ETMX M0-only velocity damping with the new
+> **damped quad plants vendored by the `ssprescale` package** — a properly-scaled, multi-loop
+> (M0 + L1 + L2) damped suspension model. Then the in-band compliances and the exact crossover
+> frequencies come from the production damping design rather than the single-loop M0 stand-in used
+> here. Swap point: `darm_actuation.DampedQuadCompliance` / `etmx_m0_damping_filters`.
 
 **Status:** planning only (no code changed by this note). Phase-1 twin.
 **Scope:** two roadmap items from `notes/darm-cal-progress-2026-07.md` §Next —
