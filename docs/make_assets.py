@@ -20,6 +20,7 @@ import sysid_plots as sp
 from system_ident.model import TFModel
 from system_ident.plant import double_pendulum, coupled_suspension
 from system_ident.design.pintelon import optimal_excitation
+from system_ident.darm import DARMLoop
 
 HERE = pathlib.Path(__file__).parent
 THUMBS = HERE / "examples" / "thumbnails"
@@ -121,6 +122,36 @@ def thumb_07():
     extra = [go.Scatter(x=f, y=np.abs(coup.eval(f)), mode="lines",
              line=dict(color=sp.ROSE, width=2.5))]
     return _curve_thumb(f, np.abs(m.eval(f)), np.sqrt(Pxx), extra=extra)
+
+
+def thumb_08():
+    # Hierarchical DARM actuation: the per-stage authority |A_i(f)| of the three-stage
+    # nested-offload loop — M0 (SKY, strong/slow), PUM (GOLD, mid), TST (GREEN, fast) — on the
+    # M0-damped reduced QUAD, with the two inter-stage crossovers (M0/PUM≈0.5 Hz, PUM/TST≈10 Hz)
+    # the calibration lines measure. The signature of the reduced-quad hierarchical actuation.
+    loop = DARMLoop.default_reduced(fmin=0.1, hierarchical=True)
+    f = np.geomspace(0.1, 100.0, 900)
+    stages = [("M0", sp.SKY), ("PUM", sp.GOLD), ("TST", sp.GREEN)]
+    mag = {s: np.abs(loop.stage(s, f)) for s, _ in stages}
+    yr = sp._logy_range(list(mag.values()), decades=10)
+
+    fig = go.Figure()
+    for s, color in stages:
+        fig.add_trace(go.Scatter(x=f, y=mag[s], mode="lines", line=dict(color=color, width=4)))
+    # crossover dots: |A_a| = |A_b| nearest the design target
+    for a, b, target in [("M0", "PUM", 0.5), ("PUM", "TST", 10.0)]:
+        d = np.log(mag[a]) - np.log(mag[b])
+        xs = f[np.where(np.diff(np.sign(d)) != 0)[0]]
+        if xs.size:
+            xc = float(xs[np.argmin(np.abs(xs - target))])
+            yc = float(np.interp(np.log(xc), np.log(f), mag[a]))
+            fig.add_trace(go.Scatter(x=[xc], y=[yc], mode="markers",
+                          marker=dict(color=NAVY, size=15, symbol="circle-open",
+                                      line=dict(width=3.5))))
+    fig = _thumb_axes(fig)
+    if yr:
+        fig.update_yaxes(range=yr)
+    return fig
 
 
 def thumb_09():
@@ -238,8 +269,8 @@ def og_card():
 
 THUMBS_FNS = {"01": thumb_01, "02": thumb_02, "03": thumb_03,
               "04": thumb_04, "05": thumb_05, "06": thumb_06, "07": thumb_07,
-              "09": thumb_09, "10": thumb_10, "11": thumb_11, "12": thumb_12,
-              "13": thumb_13}
+              "08": thumb_08, "09": thumb_09, "10": thumb_10, "11": thumb_11,
+              "12": thumb_12, "13": thumb_13}
 
 if __name__ == "__main__":
     # Plots are SVG (vector) and live in Git LFS — hard rule, no PNG plots.
