@@ -9,7 +9,9 @@ freeze: true
 ::: {.callout-tip appearance="simple"}
 ## What you'll learn
 - The multisine pipeline applied to the **gravitational-wave readout** (DARM).
-- Recovering the sensing function and per-stage actuation, leakage-free.
+- Recovering the sensing function `C` and per-stage actuation `κ`, leakage-free, under disturbance + readout noise.
+- **How the 1σ on every calibration parameter converges** — as `1/√T`, onto the Cramér–Rao bound.
+- **Hierarchical actuation across the quad** (M0/PUM/TST), the inter-stage crossovers, and the **calibration lines at their real height in the DARM spectrum** — with per-line SNR and the strength precision they buy.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
@@ -104,6 +106,23 @@ d = dd.actuation_campaign(seed=2)
 display(dd.actuation_table(d))
 ```
 
+## How fast does each parameter converge?
+
+The number a calibration group actually plans around is *exposure* — how long a measurement must
+run to pin each parameter to a target. Because the estimator is period-averaged, every parameter's
+variance falls as `1/P` (equivalently `1/T`), and the fit / period-to-period-variance σ **is** the
+Cramér–Rao bound — so the recovered 1σ tracks the `1/√T` law with no free knob. Below, the six core
+calibration parameters — sensing `g_C`, `f_cc`, `τ` and the three actuator strengths `κ_UIM`,
+`κ_PUM`, `κ_TST` — are recovered at `P = 16…128` periods and their fractional 1σ plotted against
+record length. All six fall parallel to the dashed `1/√T` reference; the vertical spread is just
+per-parameter SNR (`κ_TST`, the weakest actuator, sits highest). Read off the exposure for a target:
+e.g. sub-1 % on every strength inside a ~minute-scale record here.
+
+```{python}
+#| code-summary: "σ(θ)/θ vs record length for every cal parameter, against the CRB"
+dd.convergence_fig()
+```
+
 ## Hierarchical actuation and the crossovers the cal lines measure
 
 DARM is actuated on all four quad masses hierarchically: the fast, weak ESD (**TST**) takes the
@@ -131,6 +150,30 @@ vendored by the `ssprescale` package** (work in progress) — a properly-scaled,
 frequencies come from the production damping design rather than a single-loop M0 stand-in.
 :::
 
+## The calibration lines in the DARM spectrum
+
+In operation the strengths are tracked *continuously* by always-on calibration lines — one per
+actuation stage, plus a Pcal reference — not swept campaigns. What matters is how far each line
+stands above the DARM noise, because the per-record strength precision is `σκ/κ ≈ 1/SNR`. Below,
+one line per stage (M0 low, PUM mid, TST in-band) is injected on the hierarchical twin, the loop is
+simulated under its length-disturbance + readout floor, and the DARM error is deconvolved back to
+displacement `x = d_err·(1+G)/C`. The spectrum is a full-record periodogram (resolution `df = 1/T`),
+so **each line stands exactly its SNR above the floor** — the number read straight off the plot.
+The floor is `√(disturbance² + (readout/|C|)²)`: flat length noise at low frequency, rising above
+the cavity pole where readout noise divided by the shrinking `|C|` takes over. Longer integration
+lifts every line as `√T`.
+
+```{python}
+#| code-summary: "Inject per-stage cal lines; simulate + deconvolve to a calibrated DARM spectrum"
+cs = dd.cal_line_spectrum()
+dd.cal_line_spectrum_fig(cs)
+```
+
+```{python}
+#| code-summary: "Per-line height, SNR, and the strength precision it buys"
+display(dd.cal_line_table(cs))
+```
+
 ## Head-to-head with the swept sine
 
 Same twin, same disturbance + readout noise, same total wall-clock. The multisine measures
@@ -152,12 +195,14 @@ display(dd.fom_table(c))
 
 ## Honest gaps
 
-This twin is a single DARM loop with a one-pole sensing function and static strengths. It
-omits the optical spring / SRC detuning, time-dependent coefficients (TDCF tracking lines —
-though [example 13](13-darm-drift-tracking.qmd) now tracks a drifting strength κ(t) directly),
-and the cross-couplings of a real interferometer. The efficiency claim above is a
-*demonstration on a twin*; the real test is to run both injections on the same instrument
-state and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
+This twin is a single DARM loop with a one-pole sensing function. It shows leakage-free recovery
+of `C`, the per-stage strengths and their CRB convergence, the hierarchical actuation crossovers,
+and the cal-line SNR budget — but it still holds the strengths static within a record (the drift is
+tracked in [example 13](13-darm-drift-tracking.qmd), which follows `κ(t)` directly), models SRC
+detuning / the optical spring only through the detuned-sensing option (not folded in here), and
+omits the cross-couplings of a real interferometer. The noise floor and line SNRs are
+*representative*, not a specific instrument state; the real test is to run these injections on the
+same instrument and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
 
 ## Roadmap
 

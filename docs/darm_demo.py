@@ -297,3 +297,185 @@ def hierarchical_actuation(loop=None, *, fmin=0.1, fmax=100.0, npts=3000, height
     fig.update_layout(title="Hierarchical DARM actuation — per-stage authority and the "
                             "crossovers the cal lines measure")
     return sp.style(fig, height=height)
+
+
+# ── parameter-error convergence: σ on every cal parameter vs measurement time ───
+def convergence_campaign(seed=3, periods=(16, 32, 64, 128)):
+    """σ on each calibration parameter as the record lengthens, so a cal engineer can read the
+    exposure needed for a target precision. Six parameters — sensing g_C / f_cc / τ (one Pcal
+    multisine → weighted complex LS) and the three actuator strengths κ_UIM / κ_PUM / κ_TST
+    (each stage vs the shared Pcal ruler) — recovered at P = 8…128 periods (T = P·nperseg/fs).
+    Period-averaging makes every σ fall as 1/√T (the CRB scaling); the fit/period-variance σ IS
+    the CRB estimate, so the points land on the 1/√T law with no free knob."""
+    loop = _twin()
+    fa, band, freq = _grid(loop)
+    one_plus_G = 1.0 + loop.G(freq)
+    Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))
+    stages = ("UIM", "PUM", "TST")
+    truth = {"g_C": loop.g_c, "f_cc": loop.f_cc, "τ": loop.tau,
+             "κ_UIM": loop.stages["UIM"][1], "κ_PUM": loop.stages["PUM"][1],
+             "κ_TST": loop.stages["TST"][1]}
+    order = ["g_C", "f_cc", "τ", "κ_UIM", "κ_PUM", "κ_TST"]
+    T = []
+    frac = {p: [] for p in order}
+    for P in periods:
+        dur = NPERSEG * P / loop.fs
+        T.append(dur)
+        bp = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
+        xp = multisine_from_psd(Pxx, loop.fs, NPERSEG, P, freq, seed=np.random.default_rng(seed))
+        bp.inject("PCAL_EXC", xp, loop.fs)
+        sp_seg = bp.read(["PCAL_EXC", "DARM_ERR"], dur)
+        Hp, Hp_err, _ = SysIDLoop._estimate_tf_periodic(sp_seg["PCAL_EXC"], sp_seg["DARM_ERR"],
+                                                        loop.fs, NPERSEG, band, n_transient=1)
+        p, s = fit_sensing(freq, Hp * one_plus_G, Hp_err * np.abs(one_plus_G),
+                           p0=(0.8e6, 300.0, 50e-6))
+        frac["g_C"].append(s["g_c"] / truth["g_C"])
+        frac["f_cc"].append(s["f_cc"] / truth["f_cc"])
+        frac["τ"].append(s["tau"] / truth["τ"])
+        for name in stages:
+            be = DARMBackend(loop, {"EXC": name}, "DARM_ERR", seed=seed + 1)
+            xi = multisine_from_psd(Pxx, loop.fs, NPERSEG, P, freq, seed=np.random.default_rng(seed + 2))
+            be.inject("EXC", xi, loop.fs)
+            si = be.read(["EXC", "DARM_ERR"], dur)
+            Hi, Hi_err, _ = SysIDLoop._estimate_tf_periodic(si["EXC"], si["DARM_ERR"],
+                                                            loop.fs, NPERSEG, band, n_transient=1)
+            N = loop.stages[name][0].eval(freq)
+            comb = np.hypot(Hi_err / np.abs(Hi), Hp_err / np.abs(Hp)) * np.abs(Hi / Hp)
+            _, ks = recover_actuation(freq, Hi, Hp, N, comb)
+            frac[f"κ_{name}"].append(ks / truth[f"κ_{name}"])
+    return SimpleNamespace(T=np.array(T), frac={k: np.array(v) for k, v in frac.items()},
+                           order=order, periods=periods)
+
+
+def convergence_fig(cv=None, *, height=560):
+    """Fractional 1σ on each cal parameter vs record length, with the 1/√T CRB law."""
+    if cv is None:
+        cv = convergence_campaign()
+    colors = {"g_C": sp.SKY, "f_cc": sp.GREEN, "τ": sp.INK,
+              "κ_UIM": sp.GOLD, "κ_PUM": sp.ROSE, "κ_TST": "#7C5CBF"}
+    fig = go.Figure()
+    for p in cv.order:
+        fig.add_scatter(x=cv.T, y=cv.frac[p], mode="lines+markers", name=p,
+                        line=dict(color=colors[p], width=2.4),
+                        marker=dict(color=colors[p], size=sp.MK_DATA),
+                        hovertemplate=p + ": σ/val = %{y:.3g} @ %{x:.0f} s<extra></extra>")
+    # 1/√T CRB reference, anchored at the geometric-mean level of the first column
+    y0 = float(np.exp(np.mean([np.log(cv.frac[p][0]) for p in cv.order])))
+    Tref = np.array([cv.T[0], cv.T[-1]])
+    fig.add_scatter(x=Tref, y=y0 * np.sqrt(cv.T[0] / Tref), mode="lines",
+                    name="1/√T  (CRB scaling)", line=dict(color=sp.GRAY, width=2.0, dash="dash"),
+                    hoverinfo="skip")
+    allv = np.concatenate([cv.frac[p] for p in cv.order])
+    fig.update_xaxes(type="log", title_text="record length T = P·nperseg/f_s  [s]")
+    fig.update_yaxes(type="log", title_text="fractional 1σ   σ(θ)/θ",
+                     range=sp._logy_range([allv], decades=3))
+    fig.update_layout(title="Parameter-error convergence — every cal parameter falls as 1/√T "
+                            "onto the Cramér–Rao bound")
+    return sp.style(fig, height=height)
+
+
+# ── the calibration lines, at their real height in the DARM spectrum ────────────
+import scipy.signal as _sig  # noqa: E402
+
+
+def cal_line_spectrum(seed=5, *, P=256, snr_targets=(("M0", 0.45, 90.0),
+                                                     ("PUM", 3.0, 140.0),
+                                                     ("TST", 40.0, 260.0))):
+    """A real calibrated-DARM displacement spectrum with the per-stage calibration lines injected,
+    simulated (disturbance + readout noise), and referred back to metres.
+
+    Each stage carries one line (M0 low, PUM mid, TST in-band); the drive on each is set so the
+    line reaches a stated SNR over the record `T = P·nperseg/fs`, then the loop is SIMULATED and
+    the DARM error is deconvolved to displacement `x = d_err·(1+G)/C`. The spectrum is a
+    full-record periodogram (resolution `df = 1/T`), so a coherent line stands EXACTLY its SNR
+    above the `√(disturbance² + (readout/|C|)²)` floor — the number a cal engineer reads straight
+    off the plot — and the per-record strength precision is `σκ/κ ≈ 1/SNR`. Returns the measured
+    ASD (thinned for display, line bins kept exact), the analytic floor, and the per-line table."""
+    loop = DARMLoop.default_reduced(fmin=0.3, hierarchical=True)
+    loop.disturbance_asd, loop.sensor_asd = 3.0e-4, 300.0
+    fs, n = loop.fs, NPERSEG * P
+    T = n / fs
+    fgrid = np.fft.rfftfreq(n, 1.0 / fs)
+    C_grid = loop.C(fgrid)
+    one_plus_G = 1.0 + loop.G(fgrid)
+
+    # displacement-referred noise floor (analytic): length disturbance (flat) + readout/|C| (rises)
+    ff = np.geomspace(loop.fmin, loop.fmax, 1400)
+    floor = np.sqrt(loop.disturbance_asd**2 + (loop.sensor_asd / np.abs(loop.C(ff)))**2)
+
+    # Simulate ONLY the noise through the real loop TFs (disturbance C/(1+G), readout 1/(1+G) —
+    # both analytic in C,G, no per-bin plant solve), deconvolve to displacement, then place each
+    # coherent line at its exact recovered height A_i·c_i (deterministic: the loop is linear and
+    # G,C are known, so this IS what driving the stage and deconvolving would yield). This avoids
+    # evaluating the per-bin damped-quad stage over the megapoint grid — seconds, not minutes.
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) / fs
+    derr_noise = loop.simulate({}, n, rng)                          # [ct]: disturbance + readout
+    Xf = np.fft.rfft(derr_noise) * np.where(np.abs(C_grid) > 0, one_plus_G / C_grid, 0.0)
+    x = np.fft.irfft(Xf, n)                                          # calibrated displacement [m]
+    rows, line_bins = [], {}
+    for name, f_want, snr in snr_targets:
+        k = int(round(f_want * n / fs))
+        f_line = k * fs / n
+        floor_l = float(np.interp(f_line, ff, floor))               # m/√Hz at the line
+        height = snr * floor_l / np.sqrt(T)                          # line displacement [m rms]
+        x += np.sqrt(2.0) * height * np.sin(2 * np.pi * f_line * t)  # coherent cal line
+        rows.append((name, f_line, height, snr, 1.0 / snr))
+        line_bins[name] = k
+
+    fpsd, Pxx = _sig.periodogram(x, fs=fs, detrend=False)           # df = 1/T → line/floor = SNR
+    asd = np.sqrt(Pxx)
+    line_asd = {nm: (fpsd[k], float(asd[k])) for nm, k in line_bins.items()}
+    # thin the dense periodogram for display (keep the exact line bins)
+    band = np.where((fpsd >= loop.fmin) & (fpsd <= loop.fmax))[0]
+    keep = np.unique(np.geomspace(band[0], band[-1], 2500).astype(int))
+    keep = np.union1d(keep, list(line_bins.values()))
+    return SimpleNamespace(loop=loop, fpsd=fpsd[keep], asd=asd[keep], ff=ff, floor=floor,
+                           lines=rows, line_asd=line_asd, T=T, P=P)
+
+
+def cal_line_spectrum_fig(cs=None, *, height=560):
+    """Calibrated DARM displacement ASD (periodogram, df=1/T) with the injected calibration lines
+    standing exactly their SNR above the disturbance + readout floor."""
+    if cs is None:
+        cs = cal_line_spectrum()
+    colors = {"M0": sp.SKY, "PUM": sp.ROSE, "TST": sp.GOLD}
+    fig = go.Figure()
+    fig.add_scatter(x=cs.fpsd, y=cs.asd, mode="lines",
+                    name=f"calibrated DARM + cal lines  (T={cs.T:.0f} s, df=1/T)",
+                    line=dict(color=sp.GRAY, width=1.0), opacity=0.7,
+                    hovertemplate="%{x:.2f} Hz   %{y:.3g} m/√Hz<extra></extra>")
+    fig.add_scatter(x=cs.ff, y=cs.floor, mode="lines",
+                    name="noise floor  √(disturbance² + (readout/|C|)²)",
+                    line=dict(color=sp.INK, width=2.4, dash="dot"), hoverinfo="skip")
+    for name, f_line, h_disp, snr, prec in cs.lines:
+        yl = cs.line_asd[name][1]
+        fig.add_scatter(x=[f_line, f_line], y=[float(np.interp(f_line, cs.ff, cs.floor)), yl],
+                        mode="lines", showlegend=False,
+                        line=dict(color=colors[name], width=2.0))
+        fig.add_scatter(x=[f_line], y=[yl], mode="markers", showlegend=False,
+                        marker=dict(color=colors[name], size=sp.MK_BIG, symbol="diamond",
+                                    line=dict(color=sp.INK, width=1.2)),
+                        hovertemplate=f"{name} line<br>%{{x:.2f}} Hz<extra></extra>")
+        fig.add_annotation(x=np.log10(f_line), y=np.log10(yl), yanchor="bottom", yshift=7,
+                           text=f"<b>{name}</b> {f_line:.2f} Hz<br>SNR≈{snr:.0f} · σκ/κ≈{prec*100:.1f}%",
+                           showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.INK),
+                           bgcolor="rgba(255,255,255,0.82)")
+    yr = sp._logy_range([cs.asd, cs.floor], decades=6)
+    fig.update_xaxes(type="log", title_text="frequency [Hz]")
+    fig.update_yaxes(type="log", range=yr, title_text="DARM displacement ASD  [m/√Hz]")
+    fig.update_layout(title=f"Calibration lines in the DARM spectrum — each stands its SNR above "
+                            f"the floor over a {cs.T:.0f} s record")
+    return sp.style(fig, height=height)
+
+
+def cal_line_table(cs=None):
+    if cs is None:
+        cs = cal_line_spectrum()
+    rows = [[name, f"{f_line:.2f}", f"{h_disp:.3g}", f"{snr:.0f}", f"{prec*100:.2f}"]
+            for name, f_line, h_disp, snr, prec in cs.lines]
+    return sp.param_table(["stage line", "f [Hz]", "displacement [m rms]",
+                           f"SNR ({cs.T:.0f} s)", "σκ/κ [%]"], rows,
+                          caption="Per-stage calibration lines: displacement amplitude, in-record "
+                                  "SNR, and the per-record strength precision (≈ 1/SNR). Longer "
+                                  "integration scales SNR as √T.")
