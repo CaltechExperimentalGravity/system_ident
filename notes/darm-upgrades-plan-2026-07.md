@@ -326,3 +326,18 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > Tests `tests/test_darm_fisher.py` (5). Docs: `docs/darm_demo.py` (cal_sizing/convergence_to_target_fig/
 > scheme_bars_fig/sizing_table) + example 08 §"Sizing the lines" / §"Head-to-head with LIGO O3/O4".
 > Sources: Sun 2020 (O3, dcc P1900245); Cahillane 2017 (PRD 96 102001); O4 arXiv:2508.08423.
+
+> **UPDATE 2026-07-31 (response-error budget vs O3/O4).** Rana: "compare against the O3/O4
+> systematic error budgets." Propagate the 7-TDCF CRB into the detector-response uncertainty
+> δR/R(f): `darm_callines.response_log_jacobian` computes ∂lnR/∂lnθ with the digital servo D held
+> FIXED (so a κ_i error moves A→G→R, matching the real pipeline — unlike the twin's derived-D
+> invariant under which R is κ-insensitive); `response_budget` propagates the full covariance
+> Σ=Γ⁻¹ → (σ_mag %, σ_phase °). Reference: Sun 2020 O3A budget (`O3_BUDGET`): total error+uncertainty
+> <7%/<4° (68%, 20-2000 Hz), systematic-error floor <2%/<2°; O4 comparable (arXiv:2508.08423).
+> **Result: at the 16 s design point (all TDCFs at 0.1%) δR/R ≈ 0.1%/0.1° — ~20-70× inside the O3
+> budget; 5 min lower still. The cal-line statistics are NOT the limiting factor — the budget is
+> systematics-dominated (Pcal 0.54% absolute, unmodelled low-f response, actuator-model error),
+> none of which the twin includes.** `docs/darm_demo.py::response_budget_fig` + example 08
+> §"Against the O3/O4 systematic-error budget"; test `test_response_budget_propagation`. Also fixed
+> a `size_lines_for_target` bug (returned `lineset` was in pre-sort order vs the frequency-sorted
+> `lines` → mismatched amps downstream); now rebuilt consistently.

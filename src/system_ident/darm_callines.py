@@ -244,11 +244,14 @@ def size_lines_for_target(loop: DARMLoop, *, A_tot: float = 1.0e-3, target: floa
         x = minimize(worst, np.zeros(n), method="Nelder-Mead",
                      options=dict(xatol=1e-3, fatol=1e-6, maxiter=6000)).x
     freqs = freqs_of(x)
-    ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
-    amps = _allocate(ls, x[:n], A_tot)
+    ls0 = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
+    amps0 = _allocate(ls0, x[:n], A_tot)
     order = sorted(range(n), key=lambda i: freqs[i])
-    sized = [Line(float(freqs[i]), kinds[i], float(amps[i]), targets[i]) for i in order]
-    sig = sigma(ls, amps, T_ref)
+    sized = [Line(float(freqs[i]), kinds[i], float(amps0[i]), targets[i]) for i in order]
+    # rebuild the lineset in the SAME (frequency-sorted) order as ``sized`` so the returned
+    # ``lineset`` and ``lines`` amplitudes line up for downstream use (e.g. response_budget)
+    ls = build_lineset(loop, sized)
+    sig = sigma(ls, np.array([ln.amp for ln in sized], float), T_ref)
     t_req = {k: float(T_ref * (s / target) ** 2) for k, s in sig.items()}
     binding = max(t_req, key=t_req.get)
     return dict(lines=sized, sigma=sig, t_req=t_req, t_req_max=t_req[binding],
@@ -263,6 +266,56 @@ def sigma_vs_time(loop: DARMLoop, lines: list[Line], times: np.ndarray) -> dict[
     amps = np.array([ln.amp for ln in lines], float)
     s0 = sigma(ls, amps, float(times[0]))
     return {k: v * np.sqrt(times[0] / times) for k, v in s0.items()}
+
+
+# ── propagate the TDCF CRB into the response-function systematic budget δR/R(f) ──────────
+def response_log_jacobian(loop: DARMLoop, freqs: np.ndarray, step: float = 1e-6) -> np.ndarray:
+    """``∂lnR/∂lnθ_a(f)`` for the seven TDCFs — how a fractional error in each parameter propagates
+    into the detector response ``R = (1+G)/C`` (shape ``(F, 7)`` complex).
+
+    Following Sun 2020: the digital servo ``D`` is FIXED (it is a known filter), so
+    ``R(θ) = (1 + A(θ)·D·C(θ))/C(θ)`` with ``D = D_nominal`` — a κ_i error moves ``A`` (hence ``G``,
+    hence ``R``), and a sensing error moves ``C``. (This differs from the twin's *derived*-``D``
+    invariant, under which ``R`` is insensitive to κ; here ``D`` is held fixed to match how the real
+    calibration pipeline propagates errors.)"""
+    freqs = np.asarray(freqs, dtype=float)
+    D_fixed = loop.D(freqs)                                 # nominal digital servo, held fixed
+
+    def lnR(lp):
+        A, C = lp.A(freqs), lp.C(freqs)
+        return np.log((1.0 + A * D_fixed * C) / C)
+
+    J = np.zeros((len(freqs), len(TDCF_PARAMS)), dtype=complex)
+    knobs = [knob for _, knob in _SENSING] + [f"kappa_{s}" for s in STAGE_KINDS]
+    for a, knob in enumerate(knobs):
+        v = (float(loop.stages[knob[6:]][1]) if knob.startswith("kappa_")
+             else float(getattr(loop, knob)))
+        h = step * (abs(v) if v != 0 else 1.0)
+        J[:, a] = (lnR(loop.with_params(**{knob: v + h}))
+                   - lnR(loop.with_params(**{knob: v - h}))) / (2.0 * h / v)   # ∂lnR/∂lnθ
+    return J
+
+
+def response_budget(loop: DARMLoop, ls: LineSet, amps: np.ndarray, T: float,
+                    freqs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Statistical 1σ on the detector response from the cal-line CRB: propagate the full TDCF
+    covariance ``Σ = Γ⁻¹`` through ``∂lnR/∂lnθ``. Returns ``(sigma_mag_pct, sigma_phase_deg)`` over
+    ``freqs`` — the magnitude [%] and phase [deg] response uncertainty the lines deliver at time
+    ``T`` (to lay against the O3/O4 budgets)."""
+    cov = safe_inverse(fisher(ls, amps, T))                 # TDCF covariance (fractional/log params)
+    J = response_log_jacobian(loop, freqs)                  # (F, 7) complex
+    reJ, imJ = J.real, J.imag
+    var_mag = np.einsum("fa,ab,fb->f", reJ, cov, reJ)       # Var(Re δlnR) = |δR/R| magnitude
+    var_phase = np.einsum("fa,ab,fb->f", imJ, cov, imJ)     # Var(Im δlnR) = phase [rad]
+    return (100.0 * np.sqrt(np.clip(var_mag, 0, np.inf)),
+            np.degrees(np.sqrt(np.clip(var_phase, 0, np.inf))))
+
+
+#: Published Advanced-LIGO O3A response-error budget (Sun 2020, 68% CI, 20–2000 Hz): the total
+#: systematic-error+uncertainty upper limit and the systematic-error-alone level. O4 is comparable
+#: / improved (arXiv:2508.08423). Used as reference bands for the comparison.
+O3_BUDGET = {"total_mag_pct": 7.0, "total_phase_deg": 4.0,
+             "syst_mag_pct": 2.0, "syst_phase_deg": 2.0}
 
 
 def reference_scheme(loop: DARMLoop, positions, *, A_tot: float = 1.0e-3, T_ref: float = 60.0,

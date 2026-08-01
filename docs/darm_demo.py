@@ -626,3 +626,47 @@ def sized_lines_fig(cs=None, *, height=520):
     fig.update_layout(title="Where the sized lines sit — actuator lines in their hierarchy bands, "
                             "Pcal lines Fisher-placed")
     return sp.style(fig, height=height)
+
+
+def response_budget_fig(sz=None, *, height=640):
+    """The cal-line statistical uncertainty propagated into the detector response δR/R(f) — magnitude
+    [%] and phase [deg] — laid against the published Advanced-LIGO O3 systematic-error budget."""
+    if sz is None:
+        sz = cal_sizing()
+    loop = sz.loop
+    ls = sz.pns["lineset"]
+    amps = np.array([ln.amp for ln in sz.pns["lines"]], float)
+    f = np.geomspace(10.0, 2000.0, 700)
+    # design point (all TDCFs at 0.1%) and a 5-minute integration, at A_tot=1
+    worst = max(_cl.sigma(ls, amps, 60.0).values())
+    T_design = 60.0 * (worst / 1e-3) ** 2
+    curves = [(T_design, sp.SKY, f"P&S lines, all TDCFs at 0.1% ({T_design:.0f} s)"),
+              (300.0, sp.GREEN, "P&S lines, 5 min integration")]
+    B = _cl.O3_BUDGET
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.07,
+                        subplot_titles=("magnitude  |δR/R|  [%]", "phase  ∠(δR/R)  [deg]"))
+    for T, color, name in curves:
+        mag, ph = _cl.response_budget(loop, ls, amps, T, f)
+        fig.add_scatter(x=f, y=mag, mode="lines", name=name, line=dict(color=color, width=2.6),
+                        legendgroup=name, hovertemplate="%{x:.0f} Hz  %{y:.3f}%<extra></extra>",
+                        row=1, col=1)
+        fig.add_scatter(x=f, y=ph, mode="lines", name=name, line=dict(color=color, width=2.6),
+                        legendgroup=name, showlegend=False,
+                        hovertemplate="%{x:.0f} Hz  %{y:.3f}°<extra></extra>", row=2, col=1)
+    # O3 reference budget levels
+    for row, tot, syst, unit in [(1, B["total_mag_pct"], B["syst_mag_pct"], "%"),
+                                 (2, B["total_phase_deg"], B["syst_phase_deg"], "°")]:
+        fig.add_hline(y=tot, line=dict(color=sp.RED, width=2, dash="dash"), row=row, col=1)
+        fig.add_hline(y=syst, line=dict(color=sp.GOLD, width=2, dash="dot"), row=row, col=1)
+        fig.add_annotation(x=np.log10(12), y=np.log10(tot), yanchor="bottom", xanchor="left",
+                           text=f"O3 total budget ({tot:g}{unit}, 68%)", showarrow=False,
+                           font=dict(size=sp.SZ_ANNOT, color=sp.RED), row=row, col=1)
+        fig.add_annotation(x=np.log10(12), y=np.log10(syst), yanchor="bottom", xanchor="left",
+                           text=f"O3 systematic floor ({syst:g}{unit})", showarrow=False,
+                           font=dict(size=sp.SZ_ANNOT, color=sp.GOLD), row=row, col=1)
+    fig.update_xaxes(type="log", row=2, col=1, title_text="frequency [Hz]")
+    fig.update_xaxes(type="log", row=1, col=1)
+    fig.update_yaxes(type="log", row=1, col=1)
+    fig.update_yaxes(type="log", row=2, col=1)
+    fig.update_layout(title="Response-error budget — cal-line statistics vs the O3 systematic budget")
+    return sp.style(fig, height=height)

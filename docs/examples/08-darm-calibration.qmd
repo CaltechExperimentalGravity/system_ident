@@ -13,6 +13,7 @@ freeze: true
 - **How the 1σ on every calibration parameter converges** — as `1/√T`, onto the Cramér–Rao bound.
 - **Hierarchical actuation across the quad** (M0/PUM/TST), the inter-stage crossovers, and the **calibration lines at their real height in the DARM spectrum** — with per-line SNR and the strength precision they buy.
 - **Fisher-optimal line design** — placing and sizing the lines to reach 0.1% on all seven TDCFs (including the SRC detuning that splits the cavity pole) in under 5 minutes, benchmarked head-to-head against the LIGO O3/O4 line schemes.
+- **The response-error budget** — propagating the cal-line CRB into `δR/R(f)` (magnitude, phase) and laying it against the published O3/O4 systematic-error budget.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
@@ -256,6 +257,31 @@ uncertainties; and the full O4 line list). Drop them into
 a PR — and we'll fold them into the simulation for a fully apples-to-apples, absolute comparison.
 Only published / DCC numbers are needed (nothing embargoed).
 :::
+
+## Against the O3/O4 systematic-error budget
+
+The quantity a calibration group actually publishes is the uncertainty on the **detector response**
+`R = (1+G)/C`. Propagating the cal-line CRB — the full 7-parameter covariance `Σ = Γ⁻¹` through
+`∂lnR/∂lnθ` (with the digital servo `D` held fixed, so a κ_i error moves `A`→`R` exactly as in the
+real pipeline) — gives the *statistical* response uncertainty `δR/R(f)` in magnitude and phase.
+Below it is laid against the published Advanced-LIGO O3A budget
+([Sun 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf)): total systematic error +
+uncertainty **< 7% / < 4°** (68% CI, 20–2000 Hz), systematic error alone **< 2% / < 2°**. (O4 is
+comparable / improved — [arXiv:2508.08423](https://arxiv.org/abs/2508.08423).)
+
+```{python}
+#| code-summary: "δR/R(f) from the cal-line CRB vs the O3 budget levels"
+dd.response_budget_fig(sz)
+```
+
+Even at the fast 16-second design point (all seven TDCFs at 0.1%), the statistical response
+uncertainty is **~0.1% in magnitude and ~0.1° in phase** — roughly **20–70× inside** the O3
+systematic-error floor and total budget; a 5-minute integration pushes it lower still. The takeaway
+is honest and useful: with a Fisher-optimal line scheme the **cal-line statistics are not the
+limiting factor** — the O3/O4 budget is dominated by *systematic* modelling errors (the Pcal
+absolute reference at 0.54%, unmodelled low-frequency response features, actuator-model error), none
+of which this representative twin includes. Beating the budget therefore means attacking those
+systematics, not integrating the lines longer.
 
 ## Head-to-head with the swept sine
 

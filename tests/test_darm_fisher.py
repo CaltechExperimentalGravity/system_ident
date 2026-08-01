@@ -60,6 +60,28 @@ def test_sizing_hits_target_and_reports_feasibility(loop):
     assert res["feasible"] == (res["t_req_max"] <= 300.0)
 
 
+def test_response_budget_propagation(loop):
+    """Propagating the TDCF CRB into δR/R(f): the response model matches loop.R at nominal, every
+    parameter (including the κ's, with D held fixed) moves R, and the response uncertainty is
+    finite, scales as 1/√T, and lands well inside the O3 budget at the 0.1% design point."""
+    f = np.geomspace(10.0, 2000.0, 200)
+    D = loop.D(f)
+    R_model = (1.0 + loop.A(f) * D * loop.C(f)) / loop.C(f)
+    np.testing.assert_allclose(R_model, loop.R(f), rtol=1e-9)          # D-fixed model == loop.R
+    J = cl.response_log_jacobian(loop, f)
+    assert J.shape == (len(f), len(cl.TDCF_PARAMS))
+    assert np.all(np.max(np.abs(J), axis=0) > 0)                       # every param moves R somewhere
+    res = cl.size_lines_for_target(loop, A_tot=1.0, target=1e-3, T_ref=60.0, optimize_freq=False)
+    ls, amps = res["lineset"], np.array([ln.amp for ln in res["lines"]])
+    m1, p1 = cl.response_budget(loop, ls, amps, res["t_req_max"], f)
+    m4, p4 = cl.response_budget(loop, ls, amps, 4.0 * res["t_req_max"], f)
+    assert np.all(np.isfinite(m1)) and np.all(m1 > 0)
+    np.testing.assert_allclose(m1 / m4, 2.0, rtol=1e-6)                # σ ∝ 1/√T
+    band = (f >= 20) & (f <= 2000)
+    assert m1[band].max() < cl.O3_BUDGET["total_mag_pct"]             # inside the O3 budget
+    assert p1[band].max() < cl.O3_BUDGET["total_phase_deg"]
+
+
 def test_optimal_placement_beats_fixed_o3_o4(loop):
     """Optimising line frequency + amplitude is no worse than the fixed O3/O4 positions (with
     their amplitudes optimally allocated) at equal total drive — optimal is optimal."""
