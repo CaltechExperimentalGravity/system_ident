@@ -205,6 +205,21 @@ dd.convergence_to_target_fig(sz)
 Every parameter reaches 0.1% before the 5-minute mark; `δ` and `τ` are the slowest (they need
 high-frequency information, where the readout floor is worst), the κ's and `f_cc` are fast.
 
+The lines land where the physics puts them (below). The **Pcal (sensing) line frequencies are
+Fisher-placed** — each where its parameter is most informative: `f_cc` near the cavity pole, `δ`
+and `τ` high (the coupled-cavity `f²` split-curvature and the delay phase both grow with `f`). The
+**actuator line frequencies follow the actuation hierarchy** — each stage measured in its authority
+band (M0 low, PUM mid, ESD ~tens of Hz), distinct so they demodulate cleanly. (They are *not*
+Fisher-placed: the ruler `H_stage/H_pcal = κ_i·D_i·N_i` cancels the loop, so a stage's κ_i precision
+depends on the drive it carries, not its frequency — the band is a hierarchy/operational choice,
+matching LIGO's ~15–35 Hz actuator lines.) The total drive is then split to balance the
+worst-parameter time-to-0.1%.
+
+```{python}
+#| code-summary: "Where the sized lines sit over the DARM floor"
+dd.sized_lines_fig(sz)
+```
+
 ## Head-to-head with LIGO O3/O4
 
 At **equal total drive**, how does this Fisher-optimal placement compare to the actual O3 and O4
@@ -229,6 +244,18 @@ so much as a different target. For the κ's, which LIGO does track tightly, the 
 comparable. The absolute times are representative (only the total drive is borrowed from the
 papers; matching the exact per-line amplitudes and the full O4 line list is the next phase); the
 **ratio** is scale-invariant.
+
+::: {.callout-important appearance="simple"}
+## Calibration team: help us make this exact
+The comparison above uses the real O3/O4 line *frequencies* but a single **representative** total
+drive — we do not yet have the actual per-line amplitudes. **If you work on LIGO calibration, we'd
+love the real cal-line heights in physical units** (Pcal displacement amplitudes [m]; per-stage
+UIM/PUM/TST actuator drives [counts / N / m]; the integration convention behind the quoted TDCF
+uncertainties; and the full O4 line list). Drop them into
+[**issue #3**](https://github.com/CaltechExperimentalGravity/system_ident/issues/3) — a comment or
+a PR — and we'll fold them into the simulation for a fully apples-to-apples, absolute comparison.
+Only published / DCC numbers are needed (nothing embargoed).
+:::
 
 ## Head-to-head with the swept sine
 

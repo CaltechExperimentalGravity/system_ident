@@ -116,17 +116,21 @@ def build_lineset(loop: DARMLoop, lines: list[Line], step: float = 1e-6) -> Line
         Cm = _sensing_C(loop, freqs, {knob: v - h})
         J[:, a] = v * (Cp - Cm) / (2.0 * h) / C0     # ∂lnC/∂lnθ (= ∂lnH/∂lnθ, since H ∝ C)
     # dlnH/dlnκ_i = 1 for a line on stage i, else 0
-    for si, st in enumerate(STAGE_KINDS):
-        col = len(_SENSING) + si
-        for j, k in enumerate(kinds):
-            if k == st:
-                J[j, col] = 1.0
+    for j, k in enumerate(kinds):
+        if k in STAGE_KINDS:
+            J[j, len(_SENSING) + STAGE_KINDS.index(k)] = 1.0
     return LineSet(freqs, kinds, floor_asd(loop, freqs), J)
 
 
 def fisher(ls: LineSet, amps: np.ndarray, T: float) -> np.ndarray:
-    """Fisher information Γ on the log-TDCF vector for line amplitudes ``amps`` over time ``T``.
-    ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·√T/floor_j``."""
+    """Fisher information Γ on the log-TDCF vector for line amplitudes ``amps`` (DARM-displacement,
+    m rms) over time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·√T/floor_j``.
+
+    Actuator lines enter through the ruler ``H_stage/H_pcal = κ_i·D_i·N_i`` (``∂lnH/∂lnκ_i = 1``);
+    the ruler cancels the loop, so an actuator line's κ_i information depends on the displacement
+    amplitude it drives, not on its frequency. The actuator LINE FREQUENCIES are therefore set by
+    the actuation hierarchy + demodulation spacing (each stage in its authority band); the CRB
+    drives the sensing (Pcal) line frequencies and the drive allocation."""
     snr2 = (np.asarray(amps, float) ** 2) * T / ls.floor ** 2
     Gamma = np.zeros((len(TDCF_PARAMS), len(TDCF_PARAMS)))
     for j in range(len(ls.kinds)):
@@ -150,20 +154,22 @@ def tdcf_sigma(loop: DARMLoop, lines: list[Line], T: float) -> dict[str, float]:
 # ── frequency seeding (dispersion-lite: put each line where it is most informative) ──────
 def seed_lines(loop: DARMLoop, *, fmin: float = 0.3, fmax: float = 1500.0,
                n_grid: int = 300) -> list[Line]:
-    """A dispersion-seeded roster: one actuator line per stage placed where that stage *dominates*
-    the actuation (``|stage_i|/Σ|stage|`` — M0 low, PUM mid, TST high, so the lines are spread and
-    each cleanly measures its own κ_i), and one Pcal line per sensing parameter at the frequency
-    where that parameter is most informative (``|∂lnC/∂lnθ|/floor``). Seven lines for seven TDCFs;
-    amplitudes are set by :func:`size_lines_for_target`. (κ_i information is frequency-independent
-    — ``∂lnH/∂lnκ_i = 1`` — so a stage line's frequency is chosen for realism/diversity; the Pcal
-    line placement is where it matters.)"""
+    """A dispersion-seeded roster: one actuator line per stage placed in that stage's **authority
+    band** — where it dominates the hierarchical drive (``|A_i|/Σ|A|``: M0 low, PUM mid, TST high,
+    naturally distinct for demodulation) — and one Pcal line per sensing parameter where that
+    parameter is most informative (``|∂lnC/∂lnθ|/floor``). Seven lines for seven TDCFs; the Pcal
+    frequencies are refined and all amplitudes set by :func:`size_lines_for_target` (the actuator
+    frequencies are fixed by the hierarchy — the ruler makes κ_i frequency-agnostic, see
+    :func:`fisher`)."""
     grid = np.geomspace(fmin, fmax, n_grid)
     fl = floor_asd(loop, grid)
-    mags = {st: np.abs(loop.stage(st, grid)) for st in STAGE_KINDS}
-    total = sum(mags.values())
+    mags = np.array([np.abs(loop.stage(st, grid)) for st in STAGE_KINDS])
+    dominant = np.argmax(mags, axis=0)                       # which stage dominates at each bin
     lines: list[Line] = []
-    for st in STAGE_KINDS:                                   # where this stage dominates the drive
-        lines.append(Line(float(grid[int(np.argmax(mags[st] / total))]), st, target=f"kappa_{st}"))
+    for si, st in enumerate(STAGE_KINDS):                    # centre of this stage's authority band
+        band = grid[(dominant == si) & (grid <= 100.0)]      # cap so the top stage isn't at the edge
+        f_st = float(np.exp(np.mean(np.log(band)))) if band.size else float(grid[np.argmax(mags[si])])
+        lines.append(Line(f_st, st, target=f"kappa_{st}"))
     C0 = _sensing_C(loop, grid, {})
     for name, knob in _SENSING:                              # Pcal line per sensing param
         v = float(getattr(loop, knob)); h = 1e-6 * (abs(v) if v != 0 else 1.0)
@@ -189,11 +195,12 @@ def size_lines_for_target(loop: DARMLoop, *, A_tot: float = 1.0e-3, target: floa
     whether that is met within ``T_max`` (5 min) at total drive ``A_tot``.
 
     Minimises the **worst-parameter** fractional σ (c-optimal: all params must hit the target, so
-    the binding one governs) at fixed total drive ``‖amp‖₂ = A_tot`` over both the per-line
-    amplitudes and — when ``optimize_freq`` — the line frequencies (the line *kinds* are fixed:
-    three actuator lines + four Pcal lines from :func:`seed_lines`, seeded then refined by
-    differential evolution). The Fisher needs only the analytic ``C``/floor, so this is cheap
-    despite re-placing every line. Because the CRB scales as ``1/T``, the per-parameter time to
+    the binding one governs) at fixed total drive ``‖amp‖₂ = A_tot`` over the per-line amplitudes
+    and — when ``optimize_freq`` — the **Pcal** (sensing) line frequencies, via differential
+    evolution. The three **actuator** frequencies stay at their hierarchy bands from
+    :func:`seed_lines` (the ruler makes κ_i frequency-agnostic — see :func:`fisher`). The Fisher
+    needs only the analytic ``C``/floor, so this is cheap. Because the CRB scales as ``1/T``, per-
+    parameter time to
     reach ``target`` is ``T_req,θ = T_ref·(σ_θ(T_ref)/target)²``; the binding requirement is
     ``max_θ T_req``.
 
@@ -203,49 +210,50 @@ def size_lines_for_target(loop: DARMLoop, *, A_tot: float = 1.0e-3, target: floa
     if lines is None:
         lines = seed_lines(loop)
     kinds = [ln.kind for ln in lines]
+    targets = [ln.target for ln in lines]
+    f_seed = np.array([ln.freq for ln in lines], dtype=float)
     n = len(lines)
+    pcal = [i for i in range(n) if kinds[i] == "PCAL"]      # only Pcal frequencies are optimised
+    npc = len(pcal)
     lf_lo, lf_hi = np.log10(fmin), np.log10(fmax)
+    min_sep = np.log10(1.15)                                # lines ≥15% apart (demodulable)
 
-    def unpack(x):
-        logw = x[:n]
-        logf = x[n:] if optimize_freq else np.log10([ln.freq for ln in lines])
-        freqs = 10.0 ** np.clip(logf, lf_lo, lf_hi)
-        return freqs, logw
+    def freqs_of(x):
+        f = f_seed.copy()                                  # actuator freqs fixed at the hierarchy
+        if optimize_freq:
+            f[pcal] = 10.0 ** np.clip(x[n:], lf_lo, lf_hi)
+        return f
 
     def worst(x):
-        freqs, logw = unpack(x)
+        freqs = freqs_of(x)
         ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
-        return max(sigma(ls, _allocate(ls, logw, A_tot), T_ref).values())
+        w = max(sigma(ls, _allocate(ls, x[:n], A_tot), T_ref).values())
+        if optimize_freq:                                  # keep lines apart (demodulation)
+            lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
+            gap = d.min()
+            if gap < min_sep:
+                w *= 1.0 + 50.0 * (min_sep - gap) / min_sep
+        return w
 
-    x0 = np.concatenate([np.zeros(n), np.log10([ln.freq for ln in lines])])
     if optimize_freq:
-        bounds = [(-6, 6)] * n + [(lf_lo, lf_hi)] * n
-        sol = differential_evolution(worst, bounds, seed=seed, maxiter=120, tol=1e-7,
-                                     polish=True, init="sobol", x0=x0)
-        x = sol.x
+        x0 = np.concatenate([np.zeros(n), np.log10(f_seed[pcal])])
+        bounds = [(-6, 6)] * n + [(lf_lo, lf_hi)] * npc
+        x = differential_evolution(worst, bounds, seed=seed, maxiter=200, tol=1e-8,
+                                    polish=True, init="sobol", x0=x0).x
     else:
-        x = minimize(lambda w: worst(np.concatenate([w, x0[n:]])), np.zeros(n),
-                     method="Nelder-Mead", options=dict(xatol=1e-3, fatol=1e-6, maxiter=6000)).x
-        x = np.concatenate([x, x0[n:]])
-    freqs, logw = unpack(x)
+        x = minimize(worst, np.zeros(n), method="Nelder-Mead",
+                     options=dict(xatol=1e-3, fatol=1e-6, maxiter=6000)).x
+    freqs = freqs_of(x)
     ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
-    amps = _allocate(ls, logw, A_tot)
+    amps = _allocate(ls, x[:n], A_tot)
     order = sorted(range(n), key=lambda i: freqs[i])
-    sized = [Line(float(freqs[i]), kinds[i], float(amps[i]),
-                  lines[i].target if not optimize_freq else _nearest_target(kinds[i], i, lines))
-             for i in order]
+    sized = [Line(float(freqs[i]), kinds[i], float(amps[i]), targets[i]) for i in order]
     sig = sigma(ls, amps, T_ref)
     t_req = {k: float(T_ref * (s / target) ** 2) for k, s in sig.items()}
     binding = max(t_req, key=t_req.get)
     return dict(lines=sized, sigma=sig, t_req=t_req, t_req_max=t_req[binding],
                 feasible=bool(t_req[binding] <= T_max), binding=binding, T_ref=T_ref,
                 target=target, A_tot=A_tot, lineset=ls)
-
-
-def _nearest_target(kind: str, idx: int, seed: list[Line]) -> str:
-    """Carry the seed's target label onto a re-placed line of the same kind (best-effort)."""
-    same = [ln for ln in seed if ln.kind == kind]
-    return same[0].target if same else ""
 
 
 def sigma_vs_time(loop: DARMLoop, lines: list[Line], times: np.ndarray) -> dict[str, np.ndarray]:

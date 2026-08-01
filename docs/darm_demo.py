@@ -578,3 +578,51 @@ def sizing_table(cs=None):
                                   "does not correct to 0.1%); for the κ's the schemes are "
                                   "comparable. Absolute times are representative (drive-match "
                                   "deferred); the ratio is scale-invariant.")
+
+
+def sized_lines_fig(cs=None, *, height=520):
+    """Where the sized calibration lines sit over the DARM noise floor: the three actuator lines in
+    their hierarchy bands (M0 low, PUM mid, TST ~tens of Hz) and the four Fisher-placed Pcal lines,
+    with the O3/O4 line frequencies shown for comparison."""
+    if cs is None:
+        cs = cal_sizing()
+    loop = cs.loop
+    ff = np.geomspace(0.3, 1500.0, 1400)
+    floor = _cl.floor_asd(loop, ff)
+    labels = {"kappa_C": "κ_C", "f_cc": "f_cc", "delta": "δ", "tau": "τ",
+              "kappa_M0": "κ_M0", "kappa_PUM": "κ_PUM", "kappa_TST": "κ_ESD"}
+    fig = go.Figure()
+    fig.add_scatter(x=ff, y=floor, mode="lines", name="DARM floor",
+                    line=dict(color=sp.INK, width=2.2, dash="dot"), hoverinfo="skip")
+    # O3/O4 line frequencies as faint reference ticks
+    for res, color, name in [(cs.o3, sp.GOLD, "O3 lines"), (cs.o4, sp.ROSE, "O4 lines")]:
+        fx = [ln.freq for ln in res["lines"]]
+        fig.add_scatter(x=fx, y=[float(np.interp(f, ff, floor)) * 0.5 for f in fx], mode="markers",
+                        name=name, marker=dict(color=color, size=8, symbol="line-ns-open"),
+                        hovertemplate=name + ": %{x:.1f} Hz<extra></extra>")
+    # P&S-optimal lines as labelled stems
+    for ln in cs.pns["lines"]:
+        y0 = float(np.interp(ln.freq, ff, floor))
+        yl = y0 * 6.0
+        c = sp.SKY if ln.kind == "PCAL" else sp.GREEN
+        fig.add_scatter(x=[ln.freq, ln.freq], y=[y0, yl], mode="lines", showlegend=False,
+                        line=dict(color=c, width=2.4))
+        fig.add_scatter(x=[ln.freq], y=[yl], mode="markers", showlegend=False,
+                        marker=dict(color=c, size=sp.MK_DATA + 2,
+                                    symbol="diamond" if ln.kind == "PCAL" else "square",
+                                    line=dict(color=sp.INK, width=1)),
+                        hovertemplate=f"{ln.kind} → {labels.get(ln.target, ln.target)}<br>%{{x:.2f}} Hz<extra></extra>")
+        fig.add_annotation(x=np.log10(ln.freq), y=np.log10(yl), yanchor="bottom", yshift=4,
+                           text=labels.get(ln.target, ln.target), showarrow=False,
+                           font=dict(size=sp.SZ_ANNOT, color=c))
+    # legend proxies for the two P&S line kinds
+    fig.add_scatter(x=[None], y=[None], mode="markers", name="P&S Pcal (sensing)",
+                    marker=dict(color=sp.SKY, size=sp.MK_DATA + 2, symbol="diamond"))
+    fig.add_scatter(x=[None], y=[None], mode="markers", name="P&S actuator (hierarchy band)",
+                    marker=dict(color=sp.GREEN, size=sp.MK_DATA + 2, symbol="square"))
+    yr = sp._logy_range([floor], decades=4)
+    fig.update_xaxes(type="log", title_text="frequency [Hz]")
+    fig.update_yaxes(type="log", range=yr, title_text="DARM displacement ASD  [m/√Hz]")
+    fig.update_layout(title="Where the sized lines sit — actuator lines in their hierarchy bands, "
+                            "Pcal lines Fisher-placed")
+    return sp.style(fig, height=height)
