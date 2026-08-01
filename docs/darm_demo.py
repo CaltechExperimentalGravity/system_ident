@@ -479,3 +479,102 @@ def cal_line_table(cs=None):
                           caption="Per-stage calibration lines: displacement amplitude, in-record "
                                   "SNR, and the per-record strength precision (≈ 1/SNR). Longer "
                                   "integration scales SNR as √T.")
+
+
+# ── Fisher-optimal cal-line sizing: 0.1% on every TDCF in < 5 minutes ───────────
+from system_ident import darm_callines as _cl  # noqa: E402
+
+
+def cal_sizing(seed=0, t_pns_target=90.0):
+    """Size the calibration lines (Pcal + M0/PUM/ESD) so every TDCF reaches 0.1% fractional 1σ,
+    and compare the P&S-optimal placement to the LIGO O3/O4 line positions at equal total drive.
+
+    The relative result (per-parameter time-to-0.1%, and the P&S/O3/O4 ratio) is scale-invariant;
+    the absolute total drive is representative and is set here so the P&S-optimal scheme reaches
+    the target in ``t_pns_target`` seconds (matching the papers' actual drive amplitudes is a later
+    phase). σ ∝ 1/(drive·√T), so rescaling the drive just rescales every time uniformly."""
+    loop = _cl.default_cal_loop(delta_deg=5.0)
+    pns = _cl.size_lines_for_target(loop, A_tot=1.0, target=1e-3, T_ref=60.0, seed=seed)
+    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=1.0)
+    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=1.0)
+    scale = np.sqrt(pns["t_req_max"] / t_pns_target)     # A_tot so P&S hits target in t_pns_target
+    for r in (pns, o3, o4):                               # rescale times to the common drive
+        r["t_req"] = {k: v / scale ** 2 for k, v in r["t_req"].items()}
+        r["t_req_max"] = r["t_req_max"] / scale ** 2
+    return SimpleNamespace(loop=loop, pns=pns, o3=o3, o4=o4, scale=scale,
+                           t_pns_target=t_pns_target)
+
+
+def _sigma_curves(loop, res, scale, times):
+    s = _cl.sigma_vs_time(loop, res["lines"], times)     # σ(t) at A_tot=1
+    return {k: v / scale for k, v in s.items()}          # rescale to the common drive
+
+
+def convergence_to_target_fig(cs=None, *, height=560):
+    """Per-TDCF fractional σ(t) under the P&S-optimal roster — every parameter crossing the 0.1%
+    target before the 5-minute mark."""
+    if cs is None:
+        cs = cal_sizing()
+    times = np.geomspace(1.0, 600.0, 240)
+    curves = _sigma_curves(cs.loop, cs.pns, cs.scale, times)
+    colors = {"kappa_C": sp.SKY, "f_cc": sp.GREEN, "delta": sp.ROSE, "tau": sp.INK,
+              "kappa_M0": sp.GOLD, "kappa_PUM": "#7C5CBF", "kappa_TST": "#0E7C7B"}
+    labels = {"kappa_C": "κ_C", "f_cc": "f_cc", "delta": "δ (SRC)", "tau": "τ",
+              "kappa_M0": "κ_M0", "kappa_PUM": "κ_PUM", "kappa_TST": "κ_ESD"}
+    fig = go.Figure()
+    for k in _cl.TDCF_PARAMS:
+        fig.add_scatter(x=times, y=curves[k], mode="lines", name=labels[k],
+                        line=dict(color=colors[k], width=2.4),
+                        hovertemplate=labels[k] + ": %{y:.2e} @ %{x:.0f} s<extra></extra>")
+    fig.add_hline(y=1e-3, line=dict(color=sp.RED, width=2, dash="dash"))
+    fig.add_vline(x=300.0, line=dict(color=sp.GRAY, width=2, dash="dot"))
+    fig.add_annotation(x=np.log10(1.2), y=np.log10(1e-3), yanchor="bottom", xanchor="left",
+                       text="0.1% target", showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.RED))
+    fig.add_annotation(x=np.log10(300.0), y=0.02, yref="paper", xanchor="right",
+                       text="5 min ", showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.INK))
+    allv = np.concatenate([curves[k] for k in curves])
+    fig.update_xaxes(type="log", title_text="integration time  T  [s]")
+    fig.update_yaxes(type="log", title_text="fractional 1σ   σ(θ)/θ",
+                     range=sp._logy_range([allv], decades=4))
+    fig.update_layout(title=f"P&S-optimal cal lines — every TDCF to 0.1% in {cs.pns['t_req_max']:.0f} s "
+                            f"(< 5 min)")
+    return sp.style(fig, height=height)
+
+
+def scheme_bars_fig(cs=None, *, height=520):
+    """Per-TDCF time-to-0.1% for the P&S-optimal, O3, and O4 line schemes at equal total drive."""
+    if cs is None:
+        cs = cal_sizing()
+    labels = {"kappa_C": "κ_C", "f_cc": "f_cc", "delta": "δ", "tau": "τ",
+              "kappa_M0": "κ_M0", "kappa_PUM": "κ_PUM", "kappa_TST": "κ_ESD"}
+    x = [labels[k] for k in _cl.TDCF_PARAMS]
+    fig = go.Figure()
+    for name, res, color in [("P&S-optimal", cs.pns, sp.SKY), ("LIGO O3", cs.o3, sp.GOLD),
+                             ("LIGO O4", cs.o4, sp.ROSE)]:
+        fig.add_bar(x=x, y=[res["t_req"][k] for k in _cl.TDCF_PARAMS], name=name,
+                    marker_color=color,
+                    hovertemplate=name + ": %{y:.1f} s<extra>%{x}</extra>")
+    fig.add_hline(y=300.0, line=dict(color=sp.GRAY, width=2, dash="dot"))
+    fig.add_annotation(x=0.5, xref="paper", y=np.log10(300.0), yanchor="bottom", showarrow=False,
+                       text="5 min", font=dict(size=sp.SZ_ANNOT, color=sp.INK))
+    fig.update_yaxes(type="log", title_text="time to 0.1%  [s]")
+    fig.update_layout(barmode="group",
+                      title="Time to 0.1% per parameter — P&S-optimal vs LIGO O3/O4 (equal drive)")
+    return sp.style(fig, height=height)
+
+
+def sizing_table(cs=None):
+    if cs is None:
+        cs = cal_sizing()
+    rows = [["P&S-optimal", f"{cs.pns['t_req_max']:.0f}", cs.pns["binding"], "1.0×"],
+            ["LIGO O3 lines", f"{cs.o3['t_req_max']:.0f}", cs.o3["binding"],
+             f"{cs.o3['t_req_max']/cs.pns['t_req_max']:.1f}×"],
+            ["LIGO O4 lines", f"{cs.o4['t_req_max']:.0f}", cs.o4["binding"],
+             f"{cs.o4['t_req_max']/cs.pns['t_req_max']:.1f}×"]]
+    return sp.param_table(["line scheme", "time to 0.1% on all 7 [s]", "binding param",
+                           "vs P&S-optimal"], rows,
+                          caption="Time for every TDCF to reach 0.1% at equal total drive. The "
+                                  "advantage is concentrated in δ and τ (which LIGO monitors but "
+                                  "does not correct to 0.1%); for the κ's the schemes are "
+                                  "comparable. Absolute times are representative (drive-match "
+                                  "deferred); the ratio is scale-invariant.")

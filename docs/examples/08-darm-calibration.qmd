@@ -12,6 +12,7 @@ freeze: true
 - Recovering the sensing function `C` and per-stage actuation `κ`, leakage-free, under disturbance + readout noise.
 - **How the 1σ on every calibration parameter converges** — as `1/√T`, onto the Cramér–Rao bound.
 - **Hierarchical actuation across the quad** (M0/PUM/TST), the inter-stage crossovers, and the **calibration lines at their real height in the DARM spectrum** — with per-line SNR and the strength precision they buy.
+- **Fisher-optimal line design** — placing and sizing the lines to reach 0.1% on all seven TDCFs (including the SRC detuning that splits the cavity pole) in under 5 minutes, benchmarked head-to-head against the LIGO O3/O4 line schemes.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
@@ -174,6 +175,61 @@ dd.cal_line_spectrum_fig(cs)
 display(dd.cal_line_table(cs))
 ```
 
+## Sizing the lines: 0.1% on every parameter in under 5 minutes
+
+The lines above were placed by hand. The right question is the Pintelon–Schoukens one: **where
+should the lines sit, and how big should they be, to measure every calibration parameter to a
+target precision in a target time?** We estimate seven parameters — the sensing TDCFs `κ_C`, `f_cc`,
+the SRC detuning `δ` and delay `τ`, and the three actuation strengths `κ_M0`, `κ_PUM`, `κ_ESD`
+(these define the loop through `C` and `A = Σ κ_i N_i`, exactly the O3/O4 model of
+[Sun et al. 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf)). Each line's
+closed-loop FRF is measured against the DARM noise floor with `SNR = a·√T/√S_x`; the Fisher matrix
+on the (log) parameters is the standard `Γ = Σ 2·SNR²·Re[∂lnH*·∂lnH]`, and the CRB is `Γ⁻¹`. We
+place the line frequencies and split the total drive to **minimise the worst parameter's fractional
+σ** (so the slowest-converging parameter governs), then read off the time each reaches 0.1%.
+
+::: {.callout-note appearance="simple"}
+## The coupled SRC model: the cavity pole splits
+The sensing `C` here is the **coupled** detuned-cavity response `C ∝ 1/(1 + i f/f_cc − A·sin(2δ)·(f/f_cc)²)`:
+at tuning it is the single real cavity pole, and as the SRC detunes the pole **splits into a
+complex-conjugate pair** (colliding near δ≈7°; anti-restoring on the other sign) — not a separate
+low-frequency spring factor. That physical `δ` is one of the parameters the lines must pin.
+:::
+
+```{python}
+#| code-summary: "Fisher-optimal line sizing + O3/O4 comparison (differential evolution)"
+sz = dd.cal_sizing(seed=0)
+dd.convergence_to_target_fig(sz)
+```
+
+Every parameter reaches 0.1% before the 5-minute mark; `δ` and `τ` are the slowest (they need
+high-frequency information, where the readout floor is worst), the κ's and `f_cc` are fast.
+
+## Head-to-head with LIGO O3/O4
+
+At **equal total drive**, how does this Fisher-optimal placement compare to the actual O3 and O4
+calibration-line frequencies ([Sun 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf);
+[O4 cal, arXiv:2508.08423](https://arxiv.org/abs/2508.08423)), each given its own best amplitude
+allocation? The optimal scheme balances the drive so the worst parameter governs; the LIGO
+placements reach the κ's very fast but spend much longer on `δ`/`τ`.
+
+```{python}
+#| code-summary: "Time to 0.1% per parameter — P&S-optimal vs O3 vs O4"
+dd.scheme_bars_fig(sz)
+```
+
+```{python}
+#| code-summary: "Time to 0.1% on all seven, and the speed-up"
+display(dd.sizing_table(sz))
+```
+
+The advantage is concentrated in `δ` and `τ` — parameters LIGO *monitors but does not correct to
+0.1%* (`f_s`/`Q` are tracked, not applied, in O3) — so this is not a deficiency in the real scheme
+so much as a different target. For the κ's, which LIGO does track tightly, the schemes are
+comparable. The absolute times are representative (only the total drive is borrowed from the
+papers; matching the exact per-line amplitudes and the full O4 line list is the next phase); the
+**ratio** is scale-invariant.
+
 ## Head-to-head with the swept sine
 
 Same twin, same disturbance + readout noise, same total wall-clock. The multisine measures
@@ -195,14 +251,16 @@ display(dd.fom_table(c))
 
 ## Honest gaps
 
-This twin is a single DARM loop with a one-pole sensing function. It shows leakage-free recovery
-of `C`, the per-stage strengths and their CRB convergence, the hierarchical actuation crossovers,
-and the cal-line SNR budget — but it still holds the strengths static within a record (the drift is
-tracked in [example 13](13-darm-drift-tracking.qmd), which follows `κ(t)` directly), models SRC
-detuning / the optical spring only through the detuned-sensing option (not folded in here), and
-omits the cross-couplings of a real interferometer. The noise floor and line SNRs are
-*representative*, not a specific instrument state; the real test is to run these injections on the
-same instrument and compare the `σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
+This twin is a single DARM loop with the coupled detuned-cavity sensing (the SRC-detuning `δ`
+splits the cavity pole into a complex pair). It shows leakage-free recovery of `C`, the per-stage
+strengths and their CRB convergence, the hierarchical actuation crossovers, the cal-line SNR
+budget, and a Fisher-optimal line design benchmarked against O3/O4 — but it still holds the
+parameters static within a record (drift is tracked in
+[example 13](13-darm-drift-tracking.qmd)), and omits the cross-couplings of a real interferometer.
+The noise floor and line SNRs are *representative*, not a specific instrument state, and the O3/O4
+comparison borrows only the total drive (exact per-line amplitudes / the full O4 line list are the
+next phase); the real test is to run these injections on the same instrument and compare the
+`σ(R(f))`-per-hour envelopes — see `notes/darm-calibration-via-pns.md`.
 
 ## Roadmap
 

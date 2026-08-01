@@ -303,3 +303,26 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
    everything inside `fit_sensing` (Option A)?
 6. **Band:** keep `fmin=10 Hz` (quad modes stay out of band, upgrade-1 gain is mostly phase), or
    lower it to exercise the real reduced-quad resonances?
+
+> **UPDATE 2026-07-31 (coupled SRC sensing + Fisher-optimal cal-line design).** Rana: "when SRC
+> is detuned the f_cc splits into a complex pair" — the factorized `optical_spring_factor` was
+> wrong (separate low-f spring, f_cc fixed). Replaced with the coupled detuned-cavity response
+> `C = g_c/(1 + i f/f_cc − A·sin(2δ)·(f/f_cc)²)·e^{-2πifτ}`: δ=0 byte-matches the single pole; the
+> pole splits real→collide→complex at δ_c≈7° (A=1.033); anti-spring side (δ<0) puts a pole in the
+> RHP. `optical_spring_factor→coupled_cavity_factor`, `+coupled_cavity_poles`, `fs2/spring_pole/
+> spring_K/spring_Q → alpha()/cavity_poles()/detune_coupling`; `snapshot_delta` fits it;
+> `test_darm_detuned` rewritten to check the denominator ROOTS split. (commit d9f2ea4)
+>
+> New `src/system_ident/darm_callines.py`: Fisher/CRB engine for the 7 TDCFs (κ_C, f_cc, δ, τ,
+> κ_M0/PUM/ESD) measured by Pcal + one actuator line per hierarchical stage. `Γ=Σ 2 SNR² Re[∂lnH*∂lnH]`
+> in log params (every observable ∝ C ⇒ ∂lnH/∂lnθ=∂lnC/∂lnθ for sensing, =1 for the line's own κ;
+> θ-independent pieces precomputed, no plant re-solve). `size_lines_for_target` jointly optimises
+> line freq+amp (differential evolution) to minimise the worst-param fractional σ; reports per-param
+> T_req(0.1%) and feasibility (<5 min). `O3_LINES/O4_LINES`+`reference_scheme` for the head-to-head.
+> **Result (representative twin, equal total drive): P&S-optimal reaches 0.1% on all 7 in ~90 s;
+> the O3/O4 line placements need ~4.5×/5.5× longer, the gap concentrated in δ,τ (which LIGO
+> monitors but does not correct to 0.1%); κ's are comparable.** Absolute time scales with drive
+> (representative; paper amplitude/full-O4-list match deferred) — the ratio is scale-invariant.
+> Tests `tests/test_darm_fisher.py` (5). Docs: `docs/darm_demo.py` (cal_sizing/convergence_to_target_fig/
+> scheme_bars_fig/sizing_table) + example 08 §"Sizing the lines" / §"Head-to-head with LIGO O3/O4".
+> Sources: Sun 2020 (O3, dcc P1900245); Cahillane 2017 (PRD 96 102001); O4 arXiv:2508.08423.
