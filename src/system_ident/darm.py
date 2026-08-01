@@ -26,35 +26,59 @@ def sensing_model(freq, g_c: float, f_cc: float, tau: float) -> np.ndarray:
     """Optical sensing response C(f) = g_c/(1+i f/f_cc)·exp(-i 2π f τ) [ct/m].
 
     The BRSE (tuned SRC) response — a single real coupled-cavity pole. The detuned case is
-    :func:`sensing_model_detuned`, which multiplies this by an optical-spring factor and reduces
-    to exactly this expression at zero detuning.
+    :func:`sensing_model_detuned`, which splits this pole into a complex pair (coupled-cavity
+    response) and reduces to exactly this expression at zero detuning.
     """
     f = np.asarray(freq, dtype=float)
     return g_c / (1.0 + 1j * f / f_cc) * np.exp(-2j * np.pi * f * tau)
 
 
-def optical_spring_factor(freq, fs2: float, Qs: float) -> np.ndarray:
-    """The Cahillane optical-spring / SRC-detuning factor  f² / (f² + f_s² − i·f·f_s/Q_s).
+def coupled_cavity_factor(freq, f_cc: float, alpha: float) -> np.ndarray:
+    """Coupled detuned-cavity optical response  1 / (1 + i·u − α·u²),  u = f/f_cc.
 
-    ``fs2`` is the **signed** optical-spring frequency-squared [Hz²] (``f_s² = K·sin 2δ``, so it
-    is positive for a restoring spring, negative for the anti-restoring/unstable spring on the
-    other side of the tuned point). At ``fs2 = 0`` (tuned) the factor is identically 1, so the
-    detuned sensing reduces to the single-pole BRSE model. Cahillane et al., PRD 96, 102001.
+    ``alpha`` is the (signed, dimensionless) SRC-detuning coupling, ``α = A·sin(2δ)``. This is the
+    coupled arm+SRC cavity response (Cahillane 2017): at the design tuning the two coupled-cavity
+    resonances combine to a single in-band pole, and drifting off tuning SPLITS them.
+
+    * ``α = 0`` (tuned): the factor is the single real cavity pole ``1/(1+i f/f_cc)`` exactly, so
+      the detuned sensing reduces to :func:`sensing_model` to machine precision.
+    * ``0 < α < 1/4``: second-order, TWO real poles — the second descends from ∞ as α grows.
+    * ``α = 1/4``: the poles COLLIDE (double pole).
+    * ``α > 1/4`` (restoring optical spring, δ>0): the pair lifts off the real axis into a stable
+      complex-conjugate resonance — f_cc has *split into a complex pair*.
+    * ``α < 0`` (anti-restoring spring, δ<0): the poles stay real but one crosses into the RHP —
+      the optical-spring instability. Both signs are represented honestly.
+
+    The collision detuning is set by ``A``: ``A·sin(2δ_c) = 1/4`` (A≈1.03 → δ_c≈7°).
     """
     f = np.asarray(freq, dtype=float)
-    if fs2 == 0.0:
-        return np.ones_like(f, dtype=complex)
-    fs = np.sign(fs2) * np.sqrt(abs(fs2))
-    return f ** 2 / (f ** 2 + fs2 - 1j * f * fs / Qs)
+    if alpha == 0.0:                       # tuned: byte-identical to the single-pole sensing_model
+        return 1.0 / (1.0 + 1j * f / f_cc)
+    u = f / f_cc
+    return 1.0 / (1.0 + 1j * f / f_cc - alpha * u * u)
 
 
-def sensing_model_detuned(freq, g_c: float, f_cc: float, tau: float,
-                          fs2: float, Qs: float) -> np.ndarray:
-    """Detuned DARM sensing: BRSE single pole × the Cahillane optical-spring factor.
+def coupled_cavity_poles(f_cc: float, alpha: float) -> np.ndarray:
+    """The pole frequencies [Hz] of :func:`coupled_cavity_factor` (roots of ``1 + i u − α u² = 0``,
+    ``u = f/f_cc``), returned as complex ``f``. Real (imaginary-``u``) below the α=1/4 collision,
+    a complex-conjugate pair above it. ``α = 0`` → the single pole at ``f = i·f_cc`` (+∞ second)."""
+    if alpha == 0.0:
+        return np.array([1j * f_cc, np.inf + 0j])
+    disc = np.sqrt(complex(-1.0 + 4.0 * alpha))
+    u = np.array([(1j + disc) / (2.0 * alpha), (1j - disc) / (2.0 * alpha)])
+    return f_cc * u
 
-    ``fs2 = 0`` reproduces :func:`sensing_model` exactly (verified to machine precision).
+
+def sensing_model_detuned(freq, g_c: float, f_cc: float, tau: float, alpha: float) -> np.ndarray:
+    """Detuned DARM sensing: ``g_c · coupled_cavity_factor(f, f_cc, α) · e^{-i2πfτ}``.
+
+    ``alpha = 0`` reproduces :func:`sensing_model` exactly (byte-match); ``alpha ≠ 0`` splits the
+    coupled-cavity pole per :func:`coupled_cavity_factor`.
     """
-    return sensing_model(freq, g_c, f_cc, tau) * optical_spring_factor(freq, fs2, Qs)
+    if alpha == 0.0:                       # tuned: byte-identical to the single-pole model
+        return sensing_model(freq, g_c, f_cc, tau)
+    f = np.asarray(freq, dtype=float)
+    return g_c * coupled_cavity_factor(freq, f_cc, alpha) * np.exp(-2j * np.pi * f * tau)
 
 
 def drift_profile(t, base: float, *, amp_frac: float = 0.05,
@@ -127,12 +151,13 @@ class DARMLoop:
     g_c: float = 1.0e6          # optical gain [ct/m]
     f_cc: float = 360.0         # coupled-cavity pole [Hz]
     tau: float = 77.0e-6        # light-travel / processing delay [s]
-    # SRC-detuning optical spring (Cahillane). delta = 0 is BRSE (tuned): C() is the single
-    # cavity pole exactly. Detuning gives an optical-spring resonance f_s = sqrt(spring_K·sin2δ),
-    # quality spring_Q. delta is the physical knob the TV tracker drifts (±~7° in practice).
-    delta: float = 0.0          # SRC detuning phase [rad]
-    spring_K: float = 1.4e5     # optical-spring stiffness [Hz²]; f_s²=spring_K·sin(2·delta)
-    spring_Q: float = 2.0       # optical-spring quality factor (f_s≈184 Hz at δ=7°)
+    # SRC-detuning coupled cavity (Cahillane). delta = 0 is BRSE (tuned): C() is the single real
+    # cavity pole exactly. Detuning splits it — α = detune_coupling·sin(2·delta); the coupled-cavity
+    # pole becomes a complex-conjugate pair once |α|>1/4 (collision). delta is the physical knob the
+    # TV tracker drifts (±~7° in practice); detune_coupling sets the collision detuning
+    # (A·sin(2δ_c)=1/4 → A≈1.03 puts δ_c≈7°). See :func:`coupled_cavity_factor`.
+    delta: float = 0.0            # SRC detuning phase [rad]
+    detune_coupling: float = 1.033  # A in α=A·sin(2δ); collision at δ_c≈7° (A·sin2δ_c=1/4)
     # actuation: name -> (stage TFModel, kappa strength)
     stages: dict = field(default_factory=dict)
     # hierarchical control allocation: name -> distribution filter (any object with .eval(freq)),
@@ -229,20 +254,20 @@ class DARMLoop:
         return replace(self, stages=stages, **scalar)
 
     # -- elements ----------------------------------------------------------
-    def fs2(self) -> float:
-        """Signed optical-spring frequency-squared f_s² = spring_K·sin(2·δ) [Hz²]."""
-        return float(self.spring_K * np.sin(2.0 * self.delta))
+    def alpha(self) -> float:
+        """Signed SRC-detuning coupling α = detune_coupling·sin(2·δ) (dimensionless). 0 at the
+        tuned BRSE point; |α|>1/4 is past the pole-collision (complex pair, δ>0 / RHP, δ<0)."""
+        return float(self.detune_coupling * np.sin(2.0 * self.delta))
 
-    def spring_pole(self) -> tuple[float, float]:
-        """(f_s, Q_s) of the optical-spring resonance at the current δ. f_s is signed:
-        >0 restoring (complex pair), <0 anti-restoring; 0 at the tuned BRSE point."""
-        fs2 = self.fs2()
-        return (float(np.sign(fs2) * np.sqrt(abs(fs2))), float(self.spring_Q))
+    def cavity_poles(self) -> np.ndarray:
+        """The two coupled-cavity pole frequencies [Hz] (complex) at the current δ — real below the
+        α=1/4 collision, a complex-conjugate pair above it (see :func:`coupled_cavity_poles`)."""
+        return coupled_cavity_poles(self.f_cc, self.alpha())
 
     def C(self, freq) -> np.ndarray:
-        # Detuned Cahillane sensing; δ=0 (default) reduces to the single-pole BRSE model exactly.
-        return sensing_model_detuned(freq, self.g_c, self.f_cc, self.tau,
-                                     self.fs2(), self.spring_Q)
+        # Coupled detuned-cavity sensing; δ=0 (default) reduces to the single-pole BRSE model
+        # exactly, and detuning splits the cavity pole into a complex pair (coupled_cavity_factor).
+        return sensing_model_detuned(freq, self.g_c, self.f_cc, self.tau, self.alpha())
 
     def stage(self, name: str, freq) -> np.ndarray:
         """Per-stage actuation A_i(f) = κ_i · D_i(f) · N_i(f) [counts→DARM displacement], where

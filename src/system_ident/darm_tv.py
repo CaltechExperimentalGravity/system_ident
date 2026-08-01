@@ -138,12 +138,13 @@ def snapshot_delta(base_loop, delta_value, *, nperseg=4096, n_periods=16,
 
     δ is a **sensing** parameter (it does not cancel in the κ ruler), so it is recovered from
     the **Pcal FRF shape**: ``C_meas = H_pcal·(1+G)`` (G is the designed, known open-loop gain),
-    then a weighted complex least-squares fit of the Cahillane detuned sensing model for δ, with
-    the other sensing params held at their loop values. Returns ``(delta_hat, sigma_delta)``.
+    then a weighted complex least-squares fit of the coupled detuned-cavity sensing model for δ,
+    with the other sensing params held at their loop values. Returns ``(delta_hat, sigma_delta)``.
 
-    The optical-spring damping term ``∝ f_s = sign·√|f_s²|`` has a steep slope through the tuned
-    point, so — perhaps counter-intuitively — δ is well-identified even near BRSE (small detuning
-    leaves a measurable phase asymmetry in ``C``); ``sigma_delta`` does not blow up at δ→0.
+    The coupled term ``α·u² = detune_coupling·sin(2δ)·(f/f_cc)²`` is linear in δ through the tuned
+    point (``sin2δ ≈ 2δ``) and grows as ``f²``, so — perhaps counter-intuitively — δ is
+    well-identified even near BRSE (small detuning leaves a measurable high-frequency curvature in
+    ``C``); ``sigma_delta`` does not blow up at δ→0.
     """
     from scipy.optimize import least_squares
     from .darm import sensing_model_detuned
@@ -156,8 +157,8 @@ def snapshot_delta(base_loop, delta_value, *, nperseg=4096, n_periods=16,
     C_err = np.maximum(Hp_err * np.abs(one_plus_G), 1e-30)
 
     def model(delta):
-        fs2 = loop.spring_K * np.sin(2.0 * delta)
-        return sensing_model_detuned(freq, loop.g_c, loop.f_cc, loop.tau, fs2, loop.spring_Q)
+        alpha = loop.detune_coupling * np.sin(2.0 * delta)
+        return sensing_model_detuned(freq, loop.g_c, loop.f_cc, loop.tau, alpha)
 
     def resid(p):
         r = (C_meas - model(p[0])) / C_err

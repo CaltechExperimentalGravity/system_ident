@@ -1,8 +1,9 @@
-"""DARM Upgrade 2: SRC-detuning optical spring (Cahillane detuned sensing) + δ tracking.
+"""DARM Upgrade 2: SRC-detuning coupled cavity (f_cc splits into a complex pair) + δ tracking.
 
 The nominal SRC is tuned (BRSE, δ=0): sensing is a single real cavity pole. As the SRC error
-point drifts (±~7°), the Cahillane optical-spring factor lifts the response into a complex
-resonance — restoring on one side of tuning, anti-restoring on the other. δ is a *sensing*
+point drifts (±~7°), the coupled-cavity response SPLITS that pole — the second pole descends from
+∞, the pair collides near ±7°, then lifts off the real axis into a complex-conjugate resonance
+(restoring, δ>0) or one pole crosses into the RHP (anti-restoring, δ<0). δ is a *sensing*
 parameter, recovered from the Pcal FRF shape and tracked by the existing TV machinery.
 """
 import functools
@@ -11,39 +12,60 @@ import numpy as np
 import pytest
 
 from system_ident.darm import (
-    DARMLoop, sensing_model, sensing_model_detuned, optical_spring_factor, drift_profile,
+    DARMLoop, sensing_model, sensing_model_detuned, coupled_cavity_factor,
+    coupled_cavity_poles, drift_profile,
 )
 from system_ident import darm_tv as tv
 
 
 def test_delta_zero_reproduces_single_pole_exactly():
-    """The hard constraint: at δ=0 (BRSE tuned) the detuned sensing IS the single-pole model,
+    """The hard constraint: at δ=0 (α=0, BRSE tuned) the coupled sensing IS the single-pole model,
     to machine precision — so every existing tuned-loop test is preserved."""
     f = np.geomspace(0.3, 1500, 3000)
-    C0 = sensing_model_detuned(f, 1e6, 360.0, 77e-6, fs2=0.0, Qs=2.0)
+    C0 = sensing_model_detuned(f, 1e6, 360.0, 77e-6, alpha=0.0)
     np.testing.assert_allclose(C0, sensing_model(f, 1e6, 360.0, 77e-6), rtol=0, atol=0)
     # and via the loop
     loop = DARMLoop.default()
     np.testing.assert_allclose(loop.C(f), sensing_model(f, loop.g_c, loop.f_cc, loop.tau), rtol=1e-12)
 
 
-def test_optical_spring_factor_is_unity_when_tuned():
+def test_coupled_factor_is_single_pole_when_tuned():
     f = np.geomspace(1, 1000, 50)
-    np.testing.assert_array_equal(optical_spring_factor(f, 0.0, 2.0), np.ones_like(f, dtype=complex))
+    np.testing.assert_allclose(coupled_cavity_factor(f, 360.0, 0.0),
+                               1.0 / (1.0 + 1j * f / 360.0), rtol=0, atol=0)
 
 
-def test_detuning_splits_the_pole_real_to_complex():
-    """Sweep δ across ±7°: the optical-spring pole f_s² goes negative (anti-spring) → 0 (tuned)
-    → positive (restoring complex resonance), continuously through the split at δ=0."""
+def test_detuning_splits_the_cavity_pole_real_to_complex():
+    """Sweep δ from 0 → +8°: the two coupled-cavity poles are REAL below the collision (α<1/4)
+    and become a genuine complex-conjugate pair above it — f_cc literally splits. Verify on the
+    denominator ROOTS (not a separate spring factor), and that the collision is near ~7°."""
     loop = DARMLoop.default()
-    fs2 = [loop.with_params(delta=np.radians(d)).fs2() for d in (-7, -3, 0, 3, 7)]
-    assert fs2[0] < fs2[1] < 0 == fs2[2] < fs2[3] < fs2[4]         # monotone through zero
-    # restoring side is a genuine in-band resonance; the loop identity still holds under detuning
-    ld = loop.with_params(delta=np.radians(7.0))
+    below = loop.with_params(delta=np.radians(3.0))
+    above = loop.with_params(delta=np.radians(8.0))
+    assert below.alpha() < 0.25 < above.alpha()                   # straddles the collision
+    p_below = below.cavity_poles()
+    p_above = above.cavity_poles()
+    # below: both poles real in s ⇒ purely imaginary in f (Re(f_pole) ≈ 0)
+    assert np.max(np.abs(p_below.real)) < 1e-6 * loop.f_cc
+    # above: a genuine complex-conjugate pair (nonzero real part, conjugate imaginary parts)
+    assert np.min(np.abs(p_above.real)) > 1e-3 * loop.f_cc
+    np.testing.assert_allclose(p_above[0].real, -p_above[1].real, rtol=1e-9)
+    # collision (α=1/4) sits near ~7°
+    dc = np.degrees(0.5 * np.arcsin(0.25 / loop.detune_coupling))
+    assert 6.0 < dc < 8.0
+    # the loop identity still holds under the split
     f = np.geomspace(10, 1500, 2000)
-    np.testing.assert_allclose(ld.G(f), ld.A(f) * ld.D(f) * ld.C(f), rtol=1e-9)
-    fs, _ = ld.spring_pole()
-    assert 100 < fs < 400                                          # spring resonance in band
+    np.testing.assert_allclose(above.G(f), above.A(f) * above.D(f) * above.C(f), rtol=1e-9)
+
+
+def test_anti_spring_pushes_a_pole_to_the_rhp():
+    """δ<0 (anti-restoring): the poles stay real but one crosses into the RHP (Re(s)>0) — the
+    optical-spring instability, modeled honestly (the synthesized G keeps the twin usable)."""
+    loop = DARMLoop.default().with_params(delta=np.radians(-6.0))
+    assert loop.alpha() < 0
+    poles_f = loop.cavity_poles()                                 # f-plane; s = i·2π·f
+    s = 2j * np.pi * poles_f
+    assert np.max(s.real) > 0                                     # a pole in the right half plane
 
 
 def test_G_identity_holds_for_detuned_reduced_loop():
