@@ -361,3 +361,14 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > ("Reaching the O3/O4 random-error levels — gently and fast") with the Pareto plot + savings table;
 > `docs/darm_demo.py::pareto_campaign/pareto_fig/pareto_table`. Test
 > `test_response_optimal_is_gentler_than_baselines`.
+
+> **UPDATE 2026-08-01 (drift example on the new plant).** Example 13 (drifting DARM) moved off the
+> old lumped `DARMLoop.default()` onto the **new coupled plant** `default_reduced(fmin=10,
+> hierarchical=True)` (M0-damped reduced-quad M0/PUM/ESD + coupled detuned-cavity sensing).
+> κ_TST(t) tracking now runs through the M0-damped compliance + nested-offload ruler (5% drift,
+> ~0.05% per-snapshot σ). Added a δ(t) (SRC-detuning) drift-tracking section — the new physics the
+> single-pole twin couldn't represent (the split cavity pole wandering): δ recovered from the Pcal
+> FRF shape (independent of the κ drift; the two snapshots compose), ~0.004° per snapshot around a
+> 5° operating point. `docs/darm_tv_demo.py::campaign_delta/delta_drift_fig/delta_resolvability_table`;
+> example 13 abstract/gaps updated (optical-spring drift now DONE; remaining: stochastic/GP wander,
+> joint multi-param fit, one-shot LP). Docs-only change; suite unchanged (298).
