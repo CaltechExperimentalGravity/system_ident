@@ -312,10 +312,108 @@ def response_budget(loop: DARMLoop, ls: LineSet, amps: np.ndarray, T: float,
 
 
 #: Published Advanced-LIGO O3A response-error budget (Sun 2020, 68% CI, 20–2000 Hz): the total
-#: systematic-error+uncertainty upper limit and the systematic-error-alone level. O4 is comparable
-#: / improved (arXiv:2508.08423). Used as reference bands for the comparison.
+#: systematic-error+uncertainty upper limit and the systematic-error-alone level. O4's final budget
+#: is deferred to a forthcoming publication (arXiv:2508.08423), so we ground everything in O3.
 O3_BUDGET = {"total_mag_pct": 7.0, "total_phase_deg": 4.0,
              "syst_mag_pct": 2.0, "syst_phase_deg": 2.0}
+
+#: RANDOM (statistical) response-uncertainty target levels for the measurement-design study, keyed
+#: by name → (magnitude %, phase °). The O3 random level is the uncertainty part of the O3 total,
+#: in quadrature with the systematic (√(7²−2²) ≈ 6.7%, √(4²−2²) ≈ 3.46°). "O4-class" uses the O3
+#: systematic floor (2%/2°) as a provisional tighter aspiration (final O4 budget forthcoming).
+#: "0.1%" is the stretch target. These are the iso-precision contours of the Pareto design plane.
+TARGET_LEVELS = {
+    "O3 random": (float(np.sqrt(7.0**2 - 2.0**2)), float(np.sqrt(4.0**2 - 2.0**2))),
+    "O4-class (prov.)": (2.0, 2.0),
+    "0.1% stretch": (0.1, 0.1),
+}
+
+
+def rho_of_target(mag_pct: float, phase_deg: float) -> float:
+    """Combined response-error level ``ρ = √((mag fraction)² + (phase rad)²)`` — one scalar that
+    folds a (magnitude %, phase °) budget into a single random-error target."""
+    return float(np.hypot(mag_pct / 100.0, np.radians(phase_deg)))
+
+
+def band_response_rho(loop: DARMLoop, ls: LineSet, amps: np.ndarray, T: float,
+                      fband=(20.0, 2000.0), n: int = 200, J_R: np.ndarray | None = None) -> float:
+    """Band-max combined response error ``ρ(f) = √(Var(Re δlnR) + Var(Im δlnR))`` at time ``T``
+    (magnitude-fraction and phase-radian uncertainty in quadrature) — the single number the
+    measurement-design study drives down. ``J_R`` (the response log-Jacobian on the band grid) may
+    be supplied to avoid recomputing it in an optimiser loop."""
+    f = np.geomspace(fband[0], fband[1], n)
+    if J_R is None:
+        J_R = response_log_jacobian(loop, f)
+    cov = safe_inverse(fisher(ls, amps, T))
+    var = (np.einsum("fa,ab,fb->f", J_R.real, cov, J_R.real)
+           + np.einsum("fa,ab,fb->f", J_R.imag, cov, J_R.imag))
+    return float(np.sqrt(np.max(var)))
+
+
+def pareto_cost(loop: DARMLoop, ls: LineSet, amps: np.ndarray, rho_target: float,
+                T_ref: float = 60.0) -> float:
+    """Measurement cost ``K = amplitude²·time`` needed to bring the band-max response error to
+    ``rho_target``. Response σ scales as ``1/√(A²·T)``, so ``K`` is scheme-characteristic and the
+    iso-precision contour is ``A²·T = K`` (``A(T) = √(K/T)``). Smaller ``K`` = gentler+faster."""
+    A2 = float(np.sum(np.asarray(amps, float) ** 2))            # ‖amp‖² = A_tot²
+    return A2 * T_ref * (band_response_rho(loop, ls, amps, T_ref) / rho_target) ** 2
+
+
+def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float = 60.0,
+                            fmin: float = 0.3, fmax: float = 1500.0, seed: int = 0,
+                            lines: list[Line] | None = None) -> dict:
+    """**Response-optimal** design: place the Pcal line frequencies + split the drive to MINIMISE the
+    band-max response error ρ (the quantity the O3/O4 budget is quoted in), rather than the worst
+    single parameter. This is the scheme for the gentle/fast study — it reaches a target ``δR/R``
+    with the least injected energy ``A²·T``. Actuator frequencies stay in their hierarchy bands
+    (:func:`seed_lines`). Returns ``dict(lines, lineset, rho, cost(rho_target))``."""
+    if lines is None:
+        lines = seed_lines(loop)
+    kinds = [ln.kind for ln in lines]
+    targets = [ln.target for ln in lines]
+    f_seed = np.array([ln.freq for ln in lines], float)
+    n = len(lines)
+    pcal = [i for i in range(n) if kinds[i] == "PCAL"]
+    lf_lo, lf_hi = np.log10(fmin), np.log10(fmax)
+    min_sep = np.log10(1.15)
+    J_R = response_log_jacobian(loop, np.geomspace(20.0, 2000.0, 200))   # precompute once
+
+    def freqs_of(x):
+        f = f_seed.copy(); f[pcal] = 10.0 ** np.clip(x[n:], lf_lo, lf_hi); return f
+
+    def obj(x):
+        freqs = freqs_of(x)
+        ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
+        rho = band_response_rho(loop, ls, _allocate(ls, x[:n], A_tot), T_ref, J_R=J_R)
+        lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
+        return rho * (1.0 + 50.0 * max(0.0, min_sep - d.min()) / min_sep)
+
+    x0 = np.concatenate([np.zeros(n), np.log10(f_seed[pcal])])
+    bounds = [(-6, 6)] * n + [(lf_lo, lf_hi)] * len(pcal)
+    x = differential_evolution(obj, bounds, seed=seed, maxiter=200, tol=1e-9, polish=True,
+                               init="sobol", x0=x0).x
+    freqs = freqs_of(x)
+    order = sorted(range(n), key=lambda i: freqs[i])
+    sized = [Line(float(freqs[i]), kinds[i], 0.0, targets[i]) for i in order]
+    ls = build_lineset(loop, sized)
+    amps = _allocate(ls, x[:n][order], A_tot)
+    for ln, a in zip(sized, amps):
+        ln.amp = float(a)
+    rho = band_response_rho(loop, ls, amps, T_ref, J_R=J_R)
+    return dict(lines=sized, lineset=ls, amps=amps, rho=rho, A_tot=A_tot, T_ref=T_ref)
+
+
+def naive_broadband(loop: DARMLoop, *, n_pcal: int = 12, A_tot: float = 1.0,
+                    fmin: float = 10.0, fmax: float = 2000.0) -> tuple[LineSet, np.ndarray]:
+    """A 'do-nothing-smart' baseline: ``n_pcal`` Pcal lines spread log-uniformly across the band
+    plus one actuator line per stage (hierarchy bands), ALL at equal amplitude (no Fisher
+    placement, no allocation). Returns ``(lineset, amps)`` with ‖amp‖₂ = A_tot."""
+    pcal = list(np.geomspace(fmin, fmax, n_pcal))
+    act = [ln for ln in seed_lines(loop) if ln.kind in STAGE_KINDS]
+    lines = [Line(f, "PCAL") for f in pcal] + [Line(ln.freq, ln.kind) for ln in act]
+    ls = build_lineset(loop, lines)
+    amps = np.full(len(lines), A_tot / np.sqrt(len(lines)))
+    return ls, amps
 
 
 def reference_scheme(loop: DARMLoop, positions, *, A_tot: float = 1.0e-3, T_ref: float = 60.0,

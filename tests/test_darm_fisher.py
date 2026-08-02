@@ -82,6 +82,27 @@ def test_response_budget_propagation(loop):
     assert p1[band].max() < cl.O3_BUDGET["total_phase_deg"]
 
 
+def test_response_optimal_is_gentler_than_baselines(loop):
+    """The measurement-design thesis: a response-optimal P&S scheme reaches a given random-error
+    level with less injected energy K=A²·T than the O3/O4 fixed-line placement AND a naive broadband
+    injection (K is scheme-characteristic since δR/R ∝ 1/√(A²T))."""
+    tm, tp = cl.TARGET_LEVELS["O3 random"]
+    rt = cl.rho_of_target(tm, tp)
+    pns = cl.size_lines_for_response(loop, A_tot=1.0, T_ref=60.0, seed=0)
+    o3 = cl.reference_scheme(loop, cl.O3_LINES, A_tot=1.0)
+    nb_ls, nb_amps = cl.naive_broadband(loop, A_tot=1.0)
+    K_pns = cl.pareto_cost(loop, pns["lineset"], pns["amps"], rt)
+    K_fix = cl.pareto_cost(loop, o3["lineset"], np.array([l.amp for l in o3["lines"]]), rt)
+    K_nb = cl.pareto_cost(loop, nb_ls, nb_amps, rt)
+    assert K_pns < K_fix and K_pns < K_nb                          # gentler/faster than both
+    assert K_fix / K_pns > 2.0                                     # a substantial factor
+    # the reduction factor is target-independent (K ∝ 1/ρ_target²)
+    rt2 = cl.rho_of_target(*cl.TARGET_LEVELS["0.1% stretch"])
+    K_pns2 = cl.pareto_cost(loop, pns["lineset"], pns["amps"], rt2)
+    K_fix2 = cl.pareto_cost(loop, o3["lineset"], np.array([l.amp for l in o3["lines"]]), rt2)
+    assert (K_fix2 / K_pns2) == pytest.approx(K_fix / K_pns, rel=1e-6)
+
+
 def test_optimal_placement_beats_fixed_o3_o4(loop):
     """Optimising line frequency + amplitude is no worse than the fixed O3/O4 positions (with
     their amplitudes optimally allocated) at equal total drive — optimal is optimal."""

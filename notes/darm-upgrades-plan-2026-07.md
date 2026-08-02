@@ -341,3 +341,23 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > §"Against the O3/O4 systematic-error budget"; test `test_response_budget_propagation`. Also fixed
 > a `size_lines_for_target` bug (returned `lineset` was in pre-sort order vs the frequency-sorted
 > `lines` → mismatched amps downstream); now rebuilt consistently.
+
+> **UPDATE 2026-08-01 (reframe: random-error measurement-design study + amplitude↔time Pareto).**
+> Rana clarified the thesis: the point is to reach the O3/O4 RANDOM (statistical) response-error
+> levels with much LESS injected amplitude and time (gentler/faster), and to expose an amplitude↔
+> time Pareto slider (down to a 0.1% stretch) for designing the cal strategy. Interview decisions:
+> derive O3 random level from the papers (√(7²−2²)≈6.7% / √(4²−2²)≈3.5°; O4-class provisional =
+> O3 systematic floor 2%/2°, final O4 budget forthcoming per 2508.08423); Pareto plane = time (x)
+> vs amplitude/floor (y), iso-precision contours A(T)=√(K/T); amplitude referenced to the noise
+> floor; baselines = O3/O4 fixed-line AND naive broadband.
+> Key correction: `size_lines_for_target` minimises worst-PARAMETER σ, which is NOT response-
+> optimal (naive/fixed beat it on δR/R). Added `size_lines_for_response` (minimise band-max
+> combined response error ρ=√((σ_|R|/|R|)²+σ_φ²)) — the scheme for this study. Cost metric
+> K=A²·T (`pareto_cost`, scheme-characteristic since δR/R∝1/√(A²T)); `naive_broadband`,
+> `TARGET_LEVELS`, `rho_of_target`, `band_response_rho`.
+> **Result: response-optimal P&S reaches the O3 random level with ~7× less injected energy than the
+> O3/O4 fixed-line placement (≈2.6× less amplitude OR ~7× less time) and ~4× less than naive; the
+> factor is target-independent.** Abstract rewritten to this thesis; budget section reframed
+> ("Reaching the O3/O4 random-error levels — gently and fast") with the Pareto plot + savings table;
+> `docs/darm_demo.py::pareto_campaign/pareto_fig/pareto_table`. Test
+> `test_response_optimal_is_gentler_than_baselines`.

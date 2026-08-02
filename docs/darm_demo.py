@@ -670,3 +670,85 @@ def response_budget_fig(sz=None, *, height=640):
     fig.update_yaxes(type="log", row=2, col=1)
     fig.update_layout(title="Response-error budget — cal-line statistics vs the O3 systematic budget")
     return sp.style(fig, height=height)
+
+
+# ── the amplitude↔time Pareto: reach O3/O4 random levels gently & fast ───────────
+def pareto_campaign(seed=0):
+    """Response-optimal P&S line design vs the O3/O4 fixed-line and naive-broadband baselines, as
+    the injected-energy cost K = amplitude²·time to reach each random-error target level. K is
+    scheme-characteristic (σ_R ∝ 1/√(A²T)); the iso-precision contour is A(T)=√(K/T)."""
+    loop = _cl.default_cal_loop(delta_deg=5.0)
+    pns = _cl.size_lines_for_response(loop, A_tot=1.0, T_ref=60.0, seed=seed)
+    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=1.0)
+    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=1.0)
+    nb_ls, nb_amps = _cl.naive_broadband(loop, A_tot=1.0)
+    schemes = {"P&S response-optimal": (pns["lineset"], pns["amps"]),
+               "O3/O4 fixed-line": (o3["lineset"], np.array([l.amp for l in o3["lines"]])),
+               "naive broadband": (nb_ls, nb_amps)}
+    K = {s: {t: _cl.pareto_cost(loop, ls, a, _cl.rho_of_target(*lvl))
+             for t, lvl in _cl.TARGET_LEVELS.items()} for s, (ls, a) in schemes.items()}
+    return SimpleNamespace(loop=loop, K=K, floor=float(loop.disturbance_asd),
+                           targets=_cl.TARGET_LEVELS, pns=pns)
+
+
+def pareto_fig(pc=None, *, height=600):
+    """The amplitude↔time design plane: iso-precision contours A(T)=√(K/T) (amplitude referenced to
+    the DARM floor) for the P&S response-optimal scheme at each random-error target, with the
+    O3/O4-fixed and naive contours at the O3 level to show how much gentler/faster P&S is."""
+    if pc is None:
+        pc = pareto_campaign()
+    T = np.geomspace(1.0, 3.0e4, 200)
+    kp = pc.K["P&S response-optimal"]
+    tcolor = {"O3 random": sp.SKY, "O4-class (prov.)": sp.GREEN, "0.1% stretch": sp.ROSE}
+    fig = go.Figure()
+    # shaded "gentleness gap": between the P&S and fixed-line contours at the O3 level
+    A_pns_o3 = np.sqrt(kp["O3 random"] / T) / pc.floor
+    A_fix_o3 = np.sqrt(pc.K["O3/O4 fixed-line"]["O3 random"] / T) / pc.floor
+    fig.add_scatter(x=np.r_[T, T[::-1]], y=np.r_[A_pns_o3, A_fix_o3[::-1]], fill="toself",
+                    fillcolor=sp._fade(sp.SKY, 0.10), line=dict(width=0), hoverinfo="skip",
+                    showlegend=False)
+    # P&S contours for every target (the design slider)
+    for t, c in tcolor.items():
+        fig.add_scatter(x=T, y=np.sqrt(kp[t] / T) / pc.floor, mode="lines",
+                        name=f"P&S response-optimal — {t}", line=dict(color=c, width=2.8),
+                        hovertemplate=t + ": %{x:.0f} s, A/floor=%{y:.3g}<extra></extra>")
+    # baselines at the O3 level (the ×energy factor is the same for every target contour)
+    for scheme, color, dash in [("O3/O4 fixed-line", sp.INK, "dash"),
+                                ("naive broadband", "#7C5CBF", "dot")]:
+        fac = pc.K[scheme]["O3 random"] / kp["O3 random"]
+        fig.add_scatter(x=T, y=np.sqrt(pc.K[scheme]["O3 random"] / T) / pc.floor, mode="lines",
+                        name=f"{scheme} @ O3 level  (×{fac:.0f} energy)",
+                        line=dict(color=color, width=2.0, dash=dash), hoverinfo="skip")
+    fac_fix = pc.K["O3/O4 fixed-line"]["O3 random"] / kp["O3 random"]
+    fig.add_annotation(x=np.log10(30), y=np.log10(np.sqrt(kp["O3 random"] / 30) / pc.floor),
+                       yanchor="top", yshift=-6,
+                       text=f"P&S reaches O3 level with ×{fac_fix:.0f} less energy<br>"
+                            f"(×{np.sqrt(fac_fix):.1f} amplitude, or ×{fac_fix:.0f} time)",
+                       showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.SKY),
+                       bgcolor="rgba(255,255,255,0.8)")
+    fig.update_xaxes(type="log", title_text="integration time  T  [s]")
+    fig.update_yaxes(type="log", title_text="injected amplitude / noise floor  [√Hz]")
+    fig.update_layout(title="Amplitude↔time Pareto — slide along a contour to trade drive for time")
+    return sp.style(fig, height=height, legend="v")
+
+
+def pareto_table(pc=None):
+    if pc is None:
+        pc = pareto_campaign()
+    kp = pc.K["P&S response-optimal"]
+    rows = []
+    for t in pc.targets:
+        fac_fix = kp and pc.K["O3/O4 fixed-line"][t] / kp[t]
+        fac_nb = pc.K["naive broadband"][t] / kp[t]
+        rows.append([t, f"{pc.targets[t][0]:.2g}% / {pc.targets[t][1]:.2g}°",
+                     f"{fac_fix:.1f}×", f"{fac_nb:.1f}×",
+                     f"{np.sqrt(fac_fix):.1f}× / {fac_fix:.0f}×"])
+    return sp.param_table(["random-error target", "|δR/R| level",
+                           "energy vs fixed-line", "energy vs naive",
+                           "→ less amplitude / less time (vs fixed)"], rows,
+                          caption="Injected energy A²·T to reach each random-error level: P&S "
+                                  "response-optimal vs the O3/O4 fixed-line and naive-broadband "
+                                  "schemes. The energy saving converts to √(factor)× less amplitude "
+                                  "(at equal time) or factor× less time (at equal amplitude). Ratios "
+                                  "are scale-invariant; absolute amplitude awaits real line heights "
+                                  "(issue #3).")

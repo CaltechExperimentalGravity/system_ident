@@ -1,19 +1,34 @@
 ---
 title: "08 — DARM calibration via Pintelon–Schoukens"
-description: "The same multisine pipeline applied to the gravitational-wave readout: one Pcal multisine recovers the DARM response R(f) and the sensing function C leakage-free, per-stage drives recover the actuation strengths, and a swept sine is run head-to-head on the same twin."
+description: "A measurement-design study: a Pintelon–Schoukens-optimal DARM calibration-line scheme reaches the Advanced-LIGO O3/O4 random-error (response-uncertainty) levels with far less injected amplitude and time than the standard fixed-line scheme — ~7× less injected energy (≈2.6× less amplitude, or ~7× less time) — and turns the amplitude↔time trade into a Pareto slider for designing the cal strategy at any target precision down to 0.1%."
 image: thumbnails/08.svg
 categories: [calibration, closed-loop, DARM]
 freeze: true
 ---
 
+::: {.callout-important appearance="simple"}
+## Abstract
+Calibration lines cost the detector **amplitude** (injected onto the mirrors, competing with
+astrophysical strain) and **time**. This is a measurement-design study of how to spend both as
+frugally as possible. Applying **Pintelon–Schoukens optimal excitation** to the DARM loop —
+choosing where to put the lines and how to split the drive to minimise the Cramér–Rao bound on the
+seven time-dependent calibration factors (TDCFs) — a P&S-optimal scheme reaches the published
+Advanced-LIGO **O3/O4 random-error levels** (the statistical part of the response budget) with
+**~7× less injected energy** than the standard fixed-line scheme (≈2.6× less amplitude, or ~7× less
+time) and **~4× less** than a naive broadband injection. Because the response error scales as
+`1/√(amplitude²·time)`, the amplitude↔time trade is a **Pareto slider**: pick a target random-error
+level — O3, O4, or a 0.1% stretch — and read off the gentlest/fastest campaign that reaches it.
+The twin uses the coupled detuned-cavity sensing (SRC detuning splits the cavity pole into a complex
+pair) and hierarchical M0/PUM/ESD actuation, matching the Sun 2020 O3 parameterisation.
+:::
+
 ::: {.callout-tip appearance="simple"}
 ## What you'll learn
-- The multisine pipeline applied to the **gravitational-wave readout** (DARM).
-- Recovering the sensing function `C` and per-stage actuation `κ`, leakage-free, under disturbance + readout noise.
-- **How the 1σ on every calibration parameter converges** — as `1/√T`, onto the Cramér–Rao bound.
-- **Hierarchical actuation across the quad** (M0/PUM/TST), the inter-stage crossovers, and the **calibration lines at their real height in the DARM spectrum** — with per-line SNR and the strength precision they buy.
-- **Fisher-optimal line design** — placing and sizing the lines to reach 0.1% on all seven TDCFs (including the SRC detuning that splits the cavity pole) in under 5 minutes, benchmarked head-to-head against the LIGO O3/O4 line schemes.
-- **The response-error budget** — propagating the cal-line CRB into `δR/R(f)` (magnitude, phase) and laying it against the published O3/O4 systematic-error budget.
+- **The thesis:** reach O3/O4 random-error levels **gentler and faster** with Fisher-optimal lines, and design the campaign on an **amplitude↔time Pareto slider** (down to 0.1%).
+- The multisine pipeline applied to the **gravitational-wave readout** (DARM): recovering `C` and the per-stage actuation `κ` leakage-free, with `1/√T` convergence onto the Cramér–Rao bound.
+- **Hierarchical actuation across the quad** (M0/PUM/ESD), the inter-stage crossovers, and the **calibration lines at their real height in the DARM spectrum**.
+- **Fisher-optimal line design** — placement + drive split (with the SRC detuning that splits the cavity pole), benchmarked head-to-head against the LIGO O3/O4 line schemes.
+- **The response-error budget & Pareto** — propagating the cal-line CRB into `δR/R(f)` and mapping the amplitude/time cost to reach each random-error level.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
@@ -258,30 +273,50 @@ a PR — and we'll fold them into the simulation for a fully apples-to-apples, a
 Only published / DCC numbers are needed (nothing embargoed).
 :::
 
-## Against the O3/O4 systematic-error budget
+## Reaching the O3/O4 random-error levels — gently and fast
 
-The quantity a calibration group actually publishes is the uncertainty on the **detector response**
-`R = (1+G)/C`. Propagating the cal-line CRB — the full 7-parameter covariance `Σ = Γ⁻¹` through
-`∂lnR/∂lnθ` (with the digital servo `D` held fixed, so a κ_i error moves `A`→`R` exactly as in the
-real pipeline) — gives the *statistical* response uncertainty `δR/R(f)` in magnitude and phase.
-Below it is laid against the published Advanced-LIGO O3A budget
-([Sun 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf)): total systematic error +
-uncertainty **< 7% / < 4°** (68% CI, 20–2000 Hz), systematic error alone **< 2% / < 2°**. (O4 is
-comparable / improved — [arXiv:2508.08423](https://arxiv.org/abs/2508.08423).)
+The published response budget has two parts: a **systematic** error (from imperfect modelling) and
+a **random** (statistical) uncertainty (from the finite-SNR line measurements). This scheme attacks
+the *random* part — that is what more/gentler line SNR buys. Propagating the cal-line CRB (the full
+7-parameter covariance `Σ = Γ⁻¹` through `∂lnR/∂lnθ`, with the digital servo `D` held fixed so a
+κ_i error moves `A`→`R` exactly as the real pipeline does) gives the statistical response
+uncertainty `δR/R(f)`. The reference levels come from O3
+([Sun 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf)): total error + uncertainty
+**< 7% / < 4°** (68% CI, 20–2000 Hz) and systematic error alone **< 2% / < 2°**, so the **O3 random
+level** is their quadrature difference, **≈ 6.7% / 3.5°**. (The O3 systematic floor, 2% / 2°, serves
+as a provisional **O4-class** aspiration — the final O4 budget is
+[forthcoming](https://arxiv.org/abs/2508.08423).)
 
 ```{python}
 #| code-summary: "δR/R(f) from the cal-line CRB vs the O3 budget levels"
 dd.response_budget_fig(sz)
 ```
 
-Even at the fast 16-second design point (all seven TDCFs at 0.1%), the statistical response
-uncertainty is **~0.1% in magnitude and ~0.1° in phase** — roughly **20–70× inside** the O3
-systematic-error floor and total budget; a 5-minute integration pushes it lower still. The takeaway
-is honest and useful: with a Fisher-optimal line scheme the **cal-line statistics are not the
-limiting factor** — the O3/O4 budget is dominated by *systematic* modelling errors (the Pcal
-absolute reference at 0.54%, unmodelled low-frequency response features, actuator-model error), none
-of which this representative twin includes. Beating the budget therefore means attacking those
-systematics, not integrating the lines longer.
+The response uncertainty falls as `1/√(amplitude²·time)`, so reaching a target random-error level
+costs a fixed **injected energy** `A²·T`, and the amplitude↔time trade is a **Pareto slider**. The
+key result: a **response-optimal** P&S scheme (drive split to minimise `δR/R`, not the worst single
+parameter) reaches a given level with far less energy than the fixed-line or naive schemes — so you
+can run **gentler** (less amplitude on the mirrors) or **faster** (less time), your choice.
+
+```{python}
+#| code-summary: "Amplitude↔time Pareto — P&S response-optimal vs O3/O4 fixed-line and naive"
+pc = dd.pareto_campaign(seed=0)
+dd.pareto_fig(pc)
+```
+
+```{python}
+#| code-summary: "Injected-energy savings to reach each random-error level"
+display(dd.pareto_table(pc))
+```
+
+To reach the **O3 random level**, the P&S scheme needs **~7× less injected energy than the O3/O4
+fixed-line placement** (≈2.6× less amplitude at equal time, or ~7× less time at equal amplitude) and
+**~4× less than a naive broadband injection** — and the same factor holds at every target level,
+down to the 0.1% stretch. Slide along a contour to trade drive for time and design the campaign.
+(Absolute amplitudes await the real per-line heights — [issue #3](https://github.com/CaltechExperimentalGravity/system_ident/issues/3);
+the *ratios* here are scale-invariant. Systematic modelling errors — the 0.54% Pcal reference,
+unmodelled low-frequency response, actuator-model error — are a separate axis this twin does not
+address.)
 
 ## Head-to-head with the swept sine
 
