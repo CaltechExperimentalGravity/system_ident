@@ -1,6 +1,6 @@
 ---
 title: "13 — Tracking a drifting DARM parameter"
-description: "The DARM loop's calibration parameters drift, forcing continuous re-measurement. On the coupled reduced-quad plant, inject known slow variations into an actuation strength κ(t) and into the SRC detuning δ(t) — which splits the cavity pole into a complex pair — and recover both with Lataire–Pintelon basis fits on leakage-free P&S snapshots, within honest Cramér–Rao bands and with resolvability proven by a computed bound."
+description: "The DARM loop's calibration parameters drift, forcing continuous re-measurement. On the coupled reduced-quad plant, track an actuation strength κ(t), the SRC detuning δ(t) (which splits the cavity pole into a complex pair), and finally several parameters drifting at once under a realistic random wander — recovered jointly with Lataire–Pintelon fits on leakage-free P&S snapshots, within honest Cramér–Rao bands, with the correlation matrix exposing which drifts are degenerate."
 image: thumbnails/13.svg
 categories: [calibration, closed-loop, DARM, time-varying]
 freeze: true
@@ -11,6 +11,7 @@ freeze: true
 - Why a *drifting* plant is a system-ID problem, not a re-measurement chore.
 - Recovering a time-varying actuation strength **κ(t)** from leakage-free snapshots, with a real CRB.
 - Tracking the **SRC detuning δ(t)** — the *new* physics of the coupled plant, where the cavity pole splits into a complex pair — from the Pcal FRF, independent of the κ drift.
+- Tracking **several parameters drifting at once, at random** (a joint fit), and reading off from the **correlation matrix** which drifts are hard to tell apart.
 - Proving each drift is **resolvable** with a computed bound — not eyeballing the plot.
 :::
 
@@ -25,11 +26,11 @@ nuisance to average away.
 ## The plant and the scope
 This runs on the **new coupled DARM plant** — the M0-damped reduced-QUAD hierarchical actuation
 (M0 / PUM / ESD) with coupled detuned-cavity sensing, where the SRC detuning splits the cavity pole
-into a complex pair (the same twin as [example 08](08-darm-calibration.qmd)). The drifts are
-**known, smooth deterministic** profiles: one on the ESD actuation strength κ(t), one on the SRC
-detuning δ(t). The goal is to show the machinery **tracks each drift within its error bar**. Still
-deferred to a later round: a stochastic/GP wander, several parameters drifting *jointly*, and the
-one-shot (rather than two-step) Lataire–Pintelon fit. Rendered with `freeze: true`.
+into a complex pair (the same twin as [example 08](08-darm-calibration.qmd)). We build up in three steps: a single
+actuation strength κ(t) on a smooth curve, then the SRC detuning δ(t), then the realistic case —
+**several parameters drifting at once, at random**, recovered jointly. Still deferred: a
+Gaussian-process wander with a measured drift spectrum, all seven TDCFs together, and the one-shot
+(rather than two-step) Lataire–Pintelon fit. Rendered with `freeze: true`.
 :::
 
 ```{python}
@@ -137,12 +138,44 @@ the separation of concerns: κ comes from the stage/Pcal *ratio* (immune to sens
 the Pcal *shape* (immune to actuation drift), so a real interferometer's simultaneous κ- and
 δ-drift are tracked by two independent snapshots on the same records.
 
+## Round 2: everything drifts at once, and at random
+
+The two sections above each drift **one** parameter along a **smooth** curve. Reality is messier on
+both counts: several calibration numbers wander **simultaneously**, and the wander is **random**
+(a meandering walk), not a tidy sine. Here we do both — the optical gain `κ_C`, the SRC detuning
+`δ`, and the ESD strength `κ_ESD` all drift together as random (Ornstein–Uhlenbeck) walks, and each
+record is fit for **all three at once**. A joint fit is essential because the parameters are not
+independent: a wobble in one can masquerade as a wobble in another, and only a joint fit — with the
+Pcal record pinning the sensing and each stage record pinning its own strength — untangles them.
+
+```{python}
+#| code-summary: "Three random drifts at once, recovered in one joint fit per record"
+cj = dd.campaign_joint(seed=2024)
+dd.joint_drift_fig(cj)
+```
+
+All three random wanders are followed within their error bars. The **correlation matrix** of a
+single snapshot shows *how well* they separate:
+
+```{python}
+#| code-summary: "Which drifts are hard to tell apart"
+dd.joint_corr_fig(cj)
+```
+
+`δ` separates cleanly from the two gains (near-zero correlation) — it lives in the sensing *shape*,
+which the amplitudes don't touch. But `κ_C` (optical gain) and `κ_ESD` (test-mass drive) are
+strongly **anti-correlated**: both simply scale the ESD line, so the loop shape alone cannot tell an
+optical-gain change from an actuation change — it is the **Pcal absolute reference** that breaks the
+tie (exactly why Pcal is the fiducial in a real calibration). The joint fit surfaces that degeneracy
+honestly rather than hiding it in a one-at-a-time recovery.
+
 ## Honest gaps
 
-The drifts here are *known, deterministic* profiles tracked *one parameter at a time*. Still to
-come: a stochastic (GP) wander in place of the smooth profile, a **joint** fit of κ(t) and δ(t)
-(and the other TDCFs) drifting together rather than independently, and the one-shot (rather than
-two-step) Lataire–Pintelon estimator. What this page establishes is the foundation they build on:
-on the coupled reduced-quad plant, the machinery **tracks both an actuation strength and the SRC
-detuning within a Cramér–Rao bound**, and the "can we track it?" question gets a numeric answer —
-see `notes/darm-calibration-via-pns.md`.
+On the coupled reduced-quad plant, the machinery now tracks **several parameters drifting at once,
+under a realistic random wander, within a Cramér–Rao bound** — and the correlation matrix names the
+degeneracies instead of hiding them. What's still simplified: the random walk is a plain
+Ornstein–Uhlenbeck process (a Gaussian-process wander with a measured drift spectrum is the honest
+next step); the estimator is the two-step form (snapshot, then basis-fit) rather than the one-shot
+Lataire–Pintelon fit; and all seven TDCFs together — not just the three shown — would exercise the
+full degeneracy structure. What this page establishes is the foundation: the "can we track it?"
+question gets a numeric answer, jointly and honestly — see `notes/darm-calibration-via-pns.md`.

@@ -185,6 +185,107 @@ def track_delta(base_loop, times, profile, *, nperseg=4096, n_periods=16,
     return times, dhat, sig
 
 
+# ── realistic random drift + joint (several-parameter-at-once) tracking ──────────────
+def stochastic_drift(times, base, *, amp_frac=0.05, tau_s=1800.0, seed=0):
+    """A **random** drift sample θ(t): a mean-reverting (Ornstein–Uhlenbeck) wander about ``base``
+    with correlation time ``tau_s`` [s] and stationary std ``amp_frac·base`` — a meandering,
+    physically-realistic drift rather than the smooth deterministic curve of
+    :func:`~system_ident.darm.drift_profile`. Deterministic given ``seed`` so the injected truth is
+    exactly known when scoring the recovery. Returns θ at each ``times`` entry."""
+    times = np.asarray(times, dtype=float)
+    rng = np.random.default_rng(seed)
+    sd = amp_frac * base
+    x = np.empty(len(times))
+    x[0] = sd * rng.standard_normal()
+    for i in range(1, len(times)):
+        a = np.exp(-(times[i] - times[i - 1]) / tau_s)          # OU decay over the gap
+        x[i] = a * x[i - 1] + np.sqrt(max(1.0 - a * a, 0.0)) * sd * rng.standard_normal()
+    return base + x
+
+
+def joint_snapshot(base_loop, truth: dict, *, nperseg=4096, n_periods=16, px_total=1.0, seed=0):
+    """Recover SEVERAL drifting parameters at once from one set of leakage-free records, with their
+    joint covariance — so a wobble in one parameter is *untangled* from the others.
+
+    ``truth`` maps knob → true value; keys are ``DARMLoop`` scalar fields (``g_c, f_cc, delta,
+    tau``) and/or ``kappa_<STAGE>``. A Pcal record constrains the sensing knobs; each drifting
+    stage adds its own record for that κ. All records are fit JOINTLY by weighted complex least
+    squares to the model FRFs (``C/(1+G)`` for Pcal, ``C·κ_i·D_iN_i/(1+G)`` for a stage), started
+    from the base-loop nominal (not the truth). Returns ``(theta_hat, sigma, corr, names)``: dicts
+    of recovered values and 1σ, the parameter correlation matrix, and the parameter order."""
+    from scipy.optimize import least_squares
+    from .darm import sensing_model_detuned
+
+    names = list(truth)
+    loop = base_loop.with_params(**truth)
+    fa, band, freq = _band_grid(loop, nperseg)
+    inv1pG = 1.0 / (1.0 + loop.G(freq))                          # G is designed (θ-independent)
+    stages = [n[len("kappa_"):] for n in names if n.startswith("kappa_")]
+    Hp, Hp_err, _ = _frf(loop, "PCAL", freq, band, nperseg, n_periods, px_total, seed)
+    meas = {"PCAL": (Hp, Hp_err)}
+    DN = {}                                                      # κ=1 stage shape (D_i·N_i), once
+    for k, st in enumerate(stages):
+        meas[st] = _frf(loop, st, freq, band, nperseg, n_periods, px_total, seed + 1 + k)[:2]
+        DN[st] = base_loop.stage(st, freq) / base_loop.stages[st][1]
+    base = {"g_c": base_loop.g_c, "f_cc": base_loop.f_cc,
+            "delta": base_loop.delta, "tau": base_loop.tau}
+
+    def C_of(d):
+        alpha = base_loop.detune_coupling * np.sin(2.0 * d.get("delta", base["delta"]))
+        return sensing_model_detuned(freq, d.get("g_c", base["g_c"]),
+                                     d.get("f_cc", base["f_cc"]), d.get("tau", base["tau"]), alpha)
+
+    def resid(p):
+        d = dict(zip(names, p))
+        C = C_of(d)
+        Hpm, Hpe = meas["PCAL"]
+        g = np.isfinite(Hpe) & (Hpe > 0)
+        r = [((Hpm[g] - C[g] * inv1pG[g]) / Hpe[g]).real,
+             ((Hpm[g] - C[g] * inv1pG[g]) / Hpe[g]).imag]
+        for st in stages:
+            Him, Hie = meas[st]
+            kap = d.get("kappa_" + st, base_loop.stages[st][1])
+            model = C * kap * DN[st] * inv1pG
+            gi = np.isfinite(Hie) & (Hie > 0)
+            r += [((Him[gi] - model[gi]) / Hie[gi]).real, ((Him[gi] - model[gi]) / Hie[gi]).imag]
+        return np.concatenate(r)
+
+    p0 = np.array([base["g_c"] if n == "g_c" else base["f_cc"] if n == "f_cc"
+                   else base["delta"] if n == "delta" else base["tau"] if n == "tau"
+                   else base_loop.stages[n[len("kappa_"):]][1] for n in names], dtype=float)
+    sol = least_squares(resid, p0, method="trf", x_scale="jac")   # auto-scale disparate magnitudes
+    try:
+        cov = np.linalg.inv(sol.jac.T @ sol.jac)
+    except np.linalg.LinAlgError:
+        cov = np.linalg.pinv(sol.jac.T @ sol.jac)
+    s = np.sqrt(np.clip(np.diag(cov), 0.0, np.inf))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.where(np.outer(s, s) > 0, cov / np.outer(s, s), 0.0)
+    return dict(zip(names, sol.x)), dict(zip(names, s)), corr, names
+
+
+def track_joint(base_loop, truth_series: dict, times, *, nperseg=4096, n_periods=16,
+                px_total=1.0, seed=0):
+    """Track several parameters drifting **simultaneously**. ``truth_series`` maps knob → an array
+    of true values aligned with ``times`` (from :func:`~system_ident.darm.drift_profile` or
+    :func:`stochastic_drift`). Each time is a :func:`joint_snapshot`. Returns ``(times, theta_hat,
+    sigma, corr_mean, names)`` — per-parameter recovered arrays, 1σ arrays, and the mean snapshot
+    correlation matrix (off-diagonals show which parameters are hard to separate)."""
+    times = np.asarray(times, dtype=float)
+    names = list(truth_series)
+    th = {n: np.empty(len(times)) for n in names}
+    sg = {n: np.empty(len(times)) for n in names}
+    corr_sum = None
+    for j in range(len(times)):
+        truth = {n: float(truth_series[n][j]) for n in names}
+        theta, sigma, corr, _ = joint_snapshot(base_loop, truth, nperseg=nperseg,
+                                               n_periods=n_periods, px_total=px_total, seed=seed + j)
+        for n in names:
+            th[n][j] = theta[n]; sg[n][j] = sigma[n]
+        corr_sum = corr if corr_sum is None else corr_sum + corr
+    return times, th, sg, corr_sum / len(times), names
+
+
 # ── time-basis expansion + CRB (the Lataire–Pintelon TV fit) ────────────────────────
 def basis_matrix(t, *, kind="legendre", order=4, t0=None, t1=None):
     """Design matrix ``B[j,k]=b_k(t_j)`` and its time-derivative ``dB[j,k]=ḃ_k(t_j)``.

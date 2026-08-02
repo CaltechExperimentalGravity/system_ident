@@ -372,3 +372,18 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > 5° operating point. `docs/darm_tv_demo.py::campaign_delta/delta_drift_fig/delta_resolvability_table`;
 > example 13 abstract/gaps updated (optical-spring drift now DONE; remaining: stochastic/GP wander,
 > joint multi-param fit, one-shot LP). Docs-only change; suite unchanged (298).
+
+> **UPDATE 2026-08-02 (drift round 2: joint multi-param + stochastic wander).** Closed the two
+> drift gaps. `darm_tv.stochastic_drift` (Ornstein–Uhlenbeck random wander, stationary std
+> amp_frac·base, correlation time tau_s — realistic meandering vs the smooth `drift_profile`).
+> `darm_tv.joint_snapshot` recovers SEVERAL drifting params at once (subset of g_c/f_cc/delta/tau
+> + kappa_<stage>) by weighted complex LS of the measured Pcal + per-stage FRFs to the model
+> (C/(1+G), C·κ_i·D_iN_i/(1+G)); returns θ̂, σ, and the correlation matrix. `track_joint` runs it
+> over time. Fit auto-scaled (trf, x_scale='jac') for the g_c~1e6 / δ~0.09 / κ~1 disparity; DN
+> (κ=1 stage shape) reused. **Finding: κ_C (g_c) and κ_ESD are anti-correlated ~−0.99 (both scale
+> the ESD line; only the Pcal absolute reference separates them), while δ is clean (~0.1) — the
+> joint fit surfaces the sensing/actuation degeneracy honestly.** All three random wanders recovered
+> within CRB (pulls ~0.6–0.8). Example 13: added "Round 2: everything drifts at once, and at random"
+> (joint_drift_fig + joint_corr_fig heatmap); reframed scope/gaps (joint+random now done; remaining
+> = GP wander w/ measured spectrum, all-7 together, one-shot LP). Tests in test_darm_tv.py
+> (stochastic OU std, joint untangling, track_joint shapes).

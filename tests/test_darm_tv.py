@@ -127,3 +127,47 @@ def test_docs_glue_imports_and_builds_figures():
     assert dtd.drift_fig(c).data and dtd.tracking_error_fig(c).data
     assert dtd.resolvability_table(c) is not None
     assert c.res["resolve_ratio"] > 5.0
+
+
+# ── stochastic drift + joint (several-parameter) tracking ───────────────────────────
+def test_stochastic_drift_is_mean_reverting():
+    """The OU drift sample has ~the requested mean and stationary std over a long record, and is
+    deterministic given the seed."""
+    t = np.linspace(0.0, 3.0e5, 6000)          # ≫ tau_s, so the sample std approaches the target
+    x = tv.stochastic_drift(t, base=1.0, amp_frac=0.05, tau_s=1800.0, seed=3)
+    assert abs(x.mean() - 1.0) < 0.02
+    assert 0.03 < x.std() < 0.07               # stationary std ≈ amp_frac·base = 0.05
+    np.testing.assert_array_equal(x, tv.stochastic_drift(t, base=1.0, amp_frac=0.05,
+                                                         tau_s=1800.0, seed=3))
+
+
+def test_joint_snapshot_untangles_parameters():
+    """Recover three parameters drifting at once (optical gain g_c, SRC detuning δ, ESD strength
+    κ_TST) from one set of records: each within a few σ of truth, with a symmetric unit-diagonal
+    correlation matrix that exposes the g_c–κ_TST degeneracy (broken only by Pcal)."""
+    loop = DARMLoop.default_reduced(fmin=10.0, hierarchical=True).with_params(delta=np.radians(5.0))
+    loop.sensor_asd, loop.disturbance_asd = 300.0, 3.0e-4
+    truth = {"g_c": 1.04e6, "delta": np.radians(5.3), "kappa_TST": 1.05}
+    theta, sigma, corr, names = tv.joint_snapshot(loop, truth, n_periods=16, seed=11)
+    assert names == ["g_c", "delta", "kappa_TST"]
+    for n in names:
+        assert abs(theta[n] - truth[n]) < 5 * sigma[n], f"{n}: {theta[n]:.4g} vs {truth[n]:.4g}"
+    np.testing.assert_allclose(np.diag(corr), 1.0, atol=1e-6)
+    np.testing.assert_allclose(corr, corr.T, atol=1e-8)
+    assert np.all(np.abs(corr) <= 1.0 + 1e-6)
+
+
+def test_track_joint_shapes_and_recovery():
+    """track_joint follows a simultaneous drift of two parameters and returns aligned arrays + a
+    mean correlation matrix."""
+    loop = DARMLoop.default_reduced(fmin=10.0, hierarchical=True).with_params(delta=np.radians(5.0))
+    loop.sensor_asd, loop.disturbance_asd = 300.0, 3.0e-4
+    t = np.linspace(0.0, 1800.0, 4)
+    series = {"delta": tv.stochastic_drift(t, np.radians(5.0), amp_frac=0.05, tau_s=900, seed=1),
+              "kappa_TST": drift_profile(t, base=1.0, amp_frac=0.05, period_s=3600.0)}
+    tt, th, sg, corr, names = tv.track_joint(loop, series, t, n_periods=16, seed=5)
+    assert set(names) == {"delta", "kappa_TST"} and len(tt) == 4
+    for n in names:
+        assert th[n].shape == (4,) and np.all(sg[n] > 0)
+        assert np.median(np.abs(th[n] - series[n]) / sg[n]) < 4.0
+    assert corr.shape == (2, 2)
