@@ -475,3 +475,34 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > head-to-head/Pareto) to this honest, modest framing. Tests: fixed test_single_stage_line CRB to
 > include authority; added test_pcal_free_mass_range + test_lineset_authority_is_absolute. Honest gap
 > remaining: Pcal beam angle (cosθ≈1 assumed), absolute stage ranges (issue #3).
+
+> **CORRECTION 2026-08-02 (fabricated cal-line design results REMOVED).** The primary author found
+> that the per-stage suspension actuator ranges underpinning the cal-line design/sizing narrative
+> above were **invented numbers**, not real hardware values (`darm_callines._STAGE_RANGE_M` and the
+> absolute stage-"authority" machinery it fed). Without real per-stage ranges the actuation-side
+> sizing and every cross-scheme comparison cannot be computed, so they were removed rather than
+> caveated. Removed as fabricated (and every conclusion built on them):
+> - the invented `_STAGE_RANGE_M` and `_stage_authority` machinery, and the whole Fisher-optimal
+>   *sizing/design* engine that depended on it (`build_lineset`/`LineSet.authority`, `fisher`,
+>   `sigma`, `size_lines_for_target`, `size_lines_for_response`, `reference_scheme[_response]`,
+>   `naive_broadband`, `pareto_cost`, `band_response_rho`, `response_budget[_log_jacobian]`,
+>   `TARGET_LEVELS`, `O3_BUDGET`, seeding/allocation helpers) in `src/system_ident/darm_callines.py`;
+> - the representative drive budget `A_TOT_REAL` in `docs/darm_demo.py` and the demo functions that
+>   produced the fabricated absolute/comparative results (`cal_sizing`, `convergence_to_target_fig`,
+>   `sized_lines_fig`, `scheme_bars_fig`, `sizing_table`, `response_budget_fig`, `pareto_campaign`,
+>   `pareto_fig`, `pareto_table`, and the `_sigma_curves` helper);
+> - the example-08 sections built on them — "Sizing the lines…", "Head-to-head with LIGO O3/O4"
+>   (incl. the "help us make this exact / issue #3" callout), and "Reaching the O3/O4
+>   random-error levels" (the Pareto) — plus every "~N× less energy/drive/time", "reaches 0.1% in
+>   ~90 s / ~7.6 min / ~4.8 min", and "LIGO's placement is (near-)optimal" claim in the abstract,
+>   description, and "What you'll learn";
+> - the tests that only exercised the removed engine (`tests/test_darm_fisher.py` in full, and
+>   `test_lineset_authority_is_absolute…` in `tests/test_darm_callines.py`).
+> **KEPT (genuine provenance):** the real O4 noise floor (`darm_o4_asd`, LIGO-T2000012) and its test;
+> the Pcal ±200 mW free-mass range (`pcal_range_disp`, `PCAL_POWER_PP_W`/`TEST_MASS_KG`) and
+> `test_pcal_free_mass_range`; the published `O3_LINES`/`O4_LINES` frequencies; and the
+> method-demonstration sections of example 08 (recovery of C / κ / R(f) with CRB, the `1/√T`
+> convergence, the hierarchical crossovers, the cal-line SNR spectrum, and the swept-sine
+> head-to-head), whose shapes do not depend on the (representative) drive magnitude. The earlier
+> UPDATE entries above are left intact as the historical log; the numbers they report are the
+> fabricated ones this correction retracts.

@@ -105,15 +105,3 @@ def test_pcal_free_mass_range_matches_hardware():
     assert 2.5e-17 < x100 < 3.5e-17, f"Pcal range at 100 Hz = {x100:.2e} m, expected ~3e-17"
     # 1/f² free-mass roll-off: a decade up drops the range by ~100×
     assert np.isclose(cl.pcal_range_disp(100.0) / cl.pcal_range_disp(1000.0), 100.0, rtol=0.02)
-
-
-def test_lineset_authority_is_absolute_pcal_and_rolled_off_stages():
-    """build_lineset authority = full-range DARM displacement [m]: Pcal from pcal_range_disp, and
-    each stage's authority rolls off from its low-frequency peak (the upper masses drive only low)."""
-    from system_ident import darm_callines as cl
-    loop = cl.default_cal_loop()
-    ls = cl.build_lineset(loop, [cl.Line(100.0, "PCAL"), cl.Line(15.0, "M0"),
-                                 cl.Line(150.0, "M0")])
-    assert np.isclose(ls.authority[0], cl.pcal_range_disp(100.0), rtol=1e-6)   # Pcal = free-mass range
-    assert ls.authority[1] > ls.authority[2]                                   # M0 stronger low than high
-    assert np.all(ls.authority > 0)
