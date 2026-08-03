@@ -140,7 +140,14 @@ def safe_inverse(m: np.ndarray) -> np.ndarray:
             raise np.linalg.LinAlgError("non-finite inverse")
         return out
     except np.linalg.LinAlgError:
+        pass
+    m = np.nan_to_num(np.asarray(m, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    try:
         return np.linalg.pinv(m)
+    except np.linalg.LinAlgError:
+        # pathological (SVD non-convergence): add a tiny diagonal ridge and retry
+        eps = 1e-12 * (np.trace(m) / max(len(m), 1) + 1e-300)
+        return np.linalg.pinv(m + eps * np.eye(len(m)))
 
 
 def dispersion(

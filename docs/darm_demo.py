@@ -22,7 +22,7 @@ if str(_DOCS) not in sys.path:
 
 import sysid_plots as sp  # noqa: E402
 from system_ident.darm import (  # noqa: E402
-    DARMLoop, recover_response, fit_sensing, recover_actuation,
+    DARMLoop, darm_design_asd, recover_response, fit_sensing, recover_actuation,
     multisine_response_sigma, swept_sine_response_sigma, sweep_time_to_match_coverage,
 )
 from system_ident.backends.darm_adapter import DARMBackend  # noqa: E402
@@ -33,6 +33,13 @@ from system_ident.loop import SysIDLoop  # noqa: E402
 # (P_eff≈9). NPER=8 would leave only 2 full periods → P_eff=1 → fabricated CRB bars.
 NPERSEG, NPER = 4096, 16
 
+# Representative injected drive against the REAL DARM floor (darm_design_asd, ~1.5e-20 m/√Hz
+# mid-band). A Pcal multisine of ~5e-17 m RMS displacement is a realistic strong line and gives a
+# sane per-record SNR (σ(R)/R ~ %). PX_REAL is its total power [m²]; A_TOT_REAL is the equivalent
+# total displacement for the Fisher/Pareto sizing. (Exact per-line amplitudes are issue #3.)
+PX_REAL = (5.0e-17) ** 2       # m² — multisine drive power against the real floor
+A_TOT_REAL = 5.0e-17           # m — total injected displacement for cal-line sizing
+
 
 def _grid(loop):
     fa = np.fft.rfftfreq(NPERSEG, 1 / loop.fs)
@@ -41,13 +48,11 @@ def _grid(loop):
 
 
 def _twin(seed=1):
-    # Representative noise tuned so the per-bin σ(R)/R is a visible ~1% (the O4-era
-    # cal target scale), NOT the effectively-noise-free ~1e-8 that a tiny sensor_asd
-    # against g_C=1e6 gives. disturbance (length noise, via C/(1+G)) is comparable at
-    # the low band; sensor (readout, via 1/(1+G)) dominates higher — a two-component floor.
+    # Real Advanced-LIGO DARM displacement-noise floor (darm_design_asd: strain × 4 km, the
+    # design-era bucket ~1.5e-20 m/√Hz mid-band). The lumped default() sensing/actuation is kept
+    # for the intro campaigns; the physical floor makes the SNRs and σ's real, not representative.
     loop = DARMLoop.default()
-    loop.disturbance_asd = 3.0e-4     # representative length-noise floor [m/√Hz]
-    loop.sensor_asd = 300.0           # representative DARM readout noise [ct/√Hz]
+    loop.noise_asd = darm_design_asd
     return loop
 
 
@@ -55,8 +60,7 @@ def _twin(seed=1):
 def pcal_audit(seed=1):
     loop = _twin()
     fa, band, freq = _grid(loop)
-    px_total = 1.0
-    Pxx = np.full_like(freq, px_total / (freq[-1] - freq[0]))
+    Pxx = np.full_like(freq, PX_REAL / (freq[-1] - freq[0]))
     x = multisine_from_psd(Pxx, loop.fs, NPERSEG, NPER, freq, seed=np.random.default_rng(seed))
     be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
     be.inject("PCAL_EXC", x, loop.fs)
@@ -79,7 +83,7 @@ def pcal_audit(seed=1):
 def actuation_campaign(seed=2):
     loop = _twin()
     fa, band, freq = _grid(loop)
-    Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))
+    Pxx = np.full_like(freq, PX_REAL / (freq[-1] - freq[0]))
     # Pcal reference
     bp = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
     xp = multisine_from_psd(Pxx, loop.fs, NPERSEG, NPER, freq, seed=np.random.default_rng(seed))
@@ -106,7 +110,7 @@ def actuation_campaign(seed=2):
 def comparison(seed=0):
     loop = _twin()
     freq, R, R_sig, T = multisine_response_sigma(loop, nperseg=NPERSEG, n_periods=NPER,
-                                                 px_total=1.0, seed=seed)
+                                                 px_total=PX_REAL, seed=seed)
     # equal wall-clock sweep: in the SAME T, a 4-period dwell resolves only ~T*fs/(4*nperseg)
     # frequencies (= NPER//4 = 4 points here), vs the multisine's whole-band coverage.
     # 4 periods are the minimum for a genuine per-bin variance (P_eff≥3); 2 periods give
@@ -114,7 +118,7 @@ def comparison(seed=0):
     n_pts = NPER // 4
     pts = np.geomspace(loop.fmin, loop.fmax, n_pts)
     fp, ssweep, T_used = swept_sine_response_sigma(loop, pts, nperseg=NPERSEG,
-                                                   dwell_periods=4, px_total=1.0, seed=seed)
+                                                   dwell_periods=4, px_total=PX_REAL, seed=seed)
     t_cover = sweep_time_to_match_coverage(loop, nperseg=NPERSEG, dwell_periods=4)
     return SimpleNamespace(loop=loop, freq=freq, frac_ms=R_sig / np.abs(loop.R(freq)),
                            excited=np.isfinite(R_sig), pts=fp,
@@ -310,7 +314,7 @@ def convergence_campaign(seed=3, periods=(16, 32, 64, 128)):
     loop = _twin()
     fa, band, freq = _grid(loop)
     one_plus_G = 1.0 + loop.G(freq)
-    Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))
+    Pxx = np.full_like(freq, PX_REAL / (freq[-1] - freq[0]))
     stages = ("UIM", "PUM", "TST")
     truth = {"g_C": loop.g_c, "f_cc": loop.f_cc, "τ": loop.tau,
              "κ_UIM": loop.stages["UIM"][1], "κ_PUM": loop.stages["PUM"][1],
@@ -392,16 +396,16 @@ def cal_line_spectrum(seed=5, *, P=256, snr_targets=(("M0", 0.45, 90.0),
     off the plot — and the per-record strength precision is `σκ/κ ≈ 1/SNR`. Returns the measured
     ASD (thinned for display, line bins kept exact), the analytic floor, and the per-line table."""
     loop = DARMLoop.default_reduced(fmin=0.3, hierarchical=True)
-    loop.disturbance_asd, loop.sensor_asd = 3.0e-4, 300.0
+    loop.noise_asd = darm_design_asd                        # real aLIGO DARM displacement floor
     fs, n = loop.fs, NPERSEG * P
     T = n / fs
     fgrid = np.fft.rfftfreq(n, 1.0 / fs)
     C_grid = loop.C(fgrid)
     one_plus_G = 1.0 + loop.G(fgrid)
 
-    # displacement-referred noise floor (analytic): length disturbance (flat) + readout/|C| (rises)
+    # real DARM displacement noise floor (aLIGO design bucket)
     ff = np.geomspace(loop.fmin, loop.fmax, 1400)
-    floor = np.sqrt(loop.disturbance_asd**2 + (loop.sensor_asd / np.abs(loop.C(ff)))**2)
+    floor = loop.displacement_noise_asd(ff)
 
     # Simulate ONLY the noise through the real loop TFs (disturbance C/(1+G), readout 1/(1+G) —
     # both analytic in C,G, no per-bin plant solve), deconvolve to displacement, then place each
@@ -494,9 +498,9 @@ def cal_sizing(seed=0, t_pns_target=90.0):
     the target in ``t_pns_target`` seconds (matching the papers' actual drive amplitudes is a later
     phase). σ ∝ 1/(drive·√T), so rescaling the drive just rescales every time uniformly."""
     loop = _cl.default_cal_loop(delta_deg=5.0)
-    pns = _cl.size_lines_for_target(loop, A_tot=1.0, target=1e-3, T_ref=60.0, seed=seed)
-    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=1.0)
-    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=1.0)
+    pns = _cl.size_lines_for_target(loop, A_tot=A_TOT_REAL, target=1e-3, T_ref=60.0, seed=seed)
+    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=A_TOT_REAL)
+    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=A_TOT_REAL)
     scale = np.sqrt(pns["t_req_max"] / t_pns_target)     # A_tot so P&S hits target in t_pns_target
     for r in (pns, o3, o4):                               # rescale times to the common drive
         r["t_req"] = {k: v / scale ** 2 for k, v in r["t_req"].items()}
@@ -678,16 +682,18 @@ def pareto_campaign(seed=0):
     the injected-energy cost K = amplitude²·time to reach each random-error target level. K is
     scheme-characteristic (σ_R ∝ 1/√(A²T)); the iso-precision contour is A(T)=√(K/T)."""
     loop = _cl.default_cal_loop(delta_deg=5.0)
-    pns = _cl.size_lines_for_response(loop, A_tot=1.0, T_ref=60.0, seed=seed)
-    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=1.0)
-    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=1.0)
-    nb_ls, nb_amps = _cl.naive_broadband(loop, A_tot=1.0)
+    pns = _cl.size_lines_for_response(loop, A_tot=A_TOT_REAL, T_ref=60.0, seed=seed)
+    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=A_TOT_REAL)
+    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=A_TOT_REAL)
+    nb_ls, nb_amps = _cl.naive_broadband(loop, A_tot=A_TOT_REAL)
     schemes = {"P&S response-optimal": (pns["lineset"], pns["amps"]),
                "O3/O4 fixed-line": (o3["lineset"], np.array([l.amp for l in o3["lines"]])),
                "naive broadband": (nb_ls, nb_amps)}
     K = {s: {t: _cl.pareto_cost(loop, ls, a, _cl.rho_of_target(*lvl))
              for t, lvl in _cl.TARGET_LEVELS.items()} for s, (ls, a) in schemes.items()}
-    return SimpleNamespace(loop=loop, K=K, floor=float(loop.disturbance_asd),
+    # fiducial floor (mid-band, ~best sensitivity) for the amplitude-axis normalisation
+    floor_ref = float(loop.displacement_noise_asd(np.array([200.0]))[0])
+    return SimpleNamespace(loop=loop, K=K, floor=floor_ref,
                            targets=_cl.TARGET_LEVELS, pns=pns)
 
 

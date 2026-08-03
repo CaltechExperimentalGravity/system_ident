@@ -1,6 +1,6 @@
 ---
 title: "08 — DARM calibration via Pintelon–Schoukens"
-description: "A measurement-design study: a Pintelon–Schoukens-optimal DARM calibration-line scheme reaches the Advanced-LIGO O3/O4 random-error (response-uncertainty) levels with far less injected amplitude and time than the standard fixed-line scheme — ~7× less injected energy (≈2.6× less amplitude, or ~7× less time) — and turns the amplitude↔time trade into a Pareto slider for designing the cal strategy at any target precision down to 0.1%."
+description: "A measurement-design study: a Pintelon–Schoukens-optimal DARM calibration-line scheme reaches the Advanced-LIGO O3/O4 random-error (response-uncertainty) levels with far less injected amplitude and time than the standard fixed-line scheme — ~18× less injected energy (≈4× less amplitude, or ~18× less time) — and turns the amplitude↔time trade into a Pareto slider for designing the cal strategy at any target precision down to 0.1%."
 image: thumbnails/08.svg
 categories: [calibration, closed-loop, DARM]
 freeze: true
@@ -14,8 +14,8 @@ frugally as possible. Applying **Pintelon–Schoukens optimal excitation** to th
 choosing where to put the lines and how to split the drive to minimise the Cramér–Rao bound on the
 seven time-dependent calibration factors (TDCFs) — a P&S-optimal scheme reaches the published
 Advanced-LIGO **O3/O4 random-error levels** (the statistical part of the response budget) with
-**~7× less injected energy** than the standard fixed-line scheme (≈2.6× less amplitude, or ~7× less
-time) and **~4× less** than a naive broadband injection. Because the response error scales as
+**~18× less injected energy** than the standard fixed-line scheme (≈4× less amplitude, or ~18× less
+time) and **>1000× less** than a naive broadband injection. Because the response error scales as
 `1/√(amplitude²·time)`, the amplitude↔time trade is a **Pareto slider**: pick a target random-error
 level — O3, O4, or a 0.1% stretch — and read off the gentlest/fastest campaign that reaches it.
 The twin uses the coupled detuned-cavity sensing (SRC detuning splits the cavity pole into a complex
@@ -218,18 +218,20 @@ sz = dd.cal_sizing(seed=0)
 dd.convergence_to_target_fig(sz)
 ```
 
-Every parameter reaches 0.1% before the 5-minute mark; `δ` and `τ` are the slowest (they need
-high-frequency information, where the readout floor is worst), the κ's and `f_cc` are fast.
+Every parameter reaches 0.1% well before the 5-minute mark (all inside ~90 s here). The SRC
+detuning `δ` and the weak upper actuators `κ_TST`/`κ_PUM` are the slowest — `δ` needs
+high-frequency information where the readout floor is worst, and those stages carry less
+authority — while `κ_C`, `f_cc` and `κ_M0` are fast.
 
 The lines land where the physics puts them (below). The **Pcal (sensing) line frequencies are
 Fisher-placed** — each where its parameter is most informative: `f_cc` near the cavity pole, `δ`
 and `τ` high (the coupled-cavity `f²` split-curvature and the delay phase both grow with `f`). The
-**actuator line frequencies follow the actuation hierarchy** — each stage measured in its authority
-band (M0 low, PUM mid, ESD ~tens of Hz), distinct so they demodulate cleanly. (They are *not*
-Fisher-placed: the ruler `H_stage/H_pcal = κ_i·D_i·N_i` cancels the loop, so a stage's κ_i precision
-depends on the drive it carries, not its frequency — the band is a hierarchy/operational choice,
-matching LIGO's ~15–35 Hz actuator lines.) The total drive is then split to balance the
-worst-parameter time-to-0.1%.
+**actuator line frequencies follow the actuation hierarchy** — each stage is measured in its own
+authority band (M0 low, PUM mid, ESD ~tens of Hz), where that stage's DARM-referred response
+`D_i·N_i` is largest so the ruler `H_stage/H_pcal = κ_i·D_i·N_i` carries the most SNR. (Crowding all
+three actuator lines into one shared mid-band region, as the fixed-line schemes do, starves the slow
+upper stages — that is exactly where the head-to-head below shows the biggest gap.) The total drive
+is then split to balance the worst-parameter time-to-0.1%.
 
 ```{python}
 #| code-summary: "Where the sized lines sit over the DARM floor"
@@ -241,8 +243,11 @@ dd.sized_lines_fig(sz)
 At **equal total drive**, how does this Fisher-optimal placement compare to the actual O3 and O4
 calibration-line frequencies ([Sun 2020](https://dcc.ligo.org/public/0162/P1900245/007/CalO3.pdf);
 [O4 cal, arXiv:2508.08423](https://arxiv.org/abs/2508.08423)), each given its own best amplitude
-allocation? The optimal scheme balances the drive so the worst parameter governs; the LIGO
-placements reach the κ's very fast but spend much longer on `δ`/`τ`.
+allocation? The optimal scheme balances the drive so the worst parameter governs. The LIGO
+placements measure sensing (`κ_C`, `f_cc`), `δ`, `τ` and the test-mass strength `κ_TST` quickly, but
+spend far longer on the **top-mass `κ_M0` and penultimate `κ_PUM`** strengths — their actuator lines
+sit at ~15–35 Hz, where those slow stages have little DARM authority, so the ruler `κ_i·D_i·N_i` is
+small and the SNR low (`κ_M0` is the binding parameter for both O3 and O4 here).
 
 ```{python}
 #| code-summary: "Time to 0.1% per parameter — P&S-optimal vs O3 vs O4"
@@ -254,12 +259,16 @@ dd.scheme_bars_fig(sz)
 display(dd.sizing_table(sz))
 ```
 
-The advantage is concentrated in `δ` and `τ` — parameters LIGO *monitors but does not correct to
-0.1%* (`f_s`/`Q` are tracked, not applied, in O3) — so this is not a deficiency in the real scheme
-so much as a different target. For the κ's, which LIGO does track tightly, the schemes are
-comparable. The absolute times are representative (only the total drive is borrowed from the
-papers; matching the exact per-line amplitudes and the full O4 line list is the next phase); the
-**ratio** is scale-invariant.
+The advantage is concentrated in the **hierarchical actuation strengths `κ_M0` and `κ_PUM`**: the
+P&S scheme places each actuator line in its stage's authority band (M0 low, PUM mid), while the
+O3/O4 lines share a mid-band (~15–35 Hz) actuator region where the upper stages are weak. Part of
+this is a genuine SNR effect — top-mass authority rolls off steeply — and part is a **stage-set
+caveat**: the twin actuates M0/PUM/ESD, while O3/O4 actuate UIM/PUM/TST, so mapping their line
+frequencies onto this hierarchy penalises the upper stages more than it would in the real
+instrument. For sensing (`κ_C`, `f_cc`), `δ`, `τ` and `κ_TST` the schemes are within a factor of a
+few. The absolute times are representative (only the total drive is borrowed from the papers;
+matching the exact per-line amplitudes and the full O4 line list is the next phase); the **ratio** is
+scale-invariant.
 
 ::: {.callout-important appearance="simple"}
 ## Calibration team: help us make this exact
@@ -309,9 +318,9 @@ dd.pareto_fig(pc)
 display(dd.pareto_table(pc))
 ```
 
-To reach the **O3 random level**, the P&S scheme needs **~7× less injected energy than the O3/O4
-fixed-line placement** (≈2.6× less amplitude at equal time, or ~7× less time at equal amplitude) and
-**~4× less than a naive broadband injection** — and the same factor holds at every target level,
+To reach the **O3 random level**, the P&S scheme needs **~18× less injected energy than the O3/O4
+fixed-line placement** (≈4× less amplitude at equal time, or ~18× less time at equal amplitude) and
+**>1000× less than a naive broadband injection** — the same factor at every target level,
 down to the 0.1% stretch. Slide along a contour to trade drive for time and design the campaign.
 (Absolute amplitudes await the real per-line heights — [issue #3](https://github.com/CaltechExperimentalGravity/system_ident/issues/3);
 the *ratios* here are scale-invariant. Systematic modelling errors — the 0.54% Pcal reference,

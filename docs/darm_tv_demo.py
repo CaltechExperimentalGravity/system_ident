@@ -23,7 +23,7 @@ if str(_DOCS) not in sys.path:
 
 import sysid_plots as sp  # noqa: E402
 from system_ident import darm_tv as tv  # noqa: E402
-from system_ident.darm import DARMLoop, drift_profile  # noqa: E402
+from system_ident.darm import DARMLoop, darm_design_asd, drift_profile  # noqa: E402
 
 # The ESD (TST) stage is the physically drift-prone one (charge on the reaction mass),
 # so it is the natural κ target; its weaker strength also makes the CRB *visible*.
@@ -41,6 +41,7 @@ ORDER = 5              # Legendre time-basis order
 N_JOINT = 13           # snapshots for the (heavier) joint campaign
 TAU_S = 1500.0         # drift correlation time [s]
 G_C0 = 1.0e6           # nominal optical gain (κ_C carrier)
+PX_REAL = (5.0e-17) ** 2  # m² — Pcal multisine drive power vs the real DARM floor (see darm_demo)
 
 # SRC-detuning drift: the *new* physics the coupled plant exposes — the error point wanders around
 # a slightly-detuned operating point, moving the (split) cavity pole. δ is a sensing parameter,
@@ -52,11 +53,10 @@ DELTA_AMP = 0.05       # 5 % drift on δ
 def _twin():
     """The **new** DARM plant: the M0-damped reduced-QUAD hierarchical actuation (M0/PUM/ESD) with
     the coupled detuned-cavity sensing (SRC detuning splits the cavity pole). ``fmin=10 Hz`` keeps
-    the snapshot band in the smooth region above the quad-mode forest. Same representative
-    two-component noise floor as example 08."""
+    the snapshot band in the smooth region above the quad-mode forest. Real Advanced-LIGO DARM
+    displacement-noise floor (same as example 08)."""
     loop = DARMLoop.default_reduced(fmin=10.0, hierarchical=True)
-    loop.disturbance_asd = 3.0e-4     # length-noise floor [m/√Hz]
-    loop.sensor_asd = 300.0           # DARM readout noise [ct/√Hz]
+    loop.noise_asd = darm_design_asd   # real Advanced-LIGO DARM displacement-noise floor
     return loop
 
 
@@ -67,7 +67,7 @@ def campaign(seed=777):
                              period_s=PERIOD, kind="sine")
     times = np.linspace(0.0, TSPAN, N_SNAP)
     t, khat, sig = tv.track_kappa(loop, NAME, times, prof,
-                                  nperseg=4096, n_periods=NPER, seed=seed)
+                                  nperseg=4096, n_periods=NPER, px_total=PX_REAL, seed=seed)
     fit = tv.fit_tv(t, khat, sig, kind="legendre", order=ORDER)
     tg = np.linspace(0.0, TSPAN, 400)
     theta, s_theta, theta_dot, s_dot = fit.predict(tg)
@@ -151,7 +151,7 @@ def campaign_delta(seed=778):
     prof = functools.partial(drift_profile, base=base, amp_frac=DELTA_AMP,
                              period_s=PERIOD, kind="sine")
     times = np.linspace(0.0, TSPAN, N_SNAP)
-    t, dhat, sig = tv.track_delta(loop, times, prof, nperseg=4096, n_periods=NPER, seed=seed)
+    t, dhat, sig = tv.track_delta(loop, times, prof, nperseg=4096, n_periods=NPER, px_total=PX_REAL, seed=seed)
     fit = tv.fit_tv(t, dhat, sig, kind="legendre", order=ORDER)
     tg = np.linspace(0.0, TSPAN, 400)
     theta, s_theta, _, _ = fit.predict(tg)
@@ -225,7 +225,7 @@ def campaign_joint(seed=2024):
                                            tau_s=TAU_S, seed=seed + 1),
               "kappa_TST": tv.stochastic_drift(times, K0, amp_frac=0.05, tau_s=TAU_S, seed=seed + 2)}
     t, th, sg, corr, names = tv.track_joint(loop, series, times, nperseg=4096, n_periods=NPER,
-                                            seed=seed + 10)
+                                            px_total=PX_REAL, seed=seed + 10)
     tg = np.linspace(0.0, TSPAN, 400)
     curves = {}
     for n in names:

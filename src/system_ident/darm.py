@@ -101,6 +101,34 @@ def drift_profile(t, base: float, *, amp_frac: float = 0.05,
     raise ValueError(f"unknown drift kind {kind!r}")
 
 
+# Representative Advanced-LIGO DARM strain sensitivity [1/√Hz] — the design-era amplitude spectral
+# density, tabulated at a handful of points and log-log interpolated. The characteristic bucket:
+# seismic/suspension wall below ~20 Hz, quantum-radiation-pressure + thermal mid-band minimum near
+# ~4e-24 around 200 Hz, shot noise rising above the ~400 Hz cavity pole. Multiply by the 4 km arm
+# length for displacement. Representative of the real detector (not a specific instrument state) —
+# the shape and scale are physical, replacing the earlier placeholder floor. Cf. LIGO-T1800044 /
+# the published O3/O4 sensitivity curves.
+_ALIGO_ARM_LENGTH_M = 4000.0
+_ALIGO_STRAIN_F = np.array([10., 15., 20., 30., 50., 70., 100., 150., 200., 300.,
+                            500., 700., 1000., 2000., 5000.])
+_ALIGO_STRAIN_ASD = np.array([1.0e-21, 1.5e-22, 4.0e-23, 1.3e-23, 7.0e-24, 5.5e-24, 4.5e-24,
+                              4.0e-24, 3.8e-24, 4.0e-24, 5.0e-24, 7.0e-24, 1.1e-23, 2.5e-23,
+                              7.0e-23])
+
+
+def darm_design_asd(freq) -> np.ndarray:
+    """Representative Advanced-LIGO DARM **displacement** noise ASD [m/√Hz] = strain × 4 km arm.
+
+    Log-log interpolation of the tabulated design-era strain sensitivity (clamped to the table ends
+    outside 10–5000 Hz). Use as ``DARMLoop.noise_asd`` to give the twin a physical DARM noise floor
+    (best ≈ 1.5e-20 m/√Hz mid-band, rising to ~1e-19 at the band edges) in place of the
+    representative scalars."""
+    f = np.asarray(freq, dtype=float)
+    lf = np.log(np.clip(f, _ALIGO_STRAIN_F[0], _ALIGO_STRAIN_F[-1]))
+    strain = np.exp(np.interp(lf, np.log(_ALIGO_STRAIN_F), np.log(_ALIGO_STRAIN_ASD)))
+    return _ALIGO_ARM_LENGTH_M * strain
+
+
 def _pendulum_stage(f_pend: float, q: float, gain: float) -> TFModel:
     """One quad actuation stage: a pendulum force→displacement TF [m/ct].
 
@@ -172,6 +200,10 @@ class DARMLoop:
     # disturbance / sensing noise ASDs (set on the twin used for simulation)
     disturbance_asd: float = 0.0   # process (length) disturbance, [m/√Hz] referred to x_free
     sensor_asd: float = 0.0        # readout noise on d_err, [ct/√Hz]
+    # Real DARM displacement-noise floor [m/√Hz] as a callable freq→ASD (e.g. `darm_design_asd`).
+    # When set it REPLACES the two representative scalars above: it is the calibrated DARM
+    # displacement noise the cal lines are measured against (see `displacement_noise_asd`).
+    noise_asd: object = None
 
     @classmethod
     def default(cls) -> "DARMLoop":
@@ -324,6 +356,15 @@ class DARMLoop:
         """Readout noise n adds at d_err and is loop-suppressed: 1/(1+G)."""
         return 1.0 / (1.0 + self.G(freq))
 
+    def displacement_noise_asd(self, freq) -> np.ndarray:
+        """The calibrated DARM **displacement** noise floor [m/√Hz] the cal lines are measured
+        against. If ``noise_asd`` is set (e.g. :func:`darm_design_asd`) it is that real curve;
+        otherwise the legacy two-scalar model ``√(disturbance² + (readout/|C|)²)``."""
+        if self.noise_asd is not None:
+            return np.asarray(self.noise_asd(freq), dtype=float)
+        return np.sqrt(self.disturbance_asd ** 2 +
+                       (self.sensor_asd / np.abs(self.C(freq))) ** 2)
+
     # -- simulation -----------------------------------------------------------
     def _white(self, asd: float, n: int, rng) -> np.ndarray:
         if asd == 0.0:
@@ -349,18 +390,19 @@ class DARMLoop:
             H = self.frf_pcal(f) if port == "PCAL" else self.frf_stage(port, f)
             H = np.where(np.isfinite(H), H, 0.0)
             Y += np.fft.rfft(xf) * H
-        # process disturbance x_free -> d_err  (C/(1+G))
-        if self.disturbance_asd:
-            w = self._white(self.disturbance_asd, n, rng)
-            Hd = np.where(np.isfinite(self.disturbance_to_derr(f)),
-                          self.disturbance_to_derr(f), 0.0)
-            Y += np.fft.rfft(w) * Hd
-        # readout/sensing noise n -> d_err  (1/(1+G))
-        if self.sensor_asd:
-            v = self._white(self.sensor_asd, n, rng)
-            Hs = np.where(np.isfinite(self.sensing_to_derr(f)),
-                          self.sensing_to_derr(f), 0.0)
-            Y += np.fft.rfft(v) * Hs
+        Hd = np.where(np.isfinite(self.disturbance_to_derr(f)), self.disturbance_to_derr(f), 0.0)
+        if self.noise_asd is not None:
+            # real DARM displacement noise S(f) [m/√Hz], injected like a length disturbance (→ d_err
+            # via C/(1+G)), so the calibrated displacement floor is exactly S(f)
+            S = np.asarray(self.noise_asd(f), dtype=float)
+            Y += np.fft.rfft(rng.standard_normal(n)) * (S * np.sqrt(self.fs / 2.0)) * Hd
+        else:
+            # legacy two-scalar model: process disturbance (C/(1+G)) + readout noise (1/(1+G))
+            if self.disturbance_asd:
+                Y += np.fft.rfft(self._white(self.disturbance_asd, n, rng)) * Hd
+            if self.sensor_asd:
+                Hs = np.where(np.isfinite(self.sensing_to_derr(f)), self.sensing_to_derr(f), 0.0)
+                Y += np.fft.rfft(self._white(self.sensor_asd, n, rng)) * Hs
         return np.fft.irfft(Y, n)
 
 

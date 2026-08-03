@@ -387,3 +387,26 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > (joint_drift_fig + joint_corr_fig heatmap); reframed scope/gaps (joint+random now done; remaining
 > = GP wander w/ measured spectrum, all-7 together, one-shot LP). Tests in test_darm_tv.py
 > (stochastic OU std, joint untangling, track_joint shapes).
+
+> **UPDATE 2026-08-02 (real DARM noise floor).** Replaced the two-scalar placeholder floor with a
+> physical aLIGO displacement floor: `darm.darm_design_asd(freq)` = the aLIGO design strain
+> sensitivity bucket (15-pt log-log table, 10–5000 Hz) × 4 km arm → m/√Hz. `DARMLoop.noise_asd`
+> hook + `displacement_noise_asd`; `simulate` grows a colored-noise branch when it is set;
+> `default_cal_loop`/`floor_asd` wire it into the Fisher engine; drives rescaled to a realistic
+> Pcal displacement (`PX_REAL=A_TOT_REAL=5e-17` m) → per-record σ(R)/R≈0.8%.
+> Cascade of fixes it forced: (a) hardened `fisher.safe_inverse` (nan_to_num + ridge fallback on
+> pinv SVD non-convergence); (b) new `darm_callines._crb_cov` (eigenvalue-floored inverse) so an
+> under-constrained param returns a large σ, not a spurious zero variance — used in `sigma`,
+> `band_response_rho`, `response_budget`; (c) both sizers guard objectives with try/except→1e30.
+> **Placement re-opt (Rana's call): optimize ALL line frequencies, unconstrained** — the real floor
+> makes frequency matter, so lines may land in-band. Re-enabled `pcal=list(range(n))` in both
+> `size_lines_for_target` and `size_lines_for_response`.
+> **Results with the real floor (supersede the ~7×/2.6×/~4× above):** response-optimal P&S reaches
+> every random-error target with **18.1× less injected energy than the O3/O4 fixed-line placement**
+> (≈4.3× less amplitude OR ~18× less time) and **3681× less than naive broadband** — still
+> target-independent. Cal-line sizing to 0.1% on all 7: **P&S 90 s (δ binds), O3 2543 s / O4 3919 s
+> (κ_M0 binds, 28×/44× slower)**. The O3/O4 gap is concentrated in κ_M0/κ_PUM: their ~15–35 Hz
+> actuator lines poorly measure the twin's top/penultimate stages (genuine authority-rolloff SNR
+> effect + a stage-set caveat, M0/PUM/ESD twin vs UIM/PUM/TST papers) — stated honestly in ex-08.
+> Prose in example 08 updated throughout (abstract, sizing, head-to-head, Pareto) to these numbers.
+> 7 fisher tests pass.

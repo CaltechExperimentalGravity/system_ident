@@ -23,8 +23,10 @@ Every observable is ``∝ C(f;θ)`` — Pcal lines observe ``H = C/(1+G)``; stag
 ``H = C·κ_i·(D_iN_i)/(1+G)``. So ``∂lnH/∂lnθ = ∂lnC/∂lnθ`` for the sensing params (cheap, analytic
 in C) and ``∂lnH/∂lnκ_i = 1`` (0 for the other stages / Pcal). The θ-independent pieces (``G`` and
 the stage shapes ``D_iN_i``) are precomputed once, so the plant is never re-solved in the sizing
-loop. The CRB is ``Γ⁻¹`` (:func:`fisher.safe_inverse`); ``σ_θ = √diag`` is the fractional 1σ. Same
-math as :mod:`fisher` (the ``2·Re[∂H*·∂H]·weight`` structure), specialised to the DARM parameters.
+loop. The CRB is ``Γ⁻¹`` via :func:`_crb_cov` — an eigenvalue-floored inverse so an
+under-constrained parameter comes back with a large σ rather than a spurious zero variance;
+``σ_θ = √diag`` is the fractional 1σ. Same math as :mod:`fisher` (the ``2·Re[∂H*·∂H]·weight``
+structure), specialised to the DARM parameters.
 """
 from __future__ import annotations
 
@@ -33,7 +35,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import differential_evolution, minimize
 
-from .darm import DARMLoop, sensing_model_detuned
+from .darm import DARMLoop, darm_design_asd, sensing_model_detuned
 from .fisher import safe_inverse
 
 # ── the parameter vector θ ──────────────────────────────────────────────────────
@@ -63,21 +65,21 @@ class Line:
     target: str = ""
 
 
-def default_cal_loop(delta_deg: float = 5.0, *, disturbance_asd: float = 3.0e-4,
-                     sensor_asd: float = 300.0) -> DARMLoop:
+def default_cal_loop(delta_deg: float = 5.0) -> DARMLoop:
     """The base twin for cal-line design: the M0-damped hierarchical reduced-quad loop at a
     representative slight SRC detuning (so every TDCF, including δ, is nonzero and fractional
-    precision is well defined), with the representative DARM noise floor set."""
+    precision is well defined), with the **real** Advanced-LIGO DARM displacement-noise floor
+    (:func:`~system_ident.darm.darm_design_asd`)."""
     loop = DARMLoop.default_reduced(fmin=0.3, hierarchical=True).with_params(
         delta=np.radians(delta_deg))
-    loop.disturbance_asd, loop.sensor_asd = disturbance_asd, sensor_asd
+    loop.noise_asd = darm_design_asd
     return loop
 
 
 def floor_asd(loop: DARMLoop, freq) -> np.ndarray:
-    """DARM-displacement noise floor √(disturbance² + (readout/|C|)²) [m/√Hz]."""
-    f = np.asarray(freq, dtype=float)
-    return np.sqrt(loop.disturbance_asd ** 2 + (loop.sensor_asd / np.abs(loop.C(f))) ** 2)
+    """DARM-displacement noise floor [m/√Hz] — the real ``noise_asd`` curve if set, else the legacy
+    two-scalar model (see :meth:`DARMLoop.displacement_noise_asd`)."""
+    return loop.displacement_noise_asd(np.asarray(freq, dtype=float))
 
 
 def _sensing_C(loop: DARMLoop, freqs: np.ndarray, over: dict) -> np.ndarray:
@@ -126,11 +128,10 @@ def fisher(ls: LineSet, amps: np.ndarray, T: float) -> np.ndarray:
     """Fisher information Γ on the log-TDCF vector for line amplitudes ``amps`` (DARM-displacement,
     m rms) over time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·√T/floor_j``.
 
-    Actuator lines enter through the ruler ``H_stage/H_pcal = κ_i·D_i·N_i`` (``∂lnH/∂lnκ_i = 1``);
-    the ruler cancels the loop, so an actuator line's κ_i information depends on the displacement
-    amplitude it drives, not on its frequency. The actuator LINE FREQUENCIES are therefore set by
-    the actuation hierarchy + demodulation spacing (each stage in its authority band); the CRB
-    drives the sensing (Pcal) line frequencies and the drive allocation."""
+    Actuator lines enter through the ruler ``H_stage/H_pcal = κ_i·D_i·N_i`` (``∂lnH/∂lnκ_i = 1`` —
+    a frequency-independent shape), but the SNR carries ``floor(f)``, so with the **real
+    frequency-dependent** DARM floor an actuator line's κ_i precision DOES depend on its frequency
+    (a line on the low-frequency wall is penalised). Every line frequency is therefore optimised."""
     snr2 = (np.asarray(amps, float) ** 2) * T / ls.floor ** 2
     Gamma = np.zeros((len(TDCF_PARAMS), len(TDCF_PARAMS)))
     for j in range(len(ls.kinds)):
@@ -138,10 +139,20 @@ def fisher(ls: LineSet, amps: np.ndarray, T: float) -> np.ndarray:
     return Gamma
 
 
+def _crb_cov(Gamma: np.ndarray, rel_floor: float = 1e-12) -> np.ndarray:
+    """CRB covariance ``Γ⁻¹`` via a symmetric eigen-regularised inverse: eigenvalues are floored at
+    ``rel_floor·λ_max`` so a poorly-constrained (near-singular) direction gets a LARGE variance —
+    not the zero that a plain pseudo-inverse would wrongly return. This makes an unmeasured
+    parameter show up as a huge σ (and a huge time-to-target), which is the honest CRB."""
+    G = np.nan_to_num(np.asarray(Gamma, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    w, V = np.linalg.eigh(0.5 * (G + G.T))
+    w = np.maximum(w, rel_floor * max(float(w.max()), 0.0) + 1e-300)
+    return (V / w) @ V.T
+
+
 def sigma(ls: LineSet, amps: np.ndarray, T: float) -> dict[str, float]:
     """Fractional 1σ on each TDCF: ``√diag(Γ⁻¹)`` (CRB), keyed by parameter label."""
-    crb = safe_inverse(fisher(ls, amps, T))
-    s = np.sqrt(np.clip(np.diag(crb), 0.0, np.inf))
+    s = np.sqrt(np.clip(np.diag(_crb_cov(fisher(ls, amps, T))), 0.0, np.inf))
     return {name: float(s[i]) for i, name in enumerate(TDCF_PARAMS)}
 
 
@@ -213,21 +224,26 @@ def size_lines_for_target(loop: DARMLoop, *, A_tot: float = 1.0e-3, target: floa
     targets = [ln.target for ln in lines]
     f_seed = np.array([ln.freq for ln in lines], dtype=float)
     n = len(lines)
-    pcal = [i for i in range(n) if kinds[i] == "PCAL"]      # only Pcal frequencies are optimised
-    npc = len(pcal)
+    pcal = list(range(n))   # optimise EVERY line frequency (unconstrained; the real
+    npc = len(pcal)             # frequency-dependent floor makes actuator placement matter)
     lf_lo, lf_hi = np.log10(fmin), np.log10(fmax)
     min_sep = np.log10(1.15)                                # lines ≥15% apart (demodulable)
 
     def freqs_of(x):
-        f = f_seed.copy()                                  # actuator freqs fixed at the hierarchy
+        f = f_seed.copy()                                  # all line frequencies optimised
         if optimize_freq:
             f[pcal] = 10.0 ** np.clip(x[n:], lf_lo, lf_hi)
         return f
 
     def worst(x):
         freqs = freqs_of(x)
-        ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
-        w = max(sigma(ls, _allocate(ls, x[:n], A_tot), T_ref).values())
+        try:
+            ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
+            w = max(sigma(ls, _allocate(ls, x[:n], A_tot), T_ref).values())
+        except Exception:
+            return 1e30                                    # pathological config → penalise
+        if not np.isfinite(w):
+            return 1e30
         if optimize_freq:                                  # keep lines apart (demodulation)
             lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
             gap = d.min()
@@ -302,7 +318,7 @@ def response_budget(loop: DARMLoop, ls: LineSet, amps: np.ndarray, T: float,
     covariance ``Σ = Γ⁻¹`` through ``∂lnR/∂lnθ``. Returns ``(sigma_mag_pct, sigma_phase_deg)`` over
     ``freqs`` — the magnitude [%] and phase [deg] response uncertainty the lines deliver at time
     ``T`` (to lay against the O3/O4 budgets)."""
-    cov = safe_inverse(fisher(ls, amps, T))                 # TDCF covariance (fractional/log params)
+    cov = _crb_cov(fisher(ls, amps, T))                 # TDCF covariance (fractional/log params)
     J = response_log_jacobian(loop, freqs)                  # (F, 7) complex
     reJ, imJ = J.real, J.imag
     var_mag = np.einsum("fa,ab,fb->f", reJ, cov, reJ)       # Var(Re δlnR) = |δR/R| magnitude
@@ -344,7 +360,7 @@ def band_response_rho(loop: DARMLoop, ls: LineSet, amps: np.ndarray, T: float,
     f = np.geomspace(fband[0], fband[1], n)
     if J_R is None:
         J_R = response_log_jacobian(loop, f)
-    cov = safe_inverse(fisher(ls, amps, T))
+    cov = _crb_cov(fisher(ls, amps, T))
     var = (np.einsum("fa,ab,fb->f", J_R.real, cov, J_R.real)
            + np.einsum("fa,ab,fb->f", J_R.imag, cov, J_R.imag))
     return float(np.sqrt(np.max(var)))
@@ -373,7 +389,7 @@ def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float 
     targets = [ln.target for ln in lines]
     f_seed = np.array([ln.freq for ln in lines], float)
     n = len(lines)
-    pcal = [i for i in range(n) if kinds[i] == "PCAL"]
+    pcal = list(range(n))   # optimise EVERY line frequency (unconstrained)
     lf_lo, lf_hi = np.log10(fmin), np.log10(fmax)
     min_sep = np.log10(1.15)
     J_R = response_log_jacobian(loop, np.geomspace(20.0, 2000.0, 200))   # precompute once
@@ -383,8 +399,13 @@ def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float 
 
     def obj(x):
         freqs = freqs_of(x)
-        ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
-        rho = band_response_rho(loop, ls, _allocate(ls, x[:n], A_tot), T_ref, J_R=J_R)
+        try:
+            ls = build_lineset(loop, [Line(float(f), k) for f, k in zip(freqs, kinds)])
+            rho = band_response_rho(loop, ls, _allocate(ls, x[:n], A_tot), T_ref, J_R=J_R)
+        except Exception:
+            return 1e30                                    # pathological config → penalise
+        if not np.isfinite(rho):
+            return 1e30
         lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
         return rho * (1.0 + 50.0 * max(0.0, min_sep - d.min()) / min_sep)
 
