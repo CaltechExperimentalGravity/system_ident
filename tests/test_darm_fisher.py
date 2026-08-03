@@ -38,13 +38,14 @@ def test_crb_scales_as_one_over_sqrt_T(loop):
 
 def test_single_stage_line_matches_analytic_crb(loop):
     """One actuator line measuring its own κ (∂lnH/∂lnκ=1) has the textbook single-parameter CRB
-    σ = 1/(√2·SNR), SNR = amp·√T/floor — a closed-form check on the Fisher normalisation."""
-    f, amp, T = 30.0, 2.0e-4, 120.0
-    ls = cl.build_lineset(loop, [cl.Line(f, "TST", amp)])
+    σ = 1/(√2·SNR), where the achievable DARM amplitude is drive·authority(f) — a closed-form check
+    on the Fisher normalisation including the actuator-range weighting."""
+    f, drive, T = 30.0, 2.0e-4, 120.0
+    ls = cl.build_lineset(loop, [cl.Line(f, "TST", drive)])
     # isolate κ_TST information (single line, single informative param via the ruler column)
-    gamma = cl.fisher(ls, np.array([amp]), T)
+    gamma = cl.fisher(ls, np.array([drive]), T)
     idx = cl.TDCF_PARAMS.index("kappa_TST")
-    snr = amp * np.sqrt(T) / cl.floor_asd(loop, np.array([f]))[0]
+    snr = drive * ls.authority[0] * np.sqrt(T) / cl.floor_asd(loop, np.array([f]))[0]
     assert np.sqrt(1.0 / gamma[idx, idx]) == pytest.approx(1.0 / (np.sqrt(2) * snr), rel=1e-6)
 
 

@@ -92,20 +92,44 @@ def _sensing_C(loop: DARMLoop, freqs: np.ndarray, over: dict) -> np.ndarray:
     return sensing_model_detuned(freqs, g_c, f_cc, tau, alpha)
 
 
+# ── actuator range: the DARM displacement each actuator can make per unit drive ──────────
+#: Photon-calibrator hardware range: it modulates laser power (radiation-pressure force F = 2P/c) on
+#: a quasi-free test mass, so its displacement rolls off as 1/f². The real Pcal has ~200 mW
+#: peak-to-peak power range (Rana, 2026-08); with the 40 kg test mass this fixes the ABSOLUTE Pcal
+#: line amplitude at every frequency — no free parameter.
+PCAL_POWER_PP_W = 0.200
+TEST_MASS_KG = 40.0
+_C_LIGHT = 299_792_458.0
+#: Representative full-range DARM displacement of the suspension-stage actuators [m rms] at each
+#: stage's authority peak. Anchored to the Pcal range at 20 Hz so stages and Pcal are comparable in
+#: the actuation band; the absolute per-stage ranges are representative (issue #3), only their
+#: frequency SHAPE (the real reduced-quad response) and the Pcal range are physical.
+_STAGE_RANGE_M = None   # filled lazily from pcal_range_disp(20.0)
+
+
+def pcal_range_disp(freq) -> np.ndarray:
+    """Maximum Pcal DARM-displacement amplitude [m rms] at ``freq`` from the full ±200 mW power
+    range: radiation-pressure force ``F_rms = (P_pp/c)/√2`` (``2·(P_pp/2)/c``, converted to rms) on
+    the free test mass, ``x = F/(M(2πf)²)`` — the 1/f² free-mass actuator range."""
+    f = np.asarray(freq, dtype=float)
+    F_rms = PCAL_POWER_PP_W / _C_LIGHT / np.sqrt(2.0)
+    return F_rms / (TEST_MASS_KG * (2.0 * np.pi * f) ** 2)
+
+
 # ── a precomputed line set: θ-independent pieces + the log-Jacobian ──────────────────────
 @dataclass
 class LineSet:
     """Frozen geometry of a roster: frequencies, kinds, the ``floor``, the per-line actuator
-    ``authority`` (DARM displacement produced per unit actuator drive, normalised to each stage's
-    in-band peak — the frequency-dependent actuator range), and the log-Jacobian
-    ``J[j,a] = ∂lnH_j/∂lnθ_a`` — all θ-independent (evaluated once at the loop's operating point).
-    Only per-line drives and the integration time vary afterwards, so :func:`fisher` never
-    re-solves the plant."""
+    ``authority`` (the DARM displacement [m] each actuator makes at **full range** at that
+    frequency — Pcal from the real 1/f² free-mass range, stages from the reduced-quad response), and
+    the log-Jacobian ``J[j,a] = ∂lnH_j/∂lnθ_a`` — all θ-independent (evaluated once at the loop's
+    operating point). Only per-line drive fractions and the integration time vary afterwards, so
+    :func:`fisher` never re-solves the plant."""
     freqs: np.ndarray
     kinds: list[str]
     floor: np.ndarray
     J: np.ndarray          # (n_lines, n_params) complex
-    authority: np.ndarray  # (n_lines,) DARM disp per unit drive, ∈(0,1] (Pcal ruler = 1)
+    authority: np.ndarray  # (n_lines,) full-range DARM displacement [m rms] at each line's freq
 
 
 #: Frequency grid over which each stage's authority peak is defined (the O4 floor's data range).
@@ -113,10 +137,13 @@ _AUTH_GRID = (10.0, 2000.0, 400)
 
 
 def _stage_authority(loop: DARMLoop):
-    """Per-stage normalised actuation authority ``|κ_i·D_i·N_i(f)| / max_f|·|`` — the real
-    reduced-quad DARM-referred response, which rolls off steeply for the upper masses (the top mass
-    is efficient only at low frequency). Cached on the loop; the normalised shape is what caps how
-    large a DARM line a fixed actuator drive can make at a given frequency."""
+    """Per-stage **absolute** actuation authority: the reduced-quad DARM-referred response shape
+    ``|κ_i·D_i·N_i(f)|`` (rolling off steeply for the upper masses — the top mass drives only at low
+    frequency), normalised to its in-band peak and scaled by the representative stage full-range
+    displacement :data:`_STAGE_RANGE_M`. Cached on the loop as ``(log f, log authority[m])``."""
+    global _STAGE_RANGE_M
+    if _STAGE_RANGE_M is None:
+        _STAGE_RANGE_M = float(pcal_range_disp(20.0))
     cache = getattr(loop, "_auth_cache", None)
     if cache is None:
         lo, hi, npts = _AUTH_GRID
@@ -124,7 +151,8 @@ def _stage_authority(loop: DARMLoop):
         cache = {}
         for st in STAGE_KINDS:
             mag = np.abs(loop.stage(st, grid))
-            cache[st] = (np.log(grid), np.log(np.maximum(mag / mag.max(), 1e-300)))
+            auth = _STAGE_RANGE_M * mag / mag.max()       # absolute m at full range
+            cache[st] = (np.log(grid), np.log(np.maximum(auth, 1e-300)))
         try:
             loop._auth_cache = cache
         except Exception:
@@ -144,8 +172,9 @@ def build_lineset(loop: DARMLoop, lines: list[Line], step: float = 1e-6) -> Line
         Cp = _sensing_C(loop, freqs, {knob: v + h})
         Cm = _sensing_C(loop, freqs, {knob: v - h})
         J[:, a] = v * (Cp - Cm) / (2.0 * h) / C0     # ∂lnC/∂lnθ (= ∂lnH/∂lnθ, since H ∝ C)
-    # dlnH/dlnκ_i = 1 for a line on stage i, else 0
-    auth = np.ones(len(lines))
+    # dlnH/dlnκ_i = 1 for a line on stage i, else 0. Authority = full-range DARM displacement [m]:
+    # Pcal from the real 1/f² free-mass range, stages from the reduced-quad response shape.
+    auth = pcal_range_disp(freqs)                             # Pcal (ruler) lines
     ac = _stage_authority(loop)
     for j, k in enumerate(kinds):
         if k in STAGE_KINDS:
@@ -156,16 +185,19 @@ def build_lineset(loop: DARMLoop, lines: list[Line], step: float = 1e-6) -> Line
 
 
 def fisher(ls: LineSet, amps: np.ndarray, T: float) -> np.ndarray:
-    """Fisher information Γ on the log-TDCF vector for per-line **actuator drives** ``amps`` over
-    time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·authority_j·√T/floor_j``.
+    """Fisher information Γ on the log-TDCF vector for per-line **drive fractions** ``amps`` (∈[0,1]
+    of each actuator's range) over time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``,
+    ``SNR_j = amp_j·authority_j·√T/floor_j``.
 
-    The line's achievable DARM amplitude is ``amp_j·authority_j``: a fixed actuator drive makes a
-    large DARM line where the stage has authority (the upper masses only at low frequency) and a
-    small one where it has rolled off. So an actuator line's κ_i precision is set by the **product**
-    of actuator range (``authority``) and the DARM floor — pushing the line up into the quiet
-    mid-band buys a better floor but costs authority (the top mass simply cannot drive there). This
-    authority↔floor trade, not any band-cleanliness rule, is what fixes each actuator line's
-    frequency. Pcal (sensing) lines are the ruler and carry ``authority = 1``."""
+    The line's DARM amplitude [m] is ``amp_j·authority_j`` — the drive fraction times the actuator's
+    full-range displacement at that frequency. That range rolls off with frequency for every
+    actuator: the suspension stages via the reduced-quad response (steeply for the upper masses), and
+    Pcal via its 1/f² free-mass response capped by the ±200 mW power range
+    (:func:`pcal_range_disp`). So each line's κ_i / sensing precision is set by the **product** of
+    actuator range (``authority``) and the DARM floor — pushing a line up buys a quieter floor but
+    costs range (the top mass cannot drive mid-band; Pcal cannot make a large line at high
+    frequency). This authority↔floor trade, not any band-cleanliness rule, fixes each line's
+    frequency. With ``‖amp‖₂ = 1`` no single actuator exceeds its range."""
     eff = np.asarray(amps, float) * ls.authority
     snr2 = eff ** 2 * T / ls.floor ** 2
     Gamma = np.zeros((len(TDCF_PARAMS), len(TDCF_PARAMS)))

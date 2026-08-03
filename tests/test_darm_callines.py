@@ -94,3 +94,26 @@ def test_darm_o4_asd_matches_the_vendored_curve():
     # Shot noise climbs above ~1 kHz, and out-of-table frequencies clamp (finite, no blow-up).
     assert darm_o4_asd(3000.0) > darm_o4_asd(300.0)
     assert np.isfinite(darm_o4_asd(1.0)) and np.isfinite(darm_o4_asd(9000.0))
+
+
+def test_pcal_free_mass_range_matches_hardware():
+    """Pcal actuator range: radiation-pressure force from the ±200 mW power modulation on the 40 kg
+    free test mass, x = F/(M(2πf)²) ∝ 1/f². Check the magnitude and the free-mass slope."""
+    from system_ident import darm_callines as cl
+    x100 = float(cl.pcal_range_disp(100.0))
+    # F_rms = (0.2 W / c)/√2 ≈ 4.71e-10 N; x(100 Hz) = F/(40·(2π·100)²) ≈ 2.98e-17 m
+    assert 2.5e-17 < x100 < 3.5e-17, f"Pcal range at 100 Hz = {x100:.2e} m, expected ~3e-17"
+    # 1/f² free-mass roll-off: a decade up drops the range by ~100×
+    assert np.isclose(cl.pcal_range_disp(100.0) / cl.pcal_range_disp(1000.0), 100.0, rtol=0.02)
+
+
+def test_lineset_authority_is_absolute_pcal_and_rolled_off_stages():
+    """build_lineset authority = full-range DARM displacement [m]: Pcal from pcal_range_disp, and
+    each stage's authority rolls off from its low-frequency peak (the upper masses drive only low)."""
+    from system_ident import darm_callines as cl
+    loop = cl.default_cal_loop()
+    ls = cl.build_lineset(loop, [cl.Line(100.0, "PCAL"), cl.Line(15.0, "M0"),
+                                 cl.Line(150.0, "M0")])
+    assert np.isclose(ls.authority[0], cl.pcal_range_disp(100.0), rtol=1e-6)   # Pcal = free-mass range
+    assert ls.authority[1] > ls.authority[2]                                   # M0 stronger low than high
+    assert np.all(ls.authority > 0)

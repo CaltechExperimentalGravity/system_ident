@@ -34,11 +34,13 @@ from system_ident.loop import SysIDLoop  # noqa: E402
 NPERSEG, NPER = 4096, 16
 
 # Representative injected drive against the REAL O4 DARM floor (darm_o4_asd, ~1.2e-20 m/√Hz best
-# near 330 Hz). A Pcal multisine of ~5e-17 m RMS displacement is a realistic strong line and gives a
-# sane per-record SNR (σ(R)/R ~ %). PX_REAL is its total power [m²]; A_TOT_REAL is the equivalent
-# total displacement for the Fisher/Pareto sizing. (Exact per-line amplitudes are issue #3.)
-PX_REAL = (5.0e-17) ** 2       # m² — multisine drive power against the real floor
-A_TOT_REAL = 5.0e-17           # m — total injected displacement for cal-line sizing
+# near 330 Hz). PX_REAL is a Pcal multisine's total displacement power [m²] for the simulate-based
+# intro campaigns (~5e-17 m rms — a realistic strong line, sane per-record SNR). A_TOT_REAL is the
+# Fisher/Pareto drive budget in ACTUATOR-RANGE FRACTION units (‖drive‖₂ = 1 ⇒ no actuator exceeds
+# its physical range: Pcal's ±200 mW free-mass range, the stages' reduced-quad range). Exact per-line
+# amplitudes / absolute stage ranges are issue #3; the Pcal range is real (200 mW pp, 40 kg).
+PX_REAL = (5.0e-17) ** 2       # m² — multisine drive power against the real floor (simulate paths)
+A_TOT_REAL = 1.0               # ‖drive fraction‖₂ — full combined actuator range for cal-line sizing
 
 
 def _grid(loop):
@@ -716,32 +718,36 @@ def pareto_fig(pc=None, *, height=600):
     tcolor = {"O3 random": sp.SKY, "O4-class (prov.)": sp.GREEN, "0.1% stretch": sp.ROSE}
     fig = go.Figure()
     # shaded "gentleness gap": between the P&S and fixed-line contours at the O3 level
-    A_pns_o3 = np.sqrt(kp["O3 random"] / T) / pc.floor
-    A_fix_o3 = np.sqrt(pc.K["O3/O4 fixed-line"]["O3 random"] / T) / pc.floor
+    A_pns_o3 = np.sqrt(kp["O3 random"] / T)
+    A_fix_o3 = np.sqrt(pc.K["O3/O4 fixed-line"]["O3 random"] / T)
     fig.add_scatter(x=np.r_[T, T[::-1]], y=np.r_[A_pns_o3, A_fix_o3[::-1]], fill="toself",
                     fillcolor=sp._fade(sp.SKY, 0.10), line=dict(width=0), hoverinfo="skip",
                     showlegend=False)
-    # P&S contours for every target (the design slider)
+    # P&S contours for every target (the design slider); y = required drive as a fraction of range
     for t, c in tcolor.items():
-        fig.add_scatter(x=T, y=np.sqrt(kp[t] / T) / pc.floor, mode="lines",
+        fig.add_scatter(x=T, y=np.sqrt(kp[t] / T), mode="lines",
                         name=f"P&S response-optimal — {t}", line=dict(color=c, width=2.8),
-                        hovertemplate=t + ": %{x:.0f} s, A/floor=%{y:.3g}<extra></extra>")
+                        hovertemplate=t + ": %{x:.0f} s, drive=%{y:.3g}×range<extra></extra>")
     # baselines at the O3 level (the ×energy factor is the same for every target contour)
     for scheme, color, dash in [("O3/O4 fixed-line", sp.INK, "dash"),
                                 ("naive broadband", "#7C5CBF", "dot")]:
         fac = pc.K[scheme]["O3 random"] / kp["O3 random"]
-        fig.add_scatter(x=T, y=np.sqrt(pc.K[scheme]["O3 random"] / T) / pc.floor, mode="lines",
-                        name=f"{scheme} @ O3 level  (×{fac:.0f} energy)",
+        fig.add_scatter(x=T, y=np.sqrt(pc.K[scheme]["O3 random"] / T), mode="lines",
+                        name=f"{scheme} @ O3 level  (×{fac:.1f} energy)",
                         line=dict(color=color, width=2.0, dash=dash), hoverinfo="skip")
+    # the actuator-range limit: drive fraction = 1 (can't inject harder than full range)
+    fig.add_hline(y=1.0, line=dict(color=sp.ROSE, width=1.2, dash="dot"))
+    fig.add_annotation(x=np.log10(1.3), y=0.0, yanchor="bottom", text="actuator-range limit",
+                       showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.ROSE))
     fac_fix = pc.K["O3/O4 fixed-line"]["O3 random"] / kp["O3 random"]
-    fig.add_annotation(x=np.log10(30), y=np.log10(np.sqrt(kp["O3 random"] / 30) / pc.floor),
+    fig.add_annotation(x=np.log10(30), y=np.log10(np.sqrt(kp["O3 random"] / 30)),
                        yanchor="top", yshift=-6,
-                       text=f"P&S reaches O3 level with ×{fac_fix:.0f} less energy<br>"
-                            f"(×{np.sqrt(fac_fix):.1f} amplitude, or ×{fac_fix:.0f} time)",
+                       text=f"P&S reaches O3 level with ×{fac_fix:.1f} less energy<br>"
+                            f"(×{np.sqrt(fac_fix):.1f} drive, or ×{fac_fix:.1f} time)",
                        showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.SKY),
                        bgcolor="rgba(255,255,255,0.8)")
     fig.update_xaxes(type="log", title_text="integration time  T  [s]")
-    fig.update_yaxes(type="log", title_text="injected amplitude / noise floor  [√Hz]")
+    fig.update_yaxes(type="log", title_text="injected drive  (fraction of actuator range)")
     fig.update_layout(title="Amplitude↔time Pareto — slide along a contour to trade drive for time")
     return sp.style(fig, height=height, legend="v")
 
@@ -756,13 +762,14 @@ def pareto_table(pc=None):
         fac_nb = pc.K["naive broadband"][t] / kp[t]
         rows.append([t, f"{pc.targets[t][0]:.2g}% / {pc.targets[t][1]:.2g}°",
                      f"{fac_fix:.1f}×", f"{fac_nb:.1f}×",
-                     f"{np.sqrt(fac_fix):.1f}× / {fac_fix:.0f}×"])
+                     f"{np.sqrt(fac_fix):.1f}× / {fac_fix:.1f}×"])
     return sp.param_table(["random-error target", "|δR/R| level",
                            "energy vs fixed-line", "energy vs naive",
-                           "→ less amplitude / less time (vs fixed)"], rows,
-                          caption="Injected energy A²·T to reach each random-error level: P&S "
+                           "→ less drive / less time (vs fixed)"], rows,
+                          caption="Injected energy drive²·time to reach each random-error level: P&S "
                                   "response-optimal vs the O3/O4 fixed-line and naive-broadband "
-                                  "schemes. The energy saving converts to √(factor)× less amplitude "
-                                  "(at equal time) or factor× less time (at equal amplitude). Ratios "
-                                  "are scale-invariant; absolute amplitude awaits real line heights "
-                                  "(issue #3).")
+                                  "schemes, both weighted by real actuator range (Pcal ±200 mW "
+                                  "free-mass + stage authority). The energy saving converts to "
+                                  "√(factor)× less drive (at equal time) or factor× less time (at "
+                                  "equal drive). Ratios are scale-invariant; absolute stage ranges "
+                                  "await real numbers (issue #3).")

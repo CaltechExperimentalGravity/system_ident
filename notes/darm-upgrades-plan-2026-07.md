@@ -456,3 +456,22 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > `test_darm_o4_asd_matches_the_vendored_curve` already covers the floor; authority path exercised by
 > the existing sizing/CRB tests (12 pass). Honest gap: Pcal free-mass (1/f²) range not yet modelled
 > (authority=1); absolute per-stage actuator ranges are issue #3 territory.
+
+> **UPDATE 2026-08-02 (Pcal free-mass range folded in).** Rana: fold in the Pcal free-mass range
+> too — "~200 mW peak-to-peak range in terms of power modulation." Made authority ABSOLUTE (meters
+> of DARM displacement at full range) for ALL lines. `pcal_range_disp(f)` = radiation-pressure force
+> F_rms=(P_pp/c)/√2 from ±200 mW on the 40 kg free test mass → x=F/(M(2πf)²) ∝ 1/f² (≈3e-17 m at
+> 100 Hz) — REAL, no free parameter. Stage authority = |κ_i D_i N_i(f)| shape × representative range
+> (_STAGE_RANGE_M anchored to pcal_range_disp(20 Hz); stage absolute ranges still issue #3). `amps`
+> are now DRIVE FRACTIONS ∈[0,1] of range; `‖drive‖₂ = A_tot = 1` ⇒ no actuator exceeds its range
+> (verified: max drive 0.93–0.97). Pareto y-axis switched from amplitude/floor → drive-fraction with
+> a hard "actuator-range limit" line at 1. pareto_table + captions reworded amplitude→drive.
+> **Result (Pcal range now genuinely binding):** Pareto **~2× less drive-energy vs fixed-line** (1.5×
+> drive / 2× time), ~4× vs naive. Sizing to 0.1%: P&S 90 s vs **O3 7.6 min (5.1×) / O4 4.8 min
+> (3.2×)**; binding TDCFs τ (needs high-f Pcal, where the ±200 mW 1/f² range rolls off) and κ_M0
+> (top-mass range vs seismic wall). **Big-picture: with real floor + real ranges, LIGO's line
+> placement is already near-optimal; P&S gives a modest, real ~2× and, more usefully, identifies the
+> true actuator-range limits.** Example 08 rewritten throughout (abstract/what-you'll-learn/sizing/
+> head-to-head/Pareto) to this honest, modest framing. Tests: fixed test_single_stage_line CRB to
+> include authority; added test_pcal_free_mass_range + test_lineset_authority_is_absolute. Honest gap
+> remaining: Pcal beam angle (cosθ≈1 assumed), absolute stage ranges (issue #3).
