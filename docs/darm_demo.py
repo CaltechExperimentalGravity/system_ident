@@ -579,19 +579,21 @@ def sizing_table(cs=None):
     return sp.param_table(["line scheme", "time to 0.1% on all 7 [s]", "binding param",
                            "vs P&S-optimal"], rows,
                           caption="Time for every TDCF to reach 0.1% at equal total drive against "
-                                  "the real O4 floor. The advantage is concentrated in the upper "
-                                  "actuators κ_M0/κ_PUM: the fixed schemes place their lines at "
-                                  "~15–17 Hz, deep in the O4 seismic wall, while the unconstrained "
-                                  "optimum moves lines into the sensitive bucket (a ceiling, not an "
-                                  "operational number — see the caveat). Absolute times are "
-                                  "representative (drive-match deferred); the ratio is scale-invariant.")
+                                  "the real O4 floor, with each actuator line weighted by its stage "
+                                  "authority (actuator range). The binding parameter is κ_M0: the "
+                                  "top mass has authority only at low frequency, where the O4 "
+                                  "seismic wall is worst. P&S tunes each line's frequency + drive "
+                                  "to that authority↔floor trade; the gain over the fixed schemes "
+                                  "is modest and real. Absolute times are representative "
+                                  "(drive-match deferred); the ratio is scale-invariant.")
 
 
 def sized_lines_fig(cs=None, *, height=520):
-    """Where the sized calibration lines sit over the real O4 DARM noise floor: with placement
-    unconstrained, the Fisher optimum clusters both the sensing (Pcal) and the actuator lines in the
-    sensitive ~110–340 Hz bucket where the floor is lowest, with a high sensing line for τ; the
-    O3/O4 line frequencies (down in the seismic wall) are shown for comparison."""
+    """Where the sized calibration lines sit over the real O4 DARM noise floor: weighting each
+    actuator line by its stage authority, the Fisher optimum places the actuator lines low (M0 near
+    the low edge, PUM/TST at tens of Hz, where the upper masses have authority) and spreads the
+    sensing Pcal lines across the sensitive band — close to where LIGO already puts them; the O3/O4
+    line frequencies are shown for comparison."""
     if cs is None:
         cs = cal_sizing()
     loop = cs.loop
@@ -687,11 +689,13 @@ def pareto_campaign(seed=0):
     scheme-characteristic (σ_R ∝ 1/√(A²T)); the iso-precision contour is A(T)=√(K/T)."""
     loop = _cl.default_cal_loop(delta_deg=5.0)
     pns = _cl.size_lines_for_response(loop, A_tot=A_TOT_REAL, T_ref=60.0, seed=seed)
-    o3 = _cl.reference_scheme(loop, _cl.O3_LINES, A_tot=A_TOT_REAL)
-    o4 = _cl.reference_scheme(loop, _cl.O4_LINES, A_tot=A_TOT_REAL)
+    # Fair fixed-line baseline: O3/O4 frequencies, but drive allocated for the SAME response
+    # objective as P&S (so the ratio isolates placement, not the choice of objective).
+    o3 = _cl.reference_scheme_response(loop, _cl.O3_LINES, A_tot=A_TOT_REAL, seed=seed)
+    o4 = _cl.reference_scheme_response(loop, _cl.O4_LINES, A_tot=A_TOT_REAL, seed=seed)
     nb_ls, nb_amps = _cl.naive_broadband(loop, A_tot=A_TOT_REAL)
     schemes = {"P&S response-optimal": (pns["lineset"], pns["amps"]),
-               "O3/O4 fixed-line": (o3["lineset"], np.array([l.amp for l in o3["lines"]])),
+               "O3/O4 fixed-line": (o3["lineset"], o3["amps"]),
                "naive broadband": (nb_ls, nb_amps)}
     K = {s: {t: _cl.pareto_cost(loop, ls, a, _cl.rho_of_target(*lvl))
              for t, lvl in _cl.TARGET_LEVELS.items()} for s, (ls, a) in schemes.items()}

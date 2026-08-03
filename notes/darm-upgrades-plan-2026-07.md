@@ -432,3 +432,27 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > follow the hierarchy (M0 low, PUM mid)" prose was WRONG under the real floor (optimum is all
 > mid-band) — corrected. New test `test_darm_o4_asd_matches_the_vendored_curve`. Possible next phase:
 > a band-constrained sizer to report the fair operational factor alongside the ceiling.
+
+> **UPDATE 2026-08-02 (actuator-range model; band-protection framing RETRACTED).** Rana: "there is
+> no reason to constrain the lines [out of the sensitive band]... the main issue is actuator range
+> and parameter estimation." Correct — cal lines live in-band routinely (the 331.9 Hz sensing line).
+> My "ceiling / keep the astrophysical band clean" caveat was WRONG and reflected a MODEL bug:
+> `fisher()` used SNR = amp·√T/floor with `amp` the DARM displacement, treating any amplitude as
+> free to obtain at any frequency — so the optimiser parked M0/PUM lines mid-band where no real
+> actuator has the range. FIX: fold **actuator authority** into the achievable amplitude. LineSet
+> now carries `authority` (per line); `_stage_authority(loop)` = |κ_i·D_i·N_i(f)|/max (real
+> reduced-quad response, rolls off steeply for upper masses), cached on the loop; Pcal authority=1
+> (ruler). SNR = amp·authority·√T/floor, so placement is governed by authority↔floor. Also: search
+> fmin 0.3→10 Hz (floor data range; kills the vestigial sub-Hz lines); made
+> `size_lines_for_response` accept optimize_freq=False and added `reference_scheme_response` so the
+> Pareto fixed-line baseline is response-optimal in ALLOCATION at fixed O3/O4 freqs (fair — isolates
+> placement). Removed the callout-warning + all band-protection prose from example 08.
+> **New (correct) numbers, real O4 floor + actuator range:** Pareto **~9× less energy vs fixed-line**
+> (3× amplitude / 9× time), ~3500× vs naive. Sizing to 0.1%: **P&S 90 s vs O3 37 min / O4 43 min
+> (~25×/29×), binding param κ_M0 for everyone** — the top mass is the hard one (authority only at low
+> f, where the O4 wall is worst). The P&S optimum now places actuator lines LOW (M0 ~10 Hz, PUM
+> ~26 Hz, TST ~42 Hz) — close to where LIGO actually puts them — vindicating "no need to constrain."
+> Advantage is modest, real, and a genuine actuator-range/CRB limit. New test
+> `test_darm_o4_asd_matches_the_vendored_curve` already covers the floor; authority path exercised by
+> the existing sizing/CRB tests (12 pass). Honest gap: Pcal free-mass (1/f²) range not yet modelled
+> (authority=1); absolute per-stage actuator ranges are issue #3 territory.

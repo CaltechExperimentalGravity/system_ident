@@ -95,14 +95,41 @@ def _sensing_C(loop: DARMLoop, freqs: np.ndarray, over: dict) -> np.ndarray:
 # ── a precomputed line set: θ-independent pieces + the log-Jacobian ──────────────────────
 @dataclass
 class LineSet:
-    """Frozen geometry of a roster: frequencies, kinds, the ``floor``, and the log-Jacobian
+    """Frozen geometry of a roster: frequencies, kinds, the ``floor``, the per-line actuator
+    ``authority`` (DARM displacement produced per unit actuator drive, normalised to each stage's
+    in-band peak — the frequency-dependent actuator range), and the log-Jacobian
     ``J[j,a] = ∂lnH_j/∂lnθ_a`` — all θ-independent (evaluated once at the loop's operating point).
-    Only per-line amplitudes and the integration time vary afterwards, so :func:`fisher` never
+    Only per-line drives and the integration time vary afterwards, so :func:`fisher` never
     re-solves the plant."""
     freqs: np.ndarray
     kinds: list[str]
     floor: np.ndarray
     J: np.ndarray          # (n_lines, n_params) complex
+    authority: np.ndarray  # (n_lines,) DARM disp per unit drive, ∈(0,1] (Pcal ruler = 1)
+
+
+#: Frequency grid over which each stage's authority peak is defined (the O4 floor's data range).
+_AUTH_GRID = (10.0, 2000.0, 400)
+
+
+def _stage_authority(loop: DARMLoop):
+    """Per-stage normalised actuation authority ``|κ_i·D_i·N_i(f)| / max_f|·|`` — the real
+    reduced-quad DARM-referred response, which rolls off steeply for the upper masses (the top mass
+    is efficient only at low frequency). Cached on the loop; the normalised shape is what caps how
+    large a DARM line a fixed actuator drive can make at a given frequency."""
+    cache = getattr(loop, "_auth_cache", None)
+    if cache is None:
+        lo, hi, npts = _AUTH_GRID
+        grid = np.geomspace(lo, hi, npts)
+        cache = {}
+        for st in STAGE_KINDS:
+            mag = np.abs(loop.stage(st, grid))
+            cache[st] = (np.log(grid), np.log(np.maximum(mag / mag.max(), 1e-300)))
+        try:
+            loop._auth_cache = cache
+        except Exception:
+            pass
+    return cache
 
 
 def build_lineset(loop: DARMLoop, lines: list[Line], step: float = 1e-6) -> LineSet:
@@ -118,21 +145,29 @@ def build_lineset(loop: DARMLoop, lines: list[Line], step: float = 1e-6) -> Line
         Cm = _sensing_C(loop, freqs, {knob: v - h})
         J[:, a] = v * (Cp - Cm) / (2.0 * h) / C0     # ∂lnC/∂lnθ (= ∂lnH/∂lnθ, since H ∝ C)
     # dlnH/dlnκ_i = 1 for a line on stage i, else 0
+    auth = np.ones(len(lines))
+    ac = _stage_authority(loop)
     for j, k in enumerate(kinds):
         if k in STAGE_KINDS:
             J[j, len(_SENSING) + STAGE_KINDS.index(k)] = 1.0
-    return LineSet(freqs, kinds, floor_asd(loop, freqs), J)
+            lg, lm = ac[k]                                    # log-log interp of the authority shape
+            auth[j] = float(np.exp(np.interp(np.log(freqs[j]), lg, lm)))
+    return LineSet(freqs, kinds, floor_asd(loop, freqs), J, auth)
 
 
 def fisher(ls: LineSet, amps: np.ndarray, T: float) -> np.ndarray:
-    """Fisher information Γ on the log-TDCF vector for line amplitudes ``amps`` (DARM-displacement,
-    m rms) over time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·√T/floor_j``.
+    """Fisher information Γ on the log-TDCF vector for per-line **actuator drives** ``amps`` over
+    time ``T``: ``Γ = Σ_j 2·SNR_j²·Re[conj(J_j)⊗J_j]``, ``SNR_j = amp_j·authority_j·√T/floor_j``.
 
-    Actuator lines enter through the ruler ``H_stage/H_pcal = κ_i·D_i·N_i`` (``∂lnH/∂lnκ_i = 1`` —
-    a frequency-independent shape), but the SNR carries ``floor(f)``, so with the **real
-    frequency-dependent** DARM floor an actuator line's κ_i precision DOES depend on its frequency
-    (a line on the low-frequency wall is penalised). Every line frequency is therefore optimised."""
-    snr2 = (np.asarray(amps, float) ** 2) * T / ls.floor ** 2
+    The line's achievable DARM amplitude is ``amp_j·authority_j``: a fixed actuator drive makes a
+    large DARM line where the stage has authority (the upper masses only at low frequency) and a
+    small one where it has rolled off. So an actuator line's κ_i precision is set by the **product**
+    of actuator range (``authority``) and the DARM floor — pushing the line up into the quiet
+    mid-band buys a better floor but costs authority (the top mass simply cannot drive there). This
+    authority↔floor trade, not any band-cleanliness rule, is what fixes each actuator line's
+    frequency. Pcal (sensing) lines are the ruler and carry ``authority = 1``."""
+    eff = np.asarray(amps, float) * ls.authority
+    snr2 = eff ** 2 * T / ls.floor ** 2
     Gamma = np.zeros((len(TDCF_PARAMS), len(TDCF_PARAMS)))
     for j in range(len(ls.kinds)):
         Gamma += 2.0 * snr2[j] * np.real(np.outer(np.conj(ls.J[j]), ls.J[j]))
@@ -163,15 +198,15 @@ def tdcf_sigma(loop: DARMLoop, lines: list[Line], T: float) -> dict[str, float]:
 
 
 # ── frequency seeding (dispersion-lite: put each line where it is most informative) ──────
-def seed_lines(loop: DARMLoop, *, fmin: float = 0.3, fmax: float = 1500.0,
+def seed_lines(loop: DARMLoop, *, fmin: float = 10.0, fmax: float = 1500.0,
                n_grid: int = 300) -> list[Line]:
-    """A dispersion-seeded roster: one actuator line per stage placed in that stage's **authority
+    """A dispersion-seeded roster: one actuator line per stage seeded in that stage's **authority
     band** — where it dominates the hierarchical drive (``|A_i|/Σ|A|``: M0 low, PUM mid, TST high,
     naturally distinct for demodulation) — and one Pcal line per sensing parameter where that
-    parameter is most informative (``|∂lnC/∂lnθ|/floor``). Seven lines for seven TDCFs; the Pcal
-    frequencies are refined and all amplitudes set by :func:`size_lines_for_target` (the actuator
-    frequencies are fixed by the hierarchy — the ruler makes κ_i frequency-agnostic, see
-    :func:`fisher`)."""
+    parameter is most informative (``|∂lnC/∂lnθ|/floor``). Seven lines for seven TDCFs; all
+    frequencies are then refined and amplitudes set by :func:`size_lines_for_target`. The actuator
+    frequency matters (it trades authority against the DARM floor — see :func:`fisher`), so the
+    optimiser refines it too."""
     grid = np.geomspace(fmin, fmax, n_grid)
     fl = floor_asd(loop, grid)
     mags = np.array([np.abs(loop.stage(st, grid)) for st in STAGE_KINDS])
@@ -201,18 +236,18 @@ def _allocate(ls: LineSet, logw: np.ndarray, A_tot: float) -> np.ndarray:
 def size_lines_for_target(loop: DARMLoop, *, A_tot: float = 1.0e-3, target: float = 1e-3,
                           T_max: float = 300.0, T_ref: float = 60.0,
                           lines: list[Line] | None = None, optimize_freq: bool = True,
-                          fmin: float = 0.3, fmax: float = 1500.0, seed: int = 0) -> dict:
+                          fmin: float = 10.0, fmax: float = 1500.0, seed: int = 0) -> dict:
     """Place + size cal lines so EVERY TDCF reaches ``target`` (0.1%) fractional 1σ, and report
     whether that is met within ``T_max`` (5 min) at total drive ``A_tot``.
 
     Minimises the **worst-parameter** fractional σ (c-optimal: all params must hit the target, so
-    the binding one governs) at fixed total drive ``‖amp‖₂ = A_tot`` over the per-line amplitudes
-    and — when ``optimize_freq`` — the **Pcal** (sensing) line frequencies, via differential
-    evolution. The three **actuator** frequencies stay at their hierarchy bands from
-    :func:`seed_lines` (the ruler makes κ_i frequency-agnostic — see :func:`fisher`). The Fisher
-    needs only the analytic ``C``/floor, so this is cheap. Because the CRB scales as ``1/T``, per-
-    parameter time to
-    reach ``target`` is ``T_req,θ = T_ref·(σ_θ(T_ref)/target)²``; the binding requirement is
+    the binding one governs) at fixed total drive ``‖amp‖₂ = A_tot`` over the per-line drives and —
+    when ``optimize_freq`` — **all** line frequencies (sensing and actuator), via differential
+    evolution. Actuator frequency matters: :func:`fisher` weights each actuator line by its stage
+    **authority**, so the optimiser trades actuator range (authority, best at low frequency for the
+    upper masses) against the DARM floor (best mid-band). The Fisher needs only the analytic
+    ``C``/floor/authority, so this is cheap. Because the CRB scales as ``1/T``, per-parameter time
+    to reach ``target`` is ``T_req,θ = T_ref·(σ_θ(T_ref)/target)²``; the binding requirement is
     ``max_θ T_req``.
 
     Returns a dict: ``lines`` (sized), ``sigma`` (per-TDCF at ``T_ref``), ``t_req`` (per-TDCF, s),
@@ -376,13 +411,15 @@ def pareto_cost(loop: DARMLoop, ls: LineSet, amps: np.ndarray, rho_target: float
 
 
 def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float = 60.0,
-                            fmin: float = 0.3, fmax: float = 1500.0, seed: int = 0,
-                            lines: list[Line] | None = None) -> dict:
-    """**Response-optimal** design: place the Pcal line frequencies + split the drive to MINIMISE the
+                            fmin: float = 10.0, fmax: float = 1500.0, seed: int = 0,
+                            lines: list[Line] | None = None, optimize_freq: bool = True) -> dict:
+    """**Response-optimal** design: place the line frequencies + split the drive to MINIMISE the
     band-max response error ρ (the quantity the O3/O4 budget is quoted in), rather than the worst
     single parameter. This is the scheme for the gentle/fast study — it reaches a target ``δR/R``
-    with the least injected energy ``A²·T``. Actuator frequencies stay in their hierarchy bands
-    (:func:`seed_lines`). Returns ``dict(lines, lineset, rho, cost(rho_target))``."""
+    with the least injected energy ``A²·T``. All frequencies are optimised (each actuator line
+    weighted by its stage authority, :func:`fisher`); with ``optimize_freq=False`` the frequencies
+    are held at ``lines`` and only the drive **allocation** is optimised — the fair response-optimal
+    baseline for a fixed (e.g. O3/O4) line placement. Returns ``dict(lines, lineset, rho, cost)``."""
     if lines is None:
         lines = seed_lines(loop)
     kinds = [ln.kind for ln in lines]
@@ -395,7 +432,10 @@ def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float 
     J_R = response_log_jacobian(loop, np.geomspace(20.0, 2000.0, 200))   # precompute once
 
     def freqs_of(x):
-        f = f_seed.copy(); f[pcal] = 10.0 ** np.clip(x[n:], lf_lo, lf_hi); return f
+        f = f_seed.copy()
+        if optimize_freq:
+            f[pcal] = 10.0 ** np.clip(x[n:], lf_lo, lf_hi)
+        return f
 
     def obj(x):
         freqs = freqs_of(x)
@@ -406,13 +446,19 @@ def size_lines_for_response(loop: DARMLoop, *, A_tot: float = 1.0, T_ref: float 
             return 1e30                                    # pathological config → penalise
         if not np.isfinite(rho):
             return 1e30
-        lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
-        return rho * (1.0 + 50.0 * max(0.0, min_sep - d.min()) / min_sep)
+        if optimize_freq:
+            lf = np.log10(freqs); d = np.abs(lf[:, None] - lf[None, :]); d[np.diag_indices(n)] = np.inf
+            rho *= 1.0 + 50.0 * max(0.0, min_sep - d.min()) / min_sep
+        return rho
 
-    x0 = np.concatenate([np.zeros(n), np.log10(f_seed[pcal])])
-    bounds = [(-6, 6)] * n + [(lf_lo, lf_hi)] * len(pcal)
-    x = differential_evolution(obj, bounds, seed=seed, maxiter=200, tol=1e-9, polish=True,
-                               init="sobol", x0=x0).x
+    if optimize_freq:
+        x0 = np.concatenate([np.zeros(n), np.log10(f_seed[pcal])])
+        bounds = [(-6, 6)] * n + [(lf_lo, lf_hi)] * len(pcal)
+        x = differential_evolution(obj, bounds, seed=seed, maxiter=200, tol=1e-9, polish=True,
+                                   init="sobol", x0=x0).x
+    else:
+        x = differential_evolution(obj, [(-6, 6)] * n, seed=seed, maxiter=200, tol=1e-9,
+                                   polish=True, init="sobol").x
     freqs = freqs_of(x)
     order = sorted(range(n), key=lambda i: freqs[i])
     sized = [Line(float(freqs[i]), kinds[i], 0.0, targets[i]) for i in order]
@@ -447,3 +493,15 @@ def reference_scheme(loop: DARMLoop, positions, *, A_tot: float = 1.0e-3, T_ref:
     # fixed frequencies (the real LIGO positions) — only the amplitude allocation is optimised
     return size_lines_for_target(loop, A_tot=A_tot, target=target, T_ref=T_ref, lines=lines,
                                  optimize_freq=False)
+
+
+def reference_scheme_response(loop: DARMLoop, positions, *, A_tot: float = 1.0,
+                              T_ref: float = 60.0, seed: int = 0) -> dict:
+    """Response-optimal baseline at **fixed** line ``positions`` (O3/O4): the frequencies are held at
+    the real LIGO values and only the drive **allocation** is optimised to minimise the band-max
+    response error — the fair fixed-placement comparison for the response Pareto (same objective as
+    :func:`size_lines_for_response`, only the placement differs). Same return as that function."""
+    lines = [Line(f, kind, target=tgt) for f, kind, tgt in positions
+             if kind in ("PCAL",) + STAGE_KINDS]
+    return size_lines_for_response(loop, A_tot=A_tot, T_ref=T_ref, lines=lines,
+                                   optimize_freq=False, seed=seed)
