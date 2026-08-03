@@ -27,9 +27,25 @@ H  environment + py3.9 compat   (independent; after)
 I  documentation                (rolling)
 ```
 
+## Issue index
+
+| Stage | Issues |
+|---|---|
+| A — fake transport harness | #5 |
+| B — loop/estimator hardening | #6 `P_eff<2` weight · #7 energy-span slice · #8 blind `H_err` · #9 ramp contract · #10 `resample_poly` |
+| C — transport seam | #11 `AWGNDSTransport` · #12 `TwinTransport` |
+| D — `CDSBackend` | #13 construction · #14 `read()` invariants · #15 read cache · #16 lifecycle |
+| E — safety | #17 approval gate · **#4** amplitude limits *(pre-existing)* · #18 `Pyy` + `--skip-background` · #19 mandatory STOP |
+| F — wiring | #20 |
+| G — tests + **exit gate** | #21 |
+| H — environment (independent) | #22 deployment env · #23 py3.9 compat + CI leg |
+| I — documentation | #24 |
+| — convention question | #25 trunk-based rule under parallel development |
+| **Component 2 (deferred)** | #26 site profile · #27 operator gate + hardware-only unknowns · #28 Guardian + full snapshot/restore · #29 Foton export + provenance |
+
 ---
 
-## Stage A — fake-transport harness  · issue #1
+## Stage A — fake-transport harness  · issue #5
 
 `tests/_fake_cds.py`. `sys.modules` stubs for `awg` / `cdsutils` / `gpstime` — none are installed on
 the dev machine, so every CDS test must fake them. Model on `tests/test_rtsfreerun_backend.py:35`
@@ -49,25 +65,25 @@ beyond a self-test that the fake plant's `freqz` matches the FRF the loop recove
 
 ---
 
-## Stage B — loop/estimator hardening  · issues #2–#6
+## Stage B — loop/estimator hardening  · issues #6–#10
 
 `system_ident` bugs, independent of the port. The port's correctness rests on them, so they land first.
 Each is spec §3.x; the measured signature is the acceptance test.
 
 | Task | Site | Change | Acceptance |
 |---|---|---|---|
-| **B1** #2 | `loop.py:444`, `:460` | `P_eff < 2` → `H_err = inf` (zero weight in `_accumulate`) or raise. Never `0`. Add a config check that `n_segments ≥ n_transient + 3` (`loop.py:376` needs the headroom). | weight at `P_eff==1` goes 4.56e+19 → 0 |
-| **B2** #3 | `loop.py:419-423` | Take the longest genuinely **contiguous** run of full-energy periods, not the span; or drop the heuristic and raise when the per-period energy spread exceeds tolerance. | energies `[1,1,1,1,.571,.492,1,1]` no longer yield the slice `0:8` |
-| **B3** #4 | `loop.py:438-464` | Independent misalignment check that does **not** use period-to-period scatter: compare measured `Xbar` phase against the known injected multisine phase; require the residual to be at most a small fraction of a sample of pure delay. Backends expose the injected waveform so `read()` can assert before returning. | the 2.00e+0 stashed-X case is flagged, not reported as coherence 1.00000 |
-| **B4** #5 | `base.py:19-24`, `:45-47` | Rewrite the ramp contract: a backend MUST apply a `ramp_s` on/off envelope **either** via `_soft_start_stop` on a one-shot lead+record+tail array **or** via an equal-duration transport-level gain ramp — never both, and it must document which. | contract text permits `CDSBackend`; a test asserts the CDS drive is an untapered integer-period tiling with `ramptime == ramp_s` |
-| **B5** #6 | `rtsfreerun_adapter.py:153-155`, `:183`, `:296-301` | Replace `resample_poly` on the tiled array with `sig.resample` on **one period**, then tile. Better where possible: regenerate the multisine at the model rate (exactly periodic). | per-period deviation 5.32e-1 → <1e-9 at the shipped 256/16384 ratio; median `H_err/\|H\|` returns to 1e-9 |
+| **B1** #6 | `loop.py:444`, `:460` | `P_eff < 2` → `H_err = inf` (zero weight in `_accumulate`) or raise. Never `0`. Add a config check that `n_segments ≥ n_transient + 3` (`loop.py:376` needs the headroom). | weight at `P_eff==1` goes 4.56e+19 → 0 |
+| **B2** #7 | `loop.py:419-423` | Take the longest genuinely **contiguous** run of full-energy periods, not the span; or drop the heuristic and raise when the per-period energy spread exceeds tolerance. | energies `[1,1,1,1,.571,.492,1,1]` no longer yield the slice `0:8` |
+| **B3** #8 | `loop.py:438-464` | Independent misalignment check that does **not** use period-to-period scatter: compare measured `Xbar` phase against the known injected multisine phase; require the residual to be at most a small fraction of a sample of pure delay. Backends expose the injected waveform so `read()` can assert before returning. | the 2.00e+0 stashed-X case is flagged, not reported as coherence 1.00000 |
+| **B4** #9 | `base.py:19-24`, `:45-47` | Rewrite the ramp contract: a backend MUST apply a `ramp_s` on/off envelope **either** via `_soft_start_stop` on a one-shot lead+record+tail array **or** via an equal-duration transport-level gain ramp — never both, and it must document which. | contract text permits `CDSBackend`; a test asserts the CDS drive is an untapered integer-period tiling with `ramptime == ramp_s` |
+| **B5** #10 | `rtsfreerun_adapter.py:153-155`, `:183`, `:296-301` | Replace `resample_poly` on the tiled array with `sig.resample` on **one period**, then tile. Better where possible: regenerate the multisine at the model rate (exactly periodic). | per-period deviation 5.32e-1 → <1e-9 at the shipped 256/16384 ratio; median `H_err/\|H\|` returns to 1e-9 |
 
 **Verification:** new cases in `tests/test_periodic_measurement.py` reproducing each measured
 signature, plus the existing suite unchanged.
 
 ---
 
-## Stage C — the transport seam  · issues #7, #8
+## Stage C — the transport seam  · issues #11, #12
 
 New `src/system_ident/backends/cds_transport.py`. Protocol per spec §4.1, with `AWGNDSTransport` and
 `TwinTransport`.
@@ -97,11 +113,11 @@ Stage A fakes.
 
 ---
 
-## Stage D — `CDSBackend`  · issues #9–#12
+## Stage D — `CDSBackend`  · issues #13–#16
 
 Fill `src/system_ident/backends/cds.py`. Spec §4.2 is the specification; the four issues split it:
 
-**#9 — construction and staging.**
+**#13 — construction and staging.**
 `from_config(config)` is the constructor of record. It must expose `exc_channels` /
 `readback_channels` as `{channel: dof}` — without them `Watchdog` silently never raises and
 `ramp_down` is never called (spec §3.1). It probes the rate once and raises `ConfigError` unless
@@ -110,19 +126,19 @@ Fill `src/system_ident/backends/cds.py`. Spec §4.2 is the specification; the fo
 with `sig.resample` and tiles; overrides `_soft_start_stop` to a pass-through; constructs but does not
 start the `ArbitraryLoop`.
 
-**#10 — the `read()` invariants.**
+**#14 — the `read()` invariants.**
 Never synthesise X — real readback samples from the same buffer as Y, and **raise** on a channel
 missing from the result. No rolling, trimming or GPS alignment. Nothing staged → the quiet read.
 Assert integer-second duration, exact returned length, and an integer multiple of `nperseg_hw`.
 
-**#11 — read cache.**
+**#15 — read cache.**
 Keyed on `(injection generation, duration)`; fetch the union of the campaign's channels once per
 window and serve per-DoF subsets. Transparent to `SysIDLoop`. This is what makes simultaneous mode
 actually N× faster (≈7.0 h → ≈2.5 h at physics-sized resolution) and collapses the three serial quiet
 reads at `loop.py:144-146`. Settle once — `ramp_s` plus a margin, `n_transient ≥ 1` retained inside the
 record, no `settle_duration` knob.
 
-**#12 — lifecycle.**
+**#16 — lifecycle.**
 `ramp_down` idempotent. `try/finally` around start→settle→fetch calling an idempotent `_stop_all`.
 `atexit` **and** a `SIGINT`/`SIGTERM` handler. `snapshot_state`/`restore_state` implemented honestly —
 live-excitation state only, with the docstring stating that filter-module/gain/offset state is **not**
@@ -132,25 +148,31 @@ captured (Component 2). Add `KeyboardInterrupt` to `loop.py:181`.
 
 ---
 
-## Stage E — safety enforcement  · issues #13–#16
+## Stage E — safety enforcement  · issues #17–#19, plus the pre-existing #4
 
-**#13 — per-injection approval.** The single-use token of spec §5, inside `inject()`. Injectable
+**#17 — per-injection approval.** The single-use token of spec §5, inside `inject()`. Injectable
 `authorizer=`; defaults to deny on `EOFError` / non-TTY. Fix `cli.py:89` →
 `_confirm(twin=args.twin or args.rtsfreerun)`, unblocking the dead `"HARDWARE"` label at `cli.py:129`.
 Reject `--yes` at argparse level (exit 2) when neither `--twin` nor `--rtsfreerun` is given — a
 campaign-wide skip cannot express per-injection approval.
 
-**#14 — amplitude limits.** `safety.max_exc_peak` / `max_exc_rms` in the schema (`config.py:42`),
+**#4 — amplitude limits.** Folds into the pre-existing issue, which was opened independently and
+reached the same diagnosis ("a preventative measure rather than the current features which seem to only
+check after the signal has been injected"). Two further ideas from it are **not yet designed** and need
+their own decision: a small (0.1–1%) test excitation as a pre-flight check, and specifying drive power
+**relative to the measured background** rather than in absolute counts — the latter is what the sibling
+project does (`power_mult` × measured background RMS) and it interacts with #18.
+`safety.max_exc_peak` / `max_exc_rms` in the schema (`config.py:42`),
 enforced in `inject()` on the exact samples handed to `ArbitraryLoop`. Scale to preserve the spectrum
 and report the factor, but **raise `SafetyAbort` on a large required scale-down**. Print the actual RMS
 and peak before injecting. Implemented as an opt-in, default-off
 `ChannelBackend._check_drive_limits(ts)` so twin behaviour is bit-identical.
 
-**#15 — `Pyy` fail-fast and `--skip-background`.** Check finite, positive, above a floor before the
+**#18 — `Pyy` fail-fast and `--skip-background`.** Check finite, positive, above a floor before the
 first injection; add `--skip-background` and a `measurement.Pyy_from_file` path (≈1.7 h of hardware
 time otherwise spent before anything is injected).
 
-**#16 — mandatory out-of-band STOP.** Require *a* stop path on the CDS backend: the dashboard, or the
+**#19 — mandatory out-of-band STOP.** Require *a* stop path on the CDS backend: the dashboard, or the
 SIGINT handler documented and printed prominently at startup. Do **not** force `--no-dashboard` —
 `cli.py:108-113` already degrades gracefully and the extra is pip-installable under py3.9.
 
@@ -162,7 +184,7 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
 
 ---
 
-## Stage F — wiring  · issue #17
+## Stage F — wiring  · issue #20
 
 - `cli.py` — add `--cds`; remove the hard refusal at `:62-68`.
 - `config.py` — `build_cds_backend(...)` beside `build_twin_backend` (`:144`) /
@@ -179,7 +201,7 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
 
 ---
 
-## Stage G — tests and the exit gate  · issue #18
+## Stage G — tests and the exit gate  · issue #21
 
 Follow the repo's own idioms: `MockRTSModel` for fakes,
 `@pytest.mark.skipif(importlib.util.find_spec(...) is None, ...)`
@@ -201,12 +223,12 @@ Follow the repo's own idioms: `MockRTSModel` for fakes,
 
 ---
 
-## Stage H — environment and py3.9 compatibility  · issues #19, #20
+## Stage H — environment and py3.9 compatibility  · issues #22, #23
 
 Independent of A–G, and deliberately after them: spec §8 shows the CDS-relevant test subset already
 passes on the deployment baseline, so this is not on the critical path.
 
-**#19 — the environment, probe-first.** On the deployment machine, dry-run solve a modern environment
+**#22 — the environment, probe-first.** On the deployment machine, dry-run solve a modern environment
 *together with* the CDS packages at python 3.12, then 3.11, then 3.10, and record the result in
 `notes/cds-hardware-bringup-2026-08.md`. **Expected unsolvable** — the CDS 3.1.2 control packages are
 py3.9-only builds there, which is why the sibling repo had to pin `python=3.9` and drop the `anaconda`
@@ -219,7 +241,7 @@ environment either way. Separately: unattended `git pull` on the deployment mach
 read-only deploy key for **this** repo and forge — the sibling repo's key is registered elsewhere.
 Concrete host/account/path values stay in the untracked local access note, never in this repo.
 
-**#20 — the compat fixes.** Per spec §8: one three-line `_frd(sys, w)` helper for
+**#23 — the compat fixes.** Per spec §8: one three-line `_frd(sys, w)` helper for
 `frdata`/`fresp`; `control.tf2ss(x)` → `control.ss(x)` at six sites; `np.trapezoid` →
 `scipy.integrate.trapezoid` at five test/docs/experiment sites; fix the order-dependent circular
 import at `backends/darm_adapter.py:14` ← `darm.py:506`. **No general `_compat.py`, and do not raise
@@ -229,7 +251,7 @@ until it fails on deployment.
 
 ---
 
-## Stage I — documentation  · issue #21
+## Stage I — documentation  · issue #24
 
 Rolling, but these land with their code:
 

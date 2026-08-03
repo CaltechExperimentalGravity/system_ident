@@ -9,7 +9,7 @@ this note plus the spec and plan are the durable record. Same reason
 - **Plan (how, staged):** `docs/superpowers/plans/2026-08-03-cds-hardware-backend.md`
 - **Branch:** `feat/cds-hardware-backend`, tagged `cds-backend/00-branch-point` (unchanged from
   `main` @ `f13c293`) and `cds-backend/01-plan` (this documentation commit).
-- **Tracking:** GitHub issues #1–#25 on this repo, `[deferred]`-prefixed for Component 2.
+- **Tracking:** GitHub issues #5–#29 on this repo (plus #4), `[deferred]`-prefixed for Component 2.
 
 ## What this campaign is
 
@@ -36,7 +36,7 @@ injection.
   the work from Stage 2 (`gen_x1sos6dof.py` — unwritten, lives in the `digital_twin` repo).
 - **One long-lived branch**, merged when the exit gate passes. `CLAUDE.md:42`'s trunk-based rule is not
   rewritten; a dated note flags that it may need revisiting for parallel multi-developer AI work
-  (issue #22).
+  (issue #25).
 - **`CLAUDE.md:47-49`'s Phase-1 hardware gate is lifted for transport work** as of 2026-08-03. Live
   injection remains human-gated, per the new hardware-safety rules. Recorded rather than deleted so a
   future reader does not revert the port on sight.
@@ -147,7 +147,7 @@ Two environment traps carried over from the sibling repo's first hardware run, n
 ## Open questions
 
 1. Does `CLAUDE.md:42`'s trunk-based rule still hold for parallel development — several people, each
-   with their own agents? (issue #22)
+   with their own agents? (issue #25)
 2. Simultaneous-mode start semantics cannot be settled off-hardware: `inj.start(ramptime>0,
    wait=False)` blocks until `start_gps`, so three loops started in a Python `for` loop with a common
    `start_gps` leave loops 2 and 3 starting late. Each individual FRF is still unbiased (X is a
