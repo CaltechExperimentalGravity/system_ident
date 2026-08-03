@@ -104,34 +104,10 @@ def drift_profile(t, base: float, *, amp_frac: float = 0.05,
     raise ValueError(f"unknown drift kind {kind!r}")
 
 
-# Representative Advanced-LIGO DARM strain sensitivity [1/√Hz] — the design-era amplitude spectral
-# density, tabulated at a handful of points and log-log interpolated. The characteristic bucket:
-# seismic/suspension wall below ~20 Hz, quantum-radiation-pressure + thermal mid-band minimum near
-# ~4e-24 around 200 Hz, shot noise rising above the ~400 Hz cavity pole. Multiply by the 4 km arm
-# length for displacement. Representative of the real detector (not a specific instrument state) —
-# the shape and scale are physical, replacing the earlier placeholder floor. Cf. LIGO-T1800044 /
-# the published O3/O4 sensitivity curves.
+# aLIGO arm cavity length [m] — multiplies strain ASD to give DARM displacement.
 _ALIGO_ARM_LENGTH_M = _prov.record(
     "aligo_arm_length_m", 4000.0, _prov.PAPER,
     "aLIGO arm cavity length ≈ 4 km (rounded)", unit="m")
-_ALIGO_STRAIN_F = np.array([10., 15., 20., 30., 50., 70., 100., 150., 200., 300.,
-                            500., 700., 1000., 2000., 5000.])
-_ALIGO_STRAIN_ASD = np.array([1.0e-21, 1.5e-22, 4.0e-23, 1.3e-23, 7.0e-24, 5.5e-24, 4.5e-24,
-                              4.0e-24, 3.8e-24, 4.0e-24, 5.0e-24, 7.0e-24, 1.1e-23, 2.5e-23,
-                              7.0e-23])
-
-
-def darm_design_asd(freq) -> np.ndarray:
-    """Representative Advanced-LIGO DARM **displacement** noise ASD [m/√Hz] = strain × 4 km arm.
-
-    Log-log interpolation of the tabulated design-era strain sensitivity (clamped to the table ends
-    outside 10–5000 Hz). Best ≈ 1.5e-20 m/√Hz mid-band. This is the optimistic *design* curve; for
-    the twin's actual floor use :func:`darm_o4_asd` (the measured/representative O4 sensitivity,
-    which has a markedly steeper seismic wall below ~20 Hz)."""
-    f = np.asarray(freq, dtype=float)
-    lf = np.log(np.clip(f, _ALIGO_STRAIN_F[0], _ALIGO_STRAIN_F[-1]))
-    strain = np.exp(np.interp(lf, np.log(_ALIGO_STRAIN_F), np.log(_ALIGO_STRAIN_ASD)))
-    return _ALIGO_ARM_LENGTH_M * strain
 
 
 # Representative Advanced-LIGO **O4** strain sensitivity, vendored verbatim from LIGO-T2000012-v2
@@ -234,7 +210,7 @@ class DARMLoop:
     # disturbance / sensing noise ASDs (set on the twin used for simulation)
     disturbance_asd: float = 0.0   # process (length) disturbance, [m/√Hz] referred to x_free
     sensor_asd: float = 0.0        # readout noise on d_err, [ct/√Hz]
-    # Real DARM displacement-noise floor [m/√Hz] as a callable freq→ASD (e.g. `darm_design_asd`).
+    # Real DARM displacement-noise floor [m/√Hz] as a callable freq→ASD (e.g. `darm_o4_asd`).
     # When set it REPLACES the two representative scalars above: it is the calibrated DARM
     # displacement noise the cal lines are measured against (see `displacement_noise_asd`).
     noise_asd: object = None
@@ -392,7 +368,7 @@ class DARMLoop:
 
     def displacement_noise_asd(self, freq) -> np.ndarray:
         """The calibrated DARM **displacement** noise floor [m/√Hz] the cal lines are measured
-        against. If ``noise_asd`` is set (e.g. :func:`darm_design_asd`) it is that real curve;
+        against. If ``noise_asd`` is set (e.g. :func:`darm_o4_asd`) it is that real curve;
         otherwise the legacy two-scalar model ``√(disturbance² + (readout/|C|)²)``."""
         if self.noise_asd is not None:
             return np.asarray(self.noise_asd(freq), dtype=float)
