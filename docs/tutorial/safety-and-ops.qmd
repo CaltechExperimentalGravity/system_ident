@@ -2,6 +2,41 @@
 title: "Safety & operations"
 ---
 
+## Human authorization comes first
+
+Everything else on this page is about *physical* safety — what the software watches and what it does
+when a limit is approached. None of it grants permission to actuate anything. Before any of it applies:
+
+::: {.callout-important}
+## Only humans authorize the hardware
+
+**Only humans** may configure real interferometer hardware or approve running a test on it. Automated
+tooling — including AI agents driving this codebase — must never configure real hardware, and must
+never self-authorize or assume approval for a hardware test. Working on real hardware requires close
+coordination with a human operator.
+
+**Every injection needs its own approval.** *Each individual instance* where a signal is injected into
+real hardware must be **separately approved** by an operator. **One approval never carries over** to
+the next injection — it is asked again, every time.
+:::
+
+Two consequences for how the software behaves:
+
+- **`--yes` cannot satisfy this.** It is a campaign-wide skip, and a campaign-wide "yes" is by
+  definition a carry-over approval. It is therefore rejected on the hardware path; it applies only to
+  twin and `rtsfreerun` runs.
+- **The gate is per-injection, not per-run.** Approval is requested at the moment a drive is staged for
+  a specific channel, and it is consumed when that drive starts. Re-reading data from an
+  already-running injection does not ask again — nothing new is being actuated — but staging a new
+  drive does.
+
+Simulation, twin runs, `--help`, imports and smoke tests need no approval: they cannot actuate
+anything.
+
+Finally: a green test suite on the digital twin is **not** hardware validation. The twin idealises real
+CDS effects (AWG/NDS clocking, actuator nonlinearity beyond a hard clip, the true digital servo), and
+those gaps close only by running on a real suspension, under the rules above.
+
 ## Hardware safety design principles
 
 On a real interferometer, *only physical limits trigger an abort*.
