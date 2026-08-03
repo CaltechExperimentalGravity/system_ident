@@ -44,7 +44,7 @@ system_ident = "system_ident.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-system_ident = ["py.typed", "configs/*.yml", "models/*.npz", "models/*.json"]
+system_ident = ["py.typed", "configs/*.yml", "models/*.npz", "models/*.json", "data/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

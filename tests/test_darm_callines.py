@@ -74,3 +74,23 @@ def test_distribution_filters_create_a_measurable_crossover():
     assert len(sign_changes) >= 1, "PUM and TST actuation should cross with the distribution set"
     f_x = f[sign_changes[0]]
     assert 30.0 < f_x < 160.0, f"PUM/TST crossover at {f_x:.1f} Hz outside expected range"
+
+
+def test_darm_o4_asd_matches_the_vendored_curve():
+    """The O4 displacement floor is the vendored aligo_O4high strain × 4 km, log-log interpolated:
+    it must reproduce the tabulated points and show the O4 shape (best ~1.2e-20 m/√Hz mid-band, a
+    steep seismic wall below ~20 Hz, shot noise rising above ~1 kHz)."""
+    from system_ident.darm import darm_o4_asd, _o4_strain_table, _ALIGO_ARM_LENGTH_M
+
+    tf, ts = _o4_strain_table()
+    # On the tabulated grid the interpolation is exact (× arm length).
+    got = darm_o4_asd(tf)
+    assert np.allclose(got, _ALIGO_ARM_LENGTH_M * ts, rtol=1e-12)
+
+    best = darm_o4_asd(np.geomspace(50.0, 500.0, 200)).min()
+    assert 8e-21 < best < 2e-20, f"mid-band best {best:.2e} off the ~1.2e-20 m/√Hz O4 bucket"
+    # Steep seismic wall: 10 Hz is far noisier than the mid-band minimum.
+    assert darm_o4_asd(10.0) > 100 * best
+    # Shot noise climbs above ~1 kHz, and out-of-table frequencies clamp (finite, no blow-up).
+    assert darm_o4_asd(3000.0) > darm_o4_asd(300.0)
+    assert np.isfinite(darm_o4_asd(1.0)) and np.isfinite(darm_o4_asd(9000.0))

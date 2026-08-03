@@ -410,3 +410,25 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > effect + a stage-set caveat, M0/PUM/ESD twin vs UIM/PUM/TST papers) — stated honestly in ex-08.
 > Prose in example 08 updated throughout (abstract, sizing, head-to-head, Pareto) to these numbers.
 > 7 fisher tests pass.
+
+> **UPDATE 2026-08-02 (real O4 noise floor, replacing the hand-typed design curve).** Rana asked
+> for a real O4 floor. Vendored `aligo_O4high.txt` verbatim from LIGO-T2000012-v2 (the ~190 Mpc
+> "O4 high" representative sensitivity, 2736 pts, 10–5000 Hz) at `src/system_ident/data/`; added
+> `darm.darm_o4_asd(freq)` = strain × 4 km, log-log interp, lru-cached loader (`_o4_strain_table`).
+> Repointed default_cal_loop + both demos' `_twin` to it; kept `darm_design_asd` (the optimistic
+> design curve) for reference. package-data glob `data/*.txt` added to pyproject.
+> Real O4 floor: best ≈1.2e-20 m/√Hz near 330 Hz, but a STEEP seismic wall below ~20 Hz
+> (2.67e-17 at 10 Hz, ~1e-18 at 15–17 Hz) — much steeper than the design curve there.
+> **Effect (supersedes the ~18× design-floor numbers):** because O3/O4 place their upper-stage
+> actuator lines at ~15–17 Hz — right in the O4 wall — pinning κ_M0/κ_PUM there is slow; the
+> unconstrained optimiser moves ALL lines (sensing AND actuator) into the ~110–340 Hz sensitive
+> bucket. Pareto: **~400× less energy vs fixed-line** (20× amplitude / 400× time), ~10⁶× vs naive.
+> Sizing to 0.1%: **P&S 90 s (δ binds) vs O3 5.3 h / O4 15 h (κ_PUM binds, 213×/588×)**.
+> **HONESTY (Rana chose "unconstrained + caveat"):** the ~110–340 Hz bucket is exactly where
+> operational cal avoids strong lines (protect the astrophysical band), so the 400×/200–590× is a
+> pure-CRB CEILING, not an operational speed-up; a band-protecting constraint would give a smaller,
+> fairer factor. Example 08 rewritten throughout with this framing + a callout-warning explaining
+> the ceiling; the response Pareto is the robust, constraint-free thesis. My earlier "actuator lines
+> follow the hierarchy (M0 low, PUM mid)" prose was WRONG under the real floor (optimum is all
+> mid-band) — corrected. New test `test_darm_o4_asd_matches_the_vendored_curve`. Possible next phase:
+> a band-constrained sizer to report the fair operational factor alongside the ceiling.

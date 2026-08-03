@@ -23,7 +23,7 @@ if str(_DOCS) not in sys.path:
 
 import sysid_plots as sp  # noqa: E402
 from system_ident import darm_tv as tv  # noqa: E402
-from system_ident.darm import DARMLoop, darm_design_asd, drift_profile  # noqa: E402
+from system_ident.darm import DARMLoop, darm_o4_asd, drift_profile  # noqa: E402
 
 # The ESD (TST) stage is the physically drift-prone one (charge on the reaction mass),
 # so it is the natural κ target; its weaker strength also makes the CRB *visible*.
@@ -53,10 +53,10 @@ DELTA_AMP = 0.05       # 5 % drift on δ
 def _twin():
     """The **new** DARM plant: the M0-damped reduced-QUAD hierarchical actuation (M0/PUM/ESD) with
     the coupled detuned-cavity sensing (SRC detuning splits the cavity pole). ``fmin=10 Hz`` keeps
-    the snapshot band in the smooth region above the quad-mode forest. Real Advanced-LIGO DARM
+    the snapshot band in the smooth region above the quad-mode forest. Real Advanced-LIGO O4 DARM
     displacement-noise floor (same as example 08)."""
     loop = DARMLoop.default_reduced(fmin=10.0, hierarchical=True)
-    loop.noise_asd = darm_design_asd   # real Advanced-LIGO DARM displacement-noise floor
+    loop.noise_asd = darm_o4_asd   # real Advanced-LIGO O4 DARM displacement-noise floor
     return loop
 
 

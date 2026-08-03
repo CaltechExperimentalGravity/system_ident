@@ -13,7 +13,9 @@ pendulum-stage actuators, and a UGF≈50 Hz open-loop gain shaped for stability.
 """
 from __future__ import annotations
 
+import pathlib as _pathlib
 from dataclasses import dataclass, field, replace
+from functools import lru_cache as _lru_cache
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -120,12 +122,41 @@ def darm_design_asd(freq) -> np.ndarray:
     """Representative Advanced-LIGO DARM **displacement** noise ASD [m/√Hz] = strain × 4 km arm.
 
     Log-log interpolation of the tabulated design-era strain sensitivity (clamped to the table ends
-    outside 10–5000 Hz). Use as ``DARMLoop.noise_asd`` to give the twin a physical DARM noise floor
-    (best ≈ 1.5e-20 m/√Hz mid-band, rising to ~1e-19 at the band edges) in place of the
-    representative scalars."""
+    outside 10–5000 Hz). Best ≈ 1.5e-20 m/√Hz mid-band. This is the optimistic *design* curve; for
+    the twin's actual floor use :func:`darm_o4_asd` (the measured/representative O4 sensitivity,
+    which has a markedly steeper seismic wall below ~20 Hz)."""
     f = np.asarray(freq, dtype=float)
     lf = np.log(np.clip(f, _ALIGO_STRAIN_F[0], _ALIGO_STRAIN_F[-1]))
     strain = np.exp(np.interp(lf, np.log(_ALIGO_STRAIN_F), np.log(_ALIGO_STRAIN_ASD)))
+    return _ALIGO_ARM_LENGTH_M * strain
+
+
+# Representative Advanced-LIGO **O4** strain sensitivity, vendored verbatim from LIGO-T2000012-v2
+# (``aligo_O4high.txt`` — the "O4 high", ~190 Mpc BNS-range projection used for the Observing
+# Scenarios paper). 2736 points, ~10–5000 Hz, columns [freq Hz, strain ASD 1/√Hz]. This is the real
+# O4 noise model, not a hand-drawn curve: best ≈ 3.0e-24 /√Hz near 330 Hz, a steep seismic wall
+# below ~20 Hz, shot noise rising above ~1 kHz. Multiply by the 4 km arm for displacement.
+_O4_STRAIN_FILE = _pathlib.Path(__file__).resolve().parent / "data" / "aligo_O4high.txt"
+
+
+@_lru_cache(maxsize=1)
+def _o4_strain_table() -> tuple[np.ndarray, np.ndarray]:
+    """Load and cache the vendored O4-high strain table → (freq[Hz], strain ASD[1/√Hz])."""
+    d = np.loadtxt(_O4_STRAIN_FILE)
+    return d[:, 0].copy(), d[:, 1].copy()
+
+
+def darm_o4_asd(freq) -> np.ndarray:
+    """Advanced-LIGO **O4** DARM **displacement** noise ASD [m/√Hz] = strain × 4 km arm.
+
+    Log-log interpolation of the vendored ``aligo_O4high.txt`` representative O4 sensitivity
+    (LIGO-T2000012), clamped to the table ends outside ~10–5000 Hz. Best ≈ 1.2e-20 m/√Hz near
+    330 Hz, climbing steeply into the seismic wall below ~20 Hz (~2.7e-17 m/√Hz at 10 Hz) and into
+    shot noise above ~1 kHz. Use as ``DARMLoop.noise_asd`` for a real O4 DARM floor."""
+    f = np.asarray(freq, dtype=float)
+    tf, ts = _o4_strain_table()
+    lf = np.log(np.clip(f, tf[0], tf[-1]))
+    strain = np.exp(np.interp(lf, np.log(tf), np.log(ts)))
     return _ALIGO_ARM_LENGTH_M * strain
 
 

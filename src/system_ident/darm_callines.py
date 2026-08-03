@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import differential_evolution, minimize
 
-from .darm import DARMLoop, darm_design_asd, sensing_model_detuned
+from .darm import DARMLoop, darm_o4_asd, sensing_model_detuned
 from .fisher import safe_inverse
 
 # ── the parameter vector θ ──────────────────────────────────────────────────────
@@ -68,11 +68,11 @@ class Line:
 def default_cal_loop(delta_deg: float = 5.0) -> DARMLoop:
     """The base twin for cal-line design: the M0-damped hierarchical reduced-quad loop at a
     representative slight SRC detuning (so every TDCF, including δ, is nonzero and fractional
-    precision is well defined), with the **real** Advanced-LIGO DARM displacement-noise floor
-    (:func:`~system_ident.darm.darm_design_asd`)."""
+    precision is well defined), with the **real** Advanced-LIGO **O4** DARM displacement-noise floor
+    (:func:`~system_ident.darm.darm_o4_asd`, the representative O4-high curve from LIGO-T2000012)."""
     loop = DARMLoop.default_reduced(fmin=0.3, hierarchical=True).with_params(
         delta=np.radians(delta_deg))
-    loop.noise_asd = darm_design_asd
+    loop.noise_asd = darm_o4_asd
     return loop
 
 

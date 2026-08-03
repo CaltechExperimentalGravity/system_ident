@@ -22,7 +22,7 @@ if str(_DOCS) not in sys.path:
 
 import sysid_plots as sp  # noqa: E402
 from system_ident.darm import (  # noqa: E402
-    DARMLoop, darm_design_asd, recover_response, fit_sensing, recover_actuation,
+    DARMLoop, darm_o4_asd, recover_response, fit_sensing, recover_actuation,
     multisine_response_sigma, swept_sine_response_sigma, sweep_time_to_match_coverage,
 )
 from system_ident.backends.darm_adapter import DARMBackend  # noqa: E402
@@ -33,8 +33,8 @@ from system_ident.loop import SysIDLoop  # noqa: E402
 # (P_eff≈9). NPER=8 would leave only 2 full periods → P_eff=1 → fabricated CRB bars.
 NPERSEG, NPER = 4096, 16
 
-# Representative injected drive against the REAL DARM floor (darm_design_asd, ~1.5e-20 m/√Hz
-# mid-band). A Pcal multisine of ~5e-17 m RMS displacement is a realistic strong line and gives a
+# Representative injected drive against the REAL O4 DARM floor (darm_o4_asd, ~1.2e-20 m/√Hz best
+# near 330 Hz). A Pcal multisine of ~5e-17 m RMS displacement is a realistic strong line and gives a
 # sane per-record SNR (σ(R)/R ~ %). PX_REAL is its total power [m²]; A_TOT_REAL is the equivalent
 # total displacement for the Fisher/Pareto sizing. (Exact per-line amplitudes are issue #3.)
 PX_REAL = (5.0e-17) ** 2       # m² — multisine drive power against the real floor
@@ -48,11 +48,12 @@ def _grid(loop):
 
 
 def _twin(seed=1):
-    # Real Advanced-LIGO DARM displacement-noise floor (darm_design_asd: strain × 4 km, the
-    # design-era bucket ~1.5e-20 m/√Hz mid-band). The lumped default() sensing/actuation is kept
-    # for the intro campaigns; the physical floor makes the SNRs and σ's real, not representative.
+    # Real Advanced-LIGO O4 DARM displacement-noise floor (darm_o4_asd: the representative O4-high
+    # strain curve from LIGO-T2000012 × 4 km, ~1.2e-20 m/√Hz best near 330 Hz). The lumped default()
+    # sensing/actuation is kept for the intro campaigns; the physical floor makes the SNRs and σ's
+    # real, not representative.
     loop = DARMLoop.default()
-    loop.noise_asd = darm_design_asd
+    loop.noise_asd = darm_o4_asd
     return loop
 
 
@@ -396,7 +397,7 @@ def cal_line_spectrum(seed=5, *, P=256, snr_targets=(("M0", 0.45, 90.0),
     off the plot — and the per-record strength precision is `σκ/κ ≈ 1/SNR`. Returns the measured
     ASD (thinned for display, line bins kept exact), the analytic floor, and the per-line table."""
     loop = DARMLoop.default_reduced(fmin=0.3, hierarchical=True)
-    loop.noise_asd = darm_design_asd                        # real aLIGO DARM displacement floor
+    loop.noise_asd = darm_o4_asd                            # real aLIGO O4 DARM displacement floor
     fs, n = loop.fs, NPERSEG * P
     T = n / fs
     fgrid = np.fft.rfftfreq(n, 1.0 / fs)
@@ -577,17 +578,20 @@ def sizing_table(cs=None):
              f"{cs.o4['t_req_max']/cs.pns['t_req_max']:.1f}×"]]
     return sp.param_table(["line scheme", "time to 0.1% on all 7 [s]", "binding param",
                            "vs P&S-optimal"], rows,
-                          caption="Time for every TDCF to reach 0.1% at equal total drive. The "
-                                  "advantage is concentrated in δ and τ (which LIGO monitors but "
-                                  "does not correct to 0.1%); for the κ's the schemes are "
-                                  "comparable. Absolute times are representative (drive-match "
-                                  "deferred); the ratio is scale-invariant.")
+                          caption="Time for every TDCF to reach 0.1% at equal total drive against "
+                                  "the real O4 floor. The advantage is concentrated in the upper "
+                                  "actuators κ_M0/κ_PUM: the fixed schemes place their lines at "
+                                  "~15–17 Hz, deep in the O4 seismic wall, while the unconstrained "
+                                  "optimum moves lines into the sensitive bucket (a ceiling, not an "
+                                  "operational number — see the caveat). Absolute times are "
+                                  "representative (drive-match deferred); the ratio is scale-invariant.")
 
 
 def sized_lines_fig(cs=None, *, height=520):
-    """Where the sized calibration lines sit over the DARM noise floor: the three actuator lines in
-    their hierarchy bands (M0 low, PUM mid, TST ~tens of Hz) and the four Fisher-placed Pcal lines,
-    with the O3/O4 line frequencies shown for comparison."""
+    """Where the sized calibration lines sit over the real O4 DARM noise floor: with placement
+    unconstrained, the Fisher optimum clusters both the sensing (Pcal) and the actuator lines in the
+    sensitive ~110–340 Hz bucket where the floor is lowest, with a high sensing line for τ; the
+    O3/O4 line frequencies (down in the seismic wall) are shown for comparison."""
     if cs is None:
         cs = cal_sizing()
     loop = cs.loop
