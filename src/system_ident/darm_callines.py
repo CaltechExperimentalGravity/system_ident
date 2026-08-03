@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import provenance as _prov
+
 #: Published LIGO calibration-line positions [Hz] (O3: Sun 2020 §4.1, DCC P1900245; O4:
 #: arXiv:2508.08423). Frequencies only, with a note of the TDCF each is associated with. These are
 #: the real published values; no per-line drive amplitudes are included.
@@ -41,9 +43,13 @@ O4_LINES = [(6.5, "PCAL", "delta"), (17.1, "PCAL", "kappa_C"), (33.4, "PCAL", "k
 #: a quasi-free test mass, so its displacement rolls off as 1/f². The real Pcal has ~200 mW
 #: peak-to-peak power range (given by the author, real hardware); with the 40 kg test mass this fixes
 #: the ABSOLUTE Pcal line amplitude at every frequency — no free parameter.
-PCAL_POWER_PP_W = 0.200
-TEST_MASS_KG = 40.0
-_C_LIGHT = 299_792_458.0
+PCAL_POWER_PP_W = _prov.record(
+    "pcal_power_pp_w", 0.200, _prov.USER,
+    "rana 2026-08 — Pcal hardware peak-to-peak power modulation range", unit="W")
+TEST_MASS_KG = _prov.record(
+    "test_mass_kg", 40.0, _prov.PAPER, "aLIGO quad test mass", unit="kg")
+_C_LIGHT = _prov.record(
+    "c_light", 299_792_458.0, _prov.CONSTANT, "speed of light", unit="m/s")
 
 
 def pcal_range_disp(freq) -> np.ndarray:

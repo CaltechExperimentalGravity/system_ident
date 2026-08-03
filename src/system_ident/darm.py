@@ -20,6 +20,7 @@ from functools import lru_cache as _lru_cache
 import numpy as np
 from scipy.optimize import least_squares
 
+from . import provenance as _prov
 from .model import TFModel
 from .reduced_plant import ReducedStateSpacePlant
 
@@ -110,7 +111,9 @@ def drift_profile(t, base: float, *, amp_frac: float = 0.05,
 # length for displacement. Representative of the real detector (not a specific instrument state) —
 # the shape and scale are physical, replacing the earlier placeholder floor. Cf. LIGO-T1800044 /
 # the published O3/O4 sensitivity curves.
-_ALIGO_ARM_LENGTH_M = 4000.0
+_ALIGO_ARM_LENGTH_M = _prov.record(
+    "aligo_arm_length_m", 4000.0, _prov.PAPER,
+    "aLIGO arm cavity length ≈ 4 km (rounded)", unit="m")
 _ALIGO_STRAIN_F = np.array([10., 15., 20., 30., 50., 70., 100., 150., 200., 300.,
                             500., 700., 1000., 2000., 5000.])
 _ALIGO_STRAIN_ASD = np.array([1.0e-21, 1.5e-22, 4.0e-23, 1.3e-23, 7.0e-24, 5.5e-24, 4.5e-24,

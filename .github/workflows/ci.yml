@@ -33,6 +33,10 @@ jobs:
           pip install -e ".[docs]"
           # The example .qmd files execute Python, so register a jupyter kernel.
           python -m ipykernel install --user --name python3 --display-name python3
+      - name: Provenance gate — no fabricated ("ASSUMED") numbers may ship
+        # Fast (~1 s): imports the physics modules and fails if any physical input
+        # is an un-reviewed placeholder. The heavy test suite stays local, not in CI.
+        run: python -m pytest tests/test_provenance.py -q
       - name: Build API reference
         working-directory: docs
         run: quartodoc build
