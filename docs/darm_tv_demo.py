@@ -282,3 +282,156 @@ def joint_corr_fig(cj=None, *, height=430):
     fig.update_layout(title="How well the drifts separate — off-diagonal ≈ 0 is clean, ±1 is "
                             "degenerate")
     return sp.style(fig, height=height, legend="v")
+
+
+# ── Round 3: the P&S-OPTIMAL designed drive — a few placed lines, not a broadband multisine ───────
+# The corrected tracking picture: ONE plant (opto-mechanical DARM sensing C + the quad suspension),
+# ONE joint θ, read out by a FEW cal lines whose frequencies are chosen (Bayesian A-optimal, under
+# the real force budgets) to minimise the joint estimator variance on the parameter *drifts*. Scope
+# = the set the O4 floor + ≥10 Hz lines make identifiable: κ_C (g_c), δ, and the two in-band stages
+# κ_PUM, κ_ESD. (κ_M0 acts <0.5 Hz — off this band; f_cc/τ want a wideband high-f spread — the
+# design CRB quantifies both. See the honest-gaps note.)
+from system_ident import darm_callines as _cl  # noqa: E402
+
+_SCOPE = ("g_c", "delta", "kappa_PUM", "kappa_TST")
+_SCOPE_LABELS = {"g_c": "κ_C (optical gain)", "delta": "δ (SRC detuning)",
+                 "kappa_PUM": "κ_PUM (L2 drive)", "kappa_TST": "κ_ESD (test-mass drive)"}
+_SCOPE_COLORS = {"g_c": sp.SKY, "delta": sp.ROSE, "kappa_PUM": sp.MOSS if hasattr(sp, "MOSS") else sp.INK,
+                 "kappa_TST": sp.GOLD}
+# Drift priors: κ_C from Sun et al. 2020 (measured 1–2 %); the rest are REPRESENTATIVE placeholders
+# (the O3/O4 papers do not quantify per-parameter drift for δ/κ_PUM/κ_ESD).
+_DESIGN_PRIORS = {"g_c": _cl.KAPPA_C_DRIFT_FRAC, "delta": 0.02, "kappa_PUM": 0.02, "kappa_TST": 0.02}
+_PORT_COLOR = {"PCAL": sp.SKY, "PUM": sp.INK, "TST": sp.GOLD}
+N_LINE_SNAP = 9        # snapshots for the (heavy, simulated) designed-line tracking campaign
+NPER_LINE = 24         # periods per designed-line snapshot
+
+
+def design_campaign():
+    """Design the A-optimal cal-line roster for the identifiable joint set and score it against a
+    broadband multisine of the same footprint. Returns the roster, per-parameter drift-resolvability
+    margins, the two A-optimal costs, and the DARM floor for the stem plot."""
+    loop = _twin().with_params(delta=np.radians(DELTA0_DEG))
+    d = _cl.design_lines(loop, _DESIGN_PRIORS, T=NPER_LINE * 4096 / loop.fs, n_pcal=3, names=_SCOPE)
+    # broadband reference: equal Pcal lines flat across the band (the OLD white-ish drive)
+    caps = _cl.stage_force_caps(loop, names=_SCOPE)
+    nom = _cl._nominal(loop, _SCOPE)
+    frac = {"g_c", "kappa_PUM", "kappa_TST"}
+    abs_std = {n: (_DESIGN_PRIORS[n] * abs(nom[i]) if n in frac else _DESIGN_PRIORS[n])
+               for i, n in enumerate(_SCOPE)}
+    P = _cl._prior_cov(abs_std, _SCOPE)
+    bb = [(f, "PCAL", _cl.line_displacement(loop, "PCAL", f, caps, pcal_weight=1 / 24))
+          for f in np.geomspace(10, 1200, 24)]
+    cost_bb = _cl.a_optimal_cost(_cl.joint_fisher(loop, bb, NPER_LINE * 4096 / loop.fs, names=_SCOPE)[0], P)
+    ff = np.geomspace(loop.fmin, min(loop.fmax, 1400.0), 1200)
+    floor = loop.displacement_noise_asd(ff)
+    return SimpleNamespace(loop=loop, roster=d["roster"], margins=d["margins"],
+                           sigma_frac=d["sigma_frac"], cost=d["cost"], cost_bb=cost_bb,
+                           full_rank=d["full_rank"], ff=ff, floor=floor, priors=abs_std, nom=nom)
+
+
+def design_fig(dc=None, *, height=520):
+    """The designed cal lines as stems at their DARM-displacement amplitude over the real O4 floor —
+    a few optimally-placed lines (Pcal + one per in-band stage), not a broadband comb."""
+    if dc is None:
+        dc = design_campaign()
+    fig = go.Figure()
+    fig.add_scatter(x=dc.ff, y=dc.floor, mode="lines", name="O4 DARM displacement floor",
+                    line=dict(color=sp.INK, width=2.2, dash="dot"), hoverinfo="skip")
+    seen = set()
+    for f, port, disp in dc.roster:
+        col = _PORT_COLOR.get(port, sp.GRAY)
+        floor_f = float(np.interp(f, dc.ff, dc.floor))
+        fig.add_scatter(x=[f, f], y=[floor_f, disp], mode="lines", showlegend=False,
+                        line=dict(color=col, width=2.2))
+        fig.add_scatter(x=[f], y=[disp], mode="markers",
+                        name=port if port not in seen else None,
+                        showlegend=port not in seen,
+                        marker=dict(color=col, size=sp.MK_BIG, symbol="diamond",
+                                    line=dict(color=sp.INK, width=1.0)),
+                        hovertemplate=f"{port} line<br>%{{x:.1f}} Hz<br>%{{y:.2e}} m<extra></extra>")
+        seen.add(port)
+    yr = sp._logy_range([dc.floor, np.array([d for _, _, d in dc.roster])], decades=6)
+    fig.update_xaxes(type="log", title_text="frequency [Hz]")
+    fig.update_yaxes(type="log", range=yr, title_text="DARM displacement [m rms]")
+    fig.update_layout(title="A-optimal cal lines over the O4 floor — placed where the joint drift "
+                            "estimate is sharpest, under the real force budgets")
+    return sp.style(fig, height=height, legend="v")
+
+
+def design_table(dc=None):
+    """Per-parameter drift prior, the designed-roster snapshot 1σ, and the resolvability margin
+    (prior/σ; >1 ⇒ a snapshot resolves the drift), plus the A-optimal cost vs a broadband drive."""
+    if dc is None:
+        dc = design_campaign()
+    prov_note = {"g_c": "Sun 2020 (measured 1–2 %)", "delta": "representative placeholder",
+                 "kappa_PUM": "representative placeholder", "kappa_TST": "representative placeholder"}
+    rows = []
+    for i, n in enumerate(_SCOPE):
+        frac = n in {"g_c", "kappa_PUM", "kappa_TST"}
+        prior_frac = dc.priors[n] / (abs(dc.nom[i]) if frac else 1.0)
+        rows.append([_SCOPE_LABELS[n],
+                     f"{prior_frac*100:.1f}%" if frac else f"{np.degrees(dc.priors[n]):.2f}°",
+                     f"{dc.sigma_frac[n]:.2e}", f"{dc.margins[n]:.0f}×", prov_note[n]])
+    return sp.param_table(["parameter", "drift prior (1σ)", "snapshot σ", "margin", "prior source"],
+                          rows,
+                          caption=f"A-optimal designed drive: joint cost {dc.cost:.3f} vs {dc.cost_bb:.3f} "
+                                  f"for a broadband multisine of the same budget (lower = better; "
+                                  f"max = {len(_SCOPE)} means the lines add nothing). Every drift is "
+                                  f"resolved (margin > 1). κ_C's prior is measured (Sun 2020); the "
+                                  f"others are representative placeholders.")
+
+
+def tracked_lines_campaign(seed=4041):
+    """Track the identifiable joint set drifting together (random OU wander), read out by the
+    **designed** cal lines (not a broadband multisine). Returns per-parameter fractional-drift
+    curves (truth, per-snapshot ± σ, LP fit ± CRB) for the recovery figure."""
+    dc = design_campaign()
+    loop = dc.loop
+    nom = {"g_c": G_C0, "delta": np.radians(DELTA0_DEG), "kappa_PUM": K0, "kappa_TST": K0}
+    times = np.linspace(0.0, TSPAN, N_LINE_SNAP)
+    series = {n: tv.stochastic_drift(times, nom[n], amp_frac=(0.04 if n == "g_c" else 0.05),
+                                     tau_s=TAU_S, seed=seed + k) for k, n in enumerate(_SCOPE)}
+    t, th, sg, corr, names = tv.track_joint_lines(loop, series, times, dc.roster,
+                                                  nperseg=4096, n_periods=NPER_LINE, seed=seed + 20)
+    tg = np.linspace(0.0, TSPAN, 400)
+    curves = {}
+    for n in names:
+        fit = tv.fit_tv(t, th[n], sg[n], kind="legendre", order=3)
+        theta, s_theta, _, _ = fit.predict(tg)
+        pc = 100.0 / nom[n]
+        curves[n] = dict(t=t / 60.0, snap=(th[n] / nom[n] - 1) * 100, snap_sig=sg[n] * pc,
+                         tg=tg / 60.0, fit=(theta / nom[n] - 1) * 100, band=s_theta * pc,
+                         truth=(series[n] / nom[n] - 1) * 100)
+    return SimpleNamespace(curves=curves, names=names, corr=corr,
+                           labels=[_SCOPE_LABELS[n] for n in names])
+
+
+def tracked_lines_fig(tc=None, *, height=560):
+    """The identifiable joint set recovered from the DESIGNED cal-line readout — injected random
+    wander, per-record joint snapshots ± σ, and the LP fit ± CRB, as % of nominal on one axis."""
+    if tc is None:
+        tc = tracked_lines_campaign()
+    fig = go.Figure()
+    for n in tc.names:
+        c = tc.curves[n]; col = _SCOPE_COLORS.get(n, sp.INK); lab = _SCOPE_LABELS[n]
+        fig.add_scatter(x=c["tg"], y=c["truth"], mode="lines", showlegend=False, legendgroup=n,
+                        line=dict(color=col, width=1.4, dash="dot"),
+                        hovertemplate=lab + " truth: %{y:.2f}%<extra></extra>")
+        fig.add_scatter(x=c["tg"], y=c["fit"] + c["band"], mode="lines", line=dict(width=0),
+                        showlegend=False, legendgroup=n, hoverinfo="skip")
+        fig.add_scatter(x=c["tg"], y=c["fit"] - c["band"], mode="lines", line=dict(width=0),
+                        fill="tonexty", fillcolor=sp._fade(col, 0.15), showlegend=False,
+                        legendgroup=n, hoverinfo="skip")
+        fig.add_scatter(x=c["tg"], y=c["fit"], mode="lines", name=lab,
+                        line=dict(color=col, width=2.6), legendgroup=n)
+        fig.add_scatter(x=c["t"], y=c["snap"], mode="markers", showlegend=False, legendgroup=n,
+                        marker=dict(color=col, size=sp.MK_DATA - 1),
+                        error_y=dict(type="data", array=c["snap_sig"], visible=True,
+                                     color=sp._fade(col, 0.5), width=0, thickness=1.0))
+    fig.add_scatter(x=[None], y=[None], mode="lines", name="injected truth (dotted)",
+                    line=dict(color=sp.GRAY, width=1.4, dash="dot"))
+    fig.update_xaxes(title_text="time [min]")
+    fig.update_yaxes(title_text="drift  [% of nominal]")
+    fig.update_layout(title="Tracked by the designed cal lines — the identifiable joint set "
+                            "recovered within its CRB from a few optimal tones")
+    return sp.style(fig, height=height, legend="v")

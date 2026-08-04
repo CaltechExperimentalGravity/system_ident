@@ -105,3 +105,102 @@ def test_pcal_free_mass_range_matches_hardware():
     assert 2.5e-17 < x100 < 3.5e-17, f"Pcal range at 100 Hz = {x100:.2e} m, expected ~3e-17"
     # 1/f² free-mass roll-off: a decade up drops the range by ~100×
     assert np.isclose(cl.pcal_range_disp(100.0) / cl.pcal_range_disp(1000.0), 100.0, rtol=0.02)
+
+
+# ── joint TDCF Fisher / A-optimal line design + designed-line readout ─────────────────────────────
+def _o4_loop():
+    from system_ident.darm import darm_o4_asd
+    loop = DARMLoop.default_reduced(fmin=10.0, hierarchical=True).with_params(delta=np.radians(5.0))
+    loop.noise_asd = darm_o4_asd
+    return loop
+
+
+# The identifiable joint set for the O4 floor + ≥10 Hz lines: sensing gain κ_C (g_c), SRC detuning
+# δ, and the two in-band actuation stages. (κ_M0 acts <0.5 Hz — its line is out of this band — and
+# f_cc/τ need a wideband high-f Pcal spread; the design CRB quantifies those separately.)
+_SCOPE = ("g_c", "delta", "kappa_PUM", "kappa_TST")
+_PRIORS = {"g_c": 0.02, "delta": 0.02, "kappa_PUM": 0.02, "kappa_TST": 0.02}
+
+
+def test_joint_fisher_crb_scales_as_one_over_sqrt_T():
+    from system_ident import darm_callines as cl
+    loop = _o4_loop()
+    caps = cl.stage_force_caps(loop, names=_SCOPE)
+    roster = [(f, p, cl.line_displacement(loop, p, f, caps, pcal_weight=0.5))
+              for f, p in [(30.0, "PCAL"), (200.0, "PCAL"), (28.0, "PUM"), (210.0, "TST")]]
+    _, cov1, _, _ = cl.joint_fisher(loop, roster, T=10.0, names=_SCOPE)
+    _, cov4, _, _ = cl.joint_fisher(loop, roster, T=40.0, names=_SCOPE)
+    ratio = np.sqrt(np.diag(cov1)) / np.sqrt(np.diag(cov4))
+    np.testing.assert_allclose(ratio, 2.0, rtol=1e-6)             # σ ∝ 1/√T
+
+
+def test_a_optimal_design_beats_broadband_and_is_well_conditioned():
+    from system_ident import darm_callines as cl
+    loop = _o4_loop()
+    caps = cl.stage_force_caps(loop, names=_SCOPE)
+    nom = cl._nominal(loop, _SCOPE)
+    frac = {"g_c", "kappa_PUM", "kappa_TST"}
+    abs_std = {n: (_PRIORS[n] * abs(nom[i]) if n in frac else _PRIORS[n]) for i, n in enumerate(_SCOPE)}
+    P = cl._prior_cov(abs_std, _SCOPE)
+    d = cl.design_lines(loop, _PRIORS, T=60.0, n_pcal=3, names=_SCOPE)
+    # broadband: many equal Pcal lines flat across the band
+    bb = [(f, "PCAL", cl.line_displacement(loop, "PCAL", f, caps, pcal_weight=1 / 30))
+          for f in np.geomspace(10, 1200, 30)]
+    cost_bb = cl.a_optimal_cost(cl.joint_fisher(loop, bb, 60.0, names=_SCOPE)[0], P)
+    assert d["cost"] < cost_bb, f"A-optimal {d['cost']:.3f} not better than broadband {cost_bb:.3f}"
+    assert d["full_rank"], "designed roster is rank-deficient"
+    assert 0.0 < d["cost"] <= len(_SCOPE)                          # bounded Bayesian A-cost
+    assert all(m > 1.0 for m in d["margins"].values())            # every drift resolved
+
+
+def test_designed_line_readout_recovers_joint_params_at_predicted_crb():
+    """End-to-end: design the lines, inject+read them leakage-free on the twin, and recover the joint
+    parameters — each within a few σ of truth, and the empirical σ near the joint_fisher CRB."""
+    from system_ident import darm_callines as cl
+    from system_ident import darm_tv as tv
+    loop = _o4_loop()
+    T = 32 * 4096 / loop.fs
+    d = cl.design_lines(loop, _PRIORS, T=T, n_pcal=3, names=_SCOPE)
+    truth = {"g_c": 1.04e6, "delta": np.radians(5.3), "kappa_PUM": 1.03, "kappa_TST": 1.05}
+    theta, sig, corr, names = tv.joint_snapshot_lines(loop, truth, d["roster"],
+                                                      nperseg=4096, n_periods=32, seed=11)
+    _, cov, _, _ = cl.joint_fisher(loop, d["roster"], T, names=_SCOPE)
+    pred = dict(zip(_SCOPE, np.sqrt(np.diag(cov))))
+    for n in names:
+        assert abs(theta[n] - truth[n]) < 5 * sig[n], f"{n}: {theta[n]:.5g} vs {truth[n]:.5g}"
+        # Order-of-magnitude cross-check: the simulator's empirical (JᵀJ)⁻¹ (from the FRF errors) and
+        # the analytic displacement-SNR Fisher use different noise-normalisation conventions, so agree
+        # to ~1 decade, not exactly (tightest on g_c/κ; loosest on δ, whose info sits at high f).
+        assert 0.05 < sig[n] / pred[n] < 20.0, f"{n}: emp σ {sig[n]:.2e} vs CRB {pred[n]:.2e}"
+    np.testing.assert_allclose(np.diag(corr), 1.0, atol=1e-6)
+    assert np.all(np.abs(corr) <= 1.0 + 1e-6)
+
+
+def test_stage_force_caps_are_grounded_derived():
+    from system_ident import darm_callines as cl
+    from system_ident import provenance as prov
+    loop = _o4_loop()
+    cl.stage_force_caps(loop, names=_SCOPE)
+    reg = prov.registry()
+    for st in ("PUM", "TST"):
+        assert reg[f"stage_force_cap_{st}"].kind == prov.DERIVED
+
+
+def test_pcal_budget_crosscheck_within_an_order_of_magnitude():
+    """The ±200 mW Pcal displacement at 17.1 Hz agrees with the O4 Fig. 2 line height (× 4 km) to
+    within ~1 order of magnitude — a real grounding cross-check, not a fitted number."""
+    from system_ident import darm_callines as cl
+    r = cl.pcal_budget_crosscheck(_o4_loop())["ratio"]
+    assert 0.1 < r < 10.0, f"Pcal budget vs O4 Fig.2 ratio {r:.2f} off by >1 decade"
+
+
+def test_provenance_gate_flags_a_planted_assumption():
+    from system_ident import provenance as prov
+    import system_ident.darm, system_ident.darm_callines  # noqa: F401  (populate the registry)
+    prov.require_grounded()                                        # the shipped inputs are grounded
+    prov.record("planted_placeholder", 1.23, prov.ASSUMED, "test: a number we do not have")
+    try:
+        with __import__("pytest").raises(AssertionError):
+            prov.require_grounded()
+    finally:
+        prov._REGISTRY.pop("planted_placeholder", None)

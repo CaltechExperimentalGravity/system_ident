@@ -286,6 +286,124 @@ def track_joint(base_loop, truth_series: dict, times, *, nperseg=4096, n_periods
     return times, th, sg, corr_sum / len(times), names
 
 
+# ── line-based readout: inject the DESIGNED cal lines (not a broadband multisine) ────────────────
+def _line_bins(loop, nperseg, freqs):
+    """Snap ``freqs`` to the synchronous DFT grid ``k·fs/nperseg`` and return ``(snapped_freqs,
+    band_mask)`` over the full rfft grid. Line injection + integer-period DFT ⇒ leakage-free readout
+    at exactly these bins (the same synchronous-grid trick the broadband path uses, restricted to a
+    few lines)."""
+    fa = np.fft.rfftfreq(int(nperseg), d=1.0 / loop.fs)
+    bins = np.unique([int(round(f * nperseg / loop.fs)) for f in np.atleast_1d(freqs)])
+    band = np.zeros(len(fa), bool)
+    band[bins] = True
+    return fa[bins], band
+
+
+def _frf_lines(loop, port, lines_hz, rms_amps, nperseg, n_periods, seed):
+    """Leakage-free FRF measured ONLY at the designed line frequencies for one port. ``rms_amps`` is
+    the injected line amplitude per line in the port's native rms units (Pcal displacement [m], or
+    stage drive [ct]). Returns ``(freqs, H, H_err)`` at the grid-snapped lines."""
+    channel = "PCAL_EXC" if port == "PCAL" else "EXC"
+    freqs, band = _line_bins(loop, nperseg, lines_hz)
+    df = loop.fs / nperseg
+    Pxx = (np.asarray(rms_amps, dtype=float) ** 2) / df           # one line per freq bin
+    be = DARMBackend(loop, {channel: port}, "DARM_ERR", seed=seed)
+    x = multisine_from_psd(Pxx, loop.fs, nperseg, n_periods, freqs, seed=np.random.default_rng(seed))
+    be.inject(channel, x, loop.fs)
+    seg = be.read([channel, "DARM_ERR"], (nperseg * n_periods) / loop.fs)
+    H, H_err, _ = SysIDLoop._estimate_tf_periodic(seg[channel], seg["DARM_ERR"], loop.fs, nperseg,
+                                                  band, n_transient=1)
+    return freqs, H, H_err
+
+
+def joint_snapshot_lines(base_loop, truth: dict, roster, *, nperseg=4096, n_periods=16, seed=0):
+    """Joint TDCF snapshot from the **designed** cal lines — the optimal few-line excitation instead
+    of a broadband multisine.
+
+    ``roster`` = ``[(freq_hz, port, disp_amp_m)]`` from
+    :func:`system_ident.darm_callines.design_lines`: each entry is one line, its port
+    (``'PCAL'``/stage), and the DARM displacement it makes on the base loop. The injected DRIVE is
+    held fixed (computed once from ``base_loop``) as θ drifts — a real always-on cal line has fixed
+    drive. Each port is injected at its own line(s), read leakage-free, and all ports are fit JOINTLY
+    for ``θ = truth.keys()`` (``C/(1+G)`` for Pcal, ``C·κ_i·D_iN_i/(1+G)`` for a stage — a stage line
+    depends on the sensing params too, which is the joint coupling). Returns
+    ``(theta_hat, sigma, corr, names)`` like :func:`joint_snapshot`."""
+    from scipy.optimize import least_squares
+    from .darm import sensing_model_detuned
+
+    names = list(truth)
+    loop = base_loop.with_params(**truth)
+    stages = [n[len("kappa_"):] for n in names if n.startswith("kappa_")]
+    base = {"g_c": base_loop.g_c, "f_cc": base_loop.f_cc,
+            "delta": base_loop.delta, "tau": base_loop.tau}
+    # group by port; convert disp_amp → fixed injected rms amp in the port's native units, using the
+    # grid-SNAPPED frequency so the drive conversion matches the (snapped) injection + fit (a stage
+    # TF is steep, so an unsnapped conversion would bias κ).
+    def _snap(f):
+        return round(f * nperseg / base_loop.fs) * base_loop.fs / nperseg
+    by_port = {}
+    for f, port, disp in roster:
+        fs_ = _snap(float(f))
+        amp = disp if port == "PCAL" else disp / abs(base_loop.stage(port, [fs_])[0])
+        fl, al = by_port.setdefault(port, ([], []))
+        fl.append(fs_); al.append(float(amp))
+    meas = {}
+    for k, (port, (fl, al)) in enumerate(by_port.items()):
+        meas[port] = _frf_lines(loop, port, fl, al, nperseg, n_periods, seed + k)
+    DN = {st: base_loop.stage(st, meas[st][0]) / base_loop.stages[st][1]
+          for st in stages if st in meas}                          # κ=1 stage shape at its line(s)
+
+    def C_of(d, freq):
+        alpha = base_loop.detune_coupling * np.sin(2.0 * d.get("delta", base["delta"]))
+        return sensing_model_detuned(freq, d.get("g_c", base["g_c"]),
+                                     d.get("f_cc", base["f_cc"]), d.get("tau", base["tau"]), alpha)
+
+    def resid(p):
+        d = dict(zip(names, p))
+        r = []
+        for port, (fr, H, He) in meas.items():
+            inv1pG = 1.0 / (1.0 + loop.G(fr))
+            model = C_of(d, fr) * inv1pG
+            if port != "PCAL":
+                model = model * d.get("kappa_" + port, base_loop.stages[port][1]) * DN[port]
+            g = np.isfinite(He) & (He > 0)
+            r += [((H[g] - model[g]) / He[g]).real, ((H[g] - model[g]) / He[g]).imag]
+        return np.concatenate(r)
+
+    p0 = np.array([base[n] if n in base else base_loop.stages[n[len("kappa_"):]][1]
+                   for n in names], dtype=float)
+    sol = least_squares(resid, p0, method="trf", x_scale="jac")
+    try:
+        cov = np.linalg.inv(sol.jac.T @ sol.jac)
+    except np.linalg.LinAlgError:
+        cov = np.linalg.pinv(sol.jac.T @ sol.jac)
+    s = np.sqrt(np.clip(np.diag(cov), 0.0, np.inf))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.where(np.outer(s, s) > 0, cov / np.outer(s, s), 0.0)
+    return dict(zip(names, sol.x)), dict(zip(names, s)), corr, names
+
+
+def track_joint_lines(base_loop, truth_series: dict, times, roster, *, nperseg=4096,
+                      n_periods=16, seed=0):
+    """Track several parameters drifting simultaneously, read out by the **designed** cal-line roster
+    (see :func:`joint_snapshot_lines`). ``truth_series`` maps knob → true-value array aligned with
+    ``times``. Returns ``(times, theta_hat, sigma, corr_mean, names)`` — the same shape as
+    :func:`track_joint`, so it drops straight into :func:`fit_tv`/:func:`resolvability`."""
+    times = np.asarray(times, dtype=float)
+    names = list(truth_series)
+    th = {n: np.empty(len(times)) for n in names}
+    sg = {n: np.empty(len(times)) for n in names}
+    corr_sum = None
+    for j in range(len(times)):
+        truth = {n: float(truth_series[n][j]) for n in names}
+        theta, sigma, corr, _ = joint_snapshot_lines(base_loop, truth, roster, nperseg=nperseg,
+                                                      n_periods=n_periods, seed=seed + j)
+        for n in names:
+            th[n][j] = theta[n]; sg[n][j] = sigma[n]
+        corr_sum = corr if corr_sum is None else corr_sum + corr
+    return times, th, sg, corr_sum / len(times), names
+
+
 # ── time-basis expansion + CRB (the Lataire–Pintelon TV fit) ────────────────────────
 def basis_matrix(t, *, kind="legendre", order=4, t0=None, t1=None):
     """Design matrix ``B[j,k]=b_k(t_j)`` and its time-derivative ``dB[j,k]=ḃ_k(t_j)``.

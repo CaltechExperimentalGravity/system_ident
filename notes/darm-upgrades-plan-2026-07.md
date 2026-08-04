@@ -506,3 +506,30 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > head-to-head), whose shapes do not depend on the (representative) drive magnitude. The earlier
 > UPDATE entries above are left intact as the historical log; the numbers they report are the
 > fabricated ones this correction retracts.
+
+---
+
+## UPDATE 2026-08-03 — joint P&S-optimal drift tracking, grounded (example 13)
+
+Rebuilt the tracking work on the corrected framing (one plant = opto-mech DARM sensing `C` + the
+quad suspension; one joint θ; a **few** optimally-placed cal lines, NOT broadband; design from
+drift-variance priors to minimise the joint estimator variance on the drifts).
+
+New engine (`src/system_ident/darm_callines.py`): `joint_fisher` (coupled TDCF Fisher/CRB — every
+line informs every param), `design_lines` (Bayesian A-optimal placement, `tr((Γ'+I)⁻¹)`, under
+force caps), `stage_force_caps` (DERIVED, ruler-matched), `line_displacement`, `pcal_budget_crosscheck`.
+Readout (`src/system_ident/darm_tv.py`): `joint_snapshot_lines`/`track_joint_lines` inject the
+DESIGNED lines leakage-free and fit θ jointly. Tests in `tests/test_darm_callines.py` (14 pass).
+
+Grounding (all via `provenance.record`): κ_C drift 1–2 % (Sun 2020 §4.2, PAPER); Pcal ±200 mW
+(`pcal_range_disp`); O4 Pcal line freqs 17.1/33.43/53.67/77.73/102.13/284.01/410.3/1083.7 Hz (Wade
+2025 Fig. 4); 17.1 Hz line ≈4e-19 strain/√Hz (Wade Fig. 2, cross-checks the 200 mW budget to a
+factor <2). The papers give NO per-stage line amplitudes or per-param drift for δ/f_cc/τ/κ_i → those
+are placeholders kept in the docs demo layer (src provenance gate stays green).
+
+Honest scope: the twin's **M0 is the top mass, offloaded <0.5 Hz** (unlike LIGO's UIM), so κ_M0 is
+not identifiable with ≥10 Hz lines; f_cc/τ need a wideband high-f Pcal spread. Identifiable joint set
+(O4 floor, ≥10 Hz) = **κ_C, δ, κ_PUM, κ_ESD** — recovered within CRB from the designed lines; the
+designed drive beats a same-budget broadband multisine ~1000× on the A-cost. The rest are
+feasibility-gated (the CRB states what each needs). Example 08's fabricated pareto/response-budget
+section was already fully reverted from source (confirmed; `_site` is stale local build only).

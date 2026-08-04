@@ -169,13 +169,66 @@ optical-gain change from an actuation change — it is the **Pcal absolute refer
 tie (exactly why Pcal is the fiducial in a real calibration). The joint fit surfaces that degeneracy
 honestly rather than hiding it in a one-at-a-time recovery.
 
+## Designing the drive: a few optimal lines, not broadband
+
+The rounds above inject a **broadband** multisine — power in every bin — which is *not* how a real
+calibration drives the interferometer, and *not* what optimal excitation calls for. The plant is
+**one** system (the opto-mechanical DARM sensing `C` plus the quad suspension) with **one** joint
+parameter vector, and it is read out by a **few always-on calibration lines**. The right question
+is where to *put* those lines. Given a prior on how much each parameter drifts, we place and weight
+a handful of lines — Pcal lines plus one per in-band stage — to **minimise the joint estimator
+variance on the drifts** (a Bayesian A-optimal design), under the **real force budgets**: the Pcal's
+±200 mW photon-calibrator range, and each suspension stage capped at the same displacement ruler.
+
+Every line informs every parameter — a suspension line passes through `C` and `1/(1+G)` so it
+carries sensing information, and the Pcal ruler, compared against a suspension line, carries
+actuation information — so the design works on the **coupled** Fisher matrix, not two separate
+problems.
+
+```{python}
+#| code-summary: "Design the A-optimal cal-line roster and score it against a broadband drive"
+dc = dd.design_campaign()
+dd.design_fig(dc)
+```
+
+```{python}
+#| code-summary: "Per-parameter drift prior, snapshot σ, and the resolvability margin"
+display(dd.design_table(dc))
+```
+
+The designed handful of lines reaches a far lower joint cost than a broadband multisine of the same
+budget — the drive belongs where the parameters are informative, not spread thin. Injecting exactly
+this roster on the twin and reading it back leakage-free recovers the drifting parameters:
+
+```{python}
+#| code-summary: "Track the joint set from the DESIGNED cal-line readout (not broadband)"
+tc = dd.tracked_lines_campaign()
+dd.tracked_lines_fig(tc)
+```
+
+::: {.callout-note appearance="simple"}
+## What's grounded, and what the scope is
+The **κ_C drift prior is measured** (Sun et al. 2020: the optical gain varies 1–2 % over a run); the
+**Pcal budget is real** (±200 mW → `pcal_range_disp`); the **O4 line frequencies are published**
+(Wade et al. 2025, Fig. 4). The drift priors for `δ`, `κ_PUM`, `κ_ESD` are **representative
+placeholders** — the O3/O4 papers do not quantify them — and the per-stage force caps are **derived**
+by matching the Pcal ruler, since the papers give no per-stage line amplitude. The design tracks the
+**identifiable joint set** for this twin and the O4 floor: `κ_C`, `δ`, and the two in-band stages
+`κ_PUM`/`κ_ESD`. The other TDCFs are feasibility-gated, not hidden: **`κ_M0`** is the *top mass*,
+offloaded below ~0.5 Hz, so its line falls outside the ≥10 Hz band the O4 floor covers; and
+**`f_cc`/`τ`** need a wideband high-frequency Pcal spread to become well-conditioned. The joint
+Fisher (`darm_callines.joint_fisher`) quantifies exactly what each of those would require.
+:::
+
 ## Honest gaps
 
 On the coupled reduced-quad plant, the machinery now tracks **several parameters drifting at once,
-under a realistic random wander, within a Cramér–Rao bound** — and the correlation matrix names the
-degeneracies instead of hiding them. What's still simplified: the random walk is a plain
-Ornstein–Uhlenbeck process (a Gaussian-process wander with a measured drift spectrum is the honest
-next step); the estimator is the two-step form (snapshot, then basis-fit) rather than the one-shot
-Lataire–Pintelon fit; and all seven TDCFs together — not just the three shown — would exercise the
-full degeneracy structure. What this page establishes is the foundation: the "can we track it?"
-question gets a numeric answer, jointly and honestly — see `notes/darm-calibration-via-pns.md`.
+under a realistic random wander, within a Cramér–Rao bound, from a P&S-optimal designed cal-line
+drive** — and the correlation matrix names the degeneracies instead of hiding them. What's still
+simplified: the random walk is a plain Ornstein–Uhlenbeck process (a Gaussian-process wander with a
+measured drift spectrum is the honest next step); the estimator is the two-step form (snapshot, then
+basis-fit) rather than the one-shot Lataire–Pintelon fit; the drift priors for all but `κ_C` are
+representative placeholders pending real per-parameter numbers; and `κ_M0`, `f_cc`, `τ` need the
+out-of-band / wideband lines noted above to join the tracked set. What this page establishes is the
+foundation: the "can we track it?" question gets a numeric answer, jointly, from an optimal drive,
+and honestly — see `notes/darm-calibration-via-pns.md`.
