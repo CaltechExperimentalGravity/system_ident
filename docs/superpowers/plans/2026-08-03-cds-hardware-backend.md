@@ -225,6 +225,20 @@ Follow the repo's own idioms: `MockRTSModel` for fakes,
 
 ## Stage H — environment and py3.9 compatibility  · issues #22, #23
 
+> **STATUS 2026-08-03: #22 is DONE, and its expected outcome was WRONG.** The probe was supposed to
+> fail; it succeeded. `sysid_deploy` exists on the deployment machine at **python 3.11 with CDS 4.1.4**,
+> read-validated (deployment-gate subset **61 passed / 1 skipped**, identical to the py3.9 baseline;
+> full suite 290/8/17; live read-only `getdata` OK). The measured detail is in **spec §8a**, which
+> supersedes the paragraphs below. Two consequences: **#23 shrinks to the 5 `np.trapezoid` sites plus
+> the circular import** (control 0.10.2 makes the `_frd` shim and the `tf2ss` renames unnecessary), and
+> its extra **CI leg is py3.11, not py3.9**. The py3.9 clone is now fallback rung 4, not the target.
+> The original text is kept below rather than deleted, so the mistaken premise stays visible.
+>
+> Still open from #22: the read-only **deploy key requires repo-admin rights**, which the current
+> operator does not have, so the deployment checkout is delivered by `rsync` in the interim and cannot
+> `git fetch`. And **awg 4.1.4 injection against advLigoRTS branch-3.4 is unverified** — issue #27,
+> human-gated per injection.
+
 Independent of A–G, and deliberately after them: spec §8 shows the CDS-relevant test subset already
 passes on the deployment baseline, so this is not on the critical path.
 
@@ -286,13 +300,17 @@ Cheapest first; nothing before step 8 needs hardware.
 4. **Fake transport.** `pytest tests/test_cds_backend.py -v`.
 5. **Safety.** `pytest tests/test_cds_safety.py -v`, plus `main(["run", cfg, "--yes"])` → 2.
 6. **Full suite.** 254+ passed; skip count unchanged bar new hardware-gated skips.
-7. **py3.9 subset** — the deployment baseline, testable on the dev machine because a py3.9.13 /
-   numpy 1.22.4 / scipy 1.8.1 / control 0.9.2 environment already exists there:
-   `PYTHONPATH=src conda run -n <py39-env> python -m pytest tests/test_step5_safety.py
-   tests/test_step7_loop.py tests/test_step8_cli.py tests/test_periodic_measurement.py
-   tests/test_rtsfreerun_backend.py tests/test_excitation.py tests/test_step4_twin.py
-   tests/test_step6_estimator.py tests/test_step12_ml_estimator.py tests/test_resolution.py -q`
-   → currently **61 passed / 1 skipped**; must stay green, plus the new CDS tests.
+7. **Deployment subset.** The gate is the same ten files either way; only the environment changed.
+   - **Primary — `sysid_deploy` (py3.11 / numpy 1.26.4 / scipy 1.13.1 / control 0.10.2), on the
+     deployment machine:** `conda run -n sysid_deploy python -m pytest tests/test_step5_safety.py
+     tests/test_step7_loop.py tests/test_step8_cli.py tests/test_periodic_measurement.py
+     tests/test_rtsfreerun_backend.py tests/test_excitation.py tests/test_step4_twin.py
+     tests/test_step6_estimator.py tests/test_step12_ml_estimator.py tests/test_resolution.py -q`
+     → measured **61 passed / 1 skipped** (2026-08-03). Must stay green, plus the new CDS tests.
+   - **Secondary — the py3.9 baseline**, still runnable on the dev machine (a py3.9.13 / numpy 1.22.4 /
+     scipy 1.8.1 / control 0.9.2 env exists there) with `PYTHONPATH=src conda run -n <py39-env> …`.
+     Same expected result. Keep it only as long as fallback rungs 2–4 are live options; it is no longer
+     the deployment target.
 8. **EXIT GATE — twin transport, full stack**, on the box where the compiled model builds:
    `system_ident run src/system_ident/configs/cds_twin_transport.yml --cds --no-dashboard` against
    `x1hsts`, recovery within the CRB.

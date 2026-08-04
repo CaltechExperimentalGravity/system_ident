@@ -1,0 +1,301 @@
+# environment_deploy_lock.yml
+#
+# DEPLOYMENT LOCK for the `sysid_deploy` hardware environment (linux-64). This is the exact,
+# version-pinned export of the environment actually created on the CDS workstation, and it is the
+# source of truth for versions. `environment_deploy.yml` is the human-readable declarative spec.
+#
+# Generated with:  conda env export -n sysid_deploy --no-builds
+# The trailing `prefix:` line is REMOVED on purpose -- it is an on-machine path and this repo is
+# public (see the sensitive-file manifest). Do NOT paste it back in.
+#
+# Do NOT edit by hand -- regenerate from the deployment machine.
+#
+# Built 2026-08-03 from the lean spec in `environment_deploy.yml`, pinned to the CDS-published
+# python 3.11 environment (`cds-py311.yaml`, 2026-03-12). Validated read-only on the deployment
+# machine the same day:
+#   - python 3.11.15 / numpy 1.26.4 / scipy 1.13.1 / control 0.10.2 / slycot 0.6.1
+#   - awg, foton, gpstime, nds2 (0.16.12) and cdsutils (1.7.0) all import
+#   - deployment-gate test subset: 61 passed / 1 skipped  (identical to the py3.9 baseline)
+#   - full suite: 290 passed / 8 failed / 17 skipped -- all 8 failures are `np.trapezoid`
+#     (numpy < 2.0) in the arcade/playground half; see issue #23
+#   - read-only NDS fetch returned live data at the expected rate; NO injection was performed
+#
+# The awg *injection* path is NOT validated: awg here is 4.1.4, while the only client proven
+# against the site's real-time system (advLigoRTS branch-3.4) is 3.1.2. That test needs an
+# operator, a human-chosen channel pair, and separate approval for EVERY injection. See issue #27
+# and CLAUDE.md section "Hardware safety".
+#
+name: sysid_deploy
+channels:
+  - conda-forge
+dependencies:
+  - _openmp_mutex=4.5
+  - _x86_64-microarch-level=4
+  - adwaita-icon-theme=49.0
+  - at-spi2-atk=2.38.0
+  - at-spi2-core=2.40.3
+  - atk-1.0=2.38.0
+  - backports.zstd=1.6.0
+  - binutils_impl_linux-64=2.46.1
+  - brotli=1.2.0
+  - brotli-bin=1.2.0
+  - brotli-python=1.2.0
+  - bzip2=1.0.8
+  - c-ares=1.34.8
+  - ca-certificates=2026.7.22
+  - cairo=1.18.4
+  - cds-crtools=4.1.4
+  - cdsutils=1.7.0
+  - certifi=2026.7.22
+  - cffi=2.1.0
+  - cfitsio=4.6.3
+  - charset-normalizer=3.4.9
+  - chndump=4.1.4
+  - colorama=0.4.6
+  - contourpy=1.3.3
+  - control=0.10.2
+  - coreutils=9.5
+  - coverage=7.15.3
+  - crtools-gui-libraries=4.1.4
+  - cycler=0.12.1
+  - cyrus-sasl=2.1.28
+  - davix=0.8.10
+  - dbus=1.16.2
+  - dmtviewer=4.1.4
+  - dtt-awggui=4.1.4
+  - dtt-awgstream=4.1.4
+  - dtt-diag=4.1.4
+  - dtt-diagd=4.1.4
+  - dtt-diaggui=4.1.4
+  - dtt-multiawgstream=4.1.4
+  - dtt-tpcmd=4.1.4
+  - dtt-xml-tools=4.1.4
+  - epics-base=7.0.10.0
+  - epoxy=1.5.10
+  - exceptiongroup=1.3.1
+  - ezca=1.5.0
+  - fastjet-cxx=3.5.1
+  - fftw=3.3.11
+  - font-ttf-dejavu-sans-mono=2.37
+  - font-ttf-inconsolata=3.000
+  - font-ttf-source-code-pro=2.038
+  - font-ttf-ubuntu=0.83
+  - fontconfig=2.18.2
+  - fonts-conda-ecosystem=1
+  - fonts-conda-forge=1
+  - fonttools=4.63.0
+  - foton=4.1.4
+  - freetype=2.14.3
+  - fribidi=1.0.16
+  - ftgl=2.4.0
+  - gcc_impl_linux-64=14.4.0
+  - gdk-pixbuf=2.44.7
+  - gds-base=3.0.1
+  - gds-base-crtools=3.0.1
+  - gds-lsmp=3.0.1
+  - gettext=0.25.1
+  - gettext-tools=0.25.1
+  - giflib=5.2.2
+  - gl2ps=1.4.2
+  - glew=2.3.0
+  - glib-tools=2.88.3
+  - gpstime=0.10.0
+  - graphite2=1.3.15
+  - graphviz=14.1.2
+  - gsl=2.7
+  - gsoap=2.8.123
+  - gtest=1.17.0
+  - gtk3=3.24.52
+  - gts=0.7.6
+  - gxx_impl_linux-64=14.4.0
+  - h2=4.4.1
+  - harfbuzz=14.3.0
+  - hicolor-icon-theme=0.17
+  - hpack=4.2.0
+  - hyperframe=6.1.0
+  - icu=78.3
+  - idna=3.18
+  - importlib_resources=7.1.0
+  - iniconfig=2.3.0
+  - jsoncpp=1.9.8
+  - kernel-headers_linux-64=3.10.0
+  - keyutils=1.6.3
+  - kiwisolver=1.5.0
+  - krb5=1.22.2
+  - lcms2=2.19.1
+  - ld_impl_linux-64=2.46.1
+  - lerc=4.2.0
+  - libasprintf=0.25.1
+  - libasprintf-devel=0.25.1
+  - libawg=4.1.4
+  - libblas=3.11.0
+  - libbrotlicommon=1.2.0
+  - libbrotlidec=1.2.0
+  - libbrotlienc=1.2.0
+  - libcblas=3.11.0
+  - libcups=2.3.3
+  - libcurl=8.21.0
+  - libdeflate=1.25
+  - libdfm=4.1.4
+  - libdrm=2.4.127
+  - libdtt=4.1.4
+  - libedit=3.1.20250104
+  - libegl=1.7.0
+  - libegl-devel=1.7.0
+  - libev=4.33
+  - libexpat=2.8.1
+  - libfantom=4.1.4
+  - libffi=3.5.2
+  - libfilterfile=4.1.4
+  - libfilterwiz=4.1.4
+  - libfreetype=2.14.3
+  - libfreetype6=2.14.3
+  - libgcc=16.1.0
+  - libgcc-devel_linux-64=14.4.0
+  - libgcc-ng=16.1.0
+  - libgd=2.3.3
+  - libgettextpo=0.25.1
+  - libgettextpo-devel=0.25.1
+  - libgfortran=16.1.0
+  - libgfortran-ng=16.1.0
+  - libgfortran5=16.1.0
+  - libgl=1.7.0
+  - libgl-devel=1.7.0
+  - libglib=2.88.3
+  - libglu=9.0.3
+  - libglvnd=1.7.0
+  - libglx=1.7.0
+  - libglx-devel=1.7.0
+  - libgomp=16.1.0
+  - libharfbuzz=14.3.0
+  - libharfbuzz-devel=14.3.0
+  - libhwloc=2.13.0
+  - libiconv=1.18
+  - libjpeg-turbo=3.2.0
+  - liblapack=3.11.0
+  - libllvm20=20.1.8
+  - liblzma=5.8.3
+  - libmetaio=8.5.1
+  - libnghttp2=1.68.1
+  - libnsl=2.0.1
+  - libntlm=1.8
+  - libopenblas=0.3.33
+  - libopengl=1.7.0
+  - libpciaccess=0.19
+  - libpng=1.6.58
+  - libpsl=0.23.0
+  - librsvg=2.62.3
+  - libsanitizer=14.4.0
+  - libsistr=4.1.4
+  - libsodium=1.0.22
+  - libsqlite=3.53.4
+  - libssh2=1.11.1
+  - libstdcxx=16.1.0
+  - libstdcxx-devel_linux-64=14.4.0
+  - libstdcxx-ng=16.1.0
+  - libtestpoint=4.1.4
+  - libtiff=4.7.2
+  - libuuid=2.42.2
+  - libwebp-base=1.6.0
+  - libxcb=1.17.0
+  - libxcrypt=4.4.36
+  - libxkbcommon=1.13.2
+  - libxml2=2.15.3
+  - libxml2-16=2.15.3
+  - libxml2-devel=2.15.3
+  - libzlib=1.3.2
+  - lidax=4.1.4
+  - llvm-openmp=22.1.8
+  - lz4-c=1.10.0
+  - matplotlib-base=3.10.8
+  - munkres=1.1.4
+  - narwhals=2.24.0
+  - ncurses=6.6
+  - nds2-client=0.16.8
+  - nlohmann_json=3.12.0
+  - numpy=1.26.4
+  - openjpeg=2.5.4
+  - openssl=3.6.3
+  - packaging=26.2
+  - pango=1.58.0
+  - pcaspy=0.8.1
+  - pcre=8.45
+  - pcre2=10.47
+  - perl=5.32.1
+  - pillow=12.3.0
+  - pip=26.2
+  - pixman=0.46.4
+  - platformdirs=4.11.0
+  - plotly=6.6.0
+  - pluggy=1.6.0
+  - pthread-stubs=0.4
+  - pycparser=3.0
+  - pyepics=3.5.10
+  - pygments=2.20.0
+  - pyparsing=3.3.2
+  - pysocks=1.7.1
+  - pytest=9.0.2
+  - pytest-cov=7.1.0
+  - pytest-mock=3.15.1
+  - pythia8=8.312
+  - python=3.11.15
+  - python-awg=4.1.4
+  - python-dateutil=2.9.0.post0
+  - python-foton=4.1.4
+  - python-nds2-client=0.16.12
+  - python_abi=3.11
+  - pyyaml=6.0.3
+  - qhull=2020.2
+  - readline=8.3
+  - requests=2.34.2
+  - root_base=6.38.00
+  - root_cxx_standard=20
+  - scipy=1.13.1
+  - scitokens-cpp=1.4.0
+  - setuptools=83.0.0
+  - siscone=3.1.2
+  - six=1.17.0
+  - slycot=0.6.1
+  - sysroot_linux-64=2.17
+  - tbb=2023.0.0
+  - tk=8.6.13
+  - tomli=2.4.1
+  - typing_extensions=4.16.0
+  - tzdata=2026c
+  - unicodedata2=17.0.1
+  - urllib3=2.7.0
+  - vdt=0.4.4
+  - vector-classes=1.4.5
+  - wayland=1.26.0
+  - wheel=0.47.0
+  - xkeyboard-config=2.48
+  - xorg-libice=1.1.2
+  - xorg-libsm=1.2.6
+  - xorg-libx11=1.8.13
+  - xorg-libxau=1.0.12
+  - xorg-libxcomposite=0.4.7
+  - xorg-libxcursor=1.2.3
+  - xorg-libxdamage=1.1.6
+  - xorg-libxdmcp=1.1.5
+  - xorg-libxext=1.3.7
+  - xorg-libxfixes=6.0.2
+  - xorg-libxft=2.3.9
+  - xorg-libxi=1.8.3
+  - xorg-libxinerama=1.1.6
+  - xorg-libxpm=3.5.19
+  - xorg-libxrandr=1.5.5
+  - xorg-libxrender=0.9.12
+  - xorg-libxt=1.3.1
+  - xorg-libxtst=1.2.5
+  - xorg-libxxf86vm=1.1.7
+  - xorg-xorgproto=2025.1
+  - xrootd=5.9.2
+  - xxhash=0.8.3
+  - yaml=0.2.5
+  - zeromq=4.3.5
+  - zipp=4.1.0
+  - zlib=1.3.2
+  - zlib-ng=2.3.3
+  - zstd=1.5.7
+  - pip:
+      - system-ident==0.0.1

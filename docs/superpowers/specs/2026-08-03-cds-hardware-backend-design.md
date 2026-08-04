@@ -488,6 +488,15 @@ derives coherence from `var_b` (`loop.py:462-464`) and does not have that bug.
 
 ## 8. Environment
 
+> **CORRECTION (2026-08-03, later the same day) — the paragraph immediately below is WRONG, and the
+> environment it rules out has since been built and validated.** It is left in place, not deleted, so
+> the mistake is visible and nobody re-derives it. The error was one of scope: it described the
+> environment *installed* on the deployment machine (a 2022 `cds-crtools 3.1.2` clone), and generalised
+> that to "the channel". The channel says otherwise — CDS publishes a **python 3.11** environment
+> (`cds-py311.yaml`, 2026-03-12) carrying `cds-crtools`/`foton`/`python-foton`/`libawg`/`python-awg`/
+> `dtt-*` **4.1.4**, and every one of those packages is on conda-forge with linux-64
+> `py311`/`py312`/`py313` builds. See **§8a** below for what was actually measured, and issue #22.
+
 The CDS control packages (`foton`, `python-foton`, `python-awg`, `libawg`, `dtt-*` 3.1.2, plus
 `python-nds2-client`) are **py3.9-only builds** in the deployment machine's channel — which is why the
 sibling repo had to pin `python=3.9` (its commit `86a4f7a`) and drop the `anaconda` metapackage. So a
@@ -521,6 +530,79 @@ pre-existing and version-independent.
 `_compat.py`**: one three-line helper plus two mechanical renames. Add a py3.9 CI leg — CI runs 3.12
 only (`.github/workflows/ci.yml:26`) and executes exactly one test file, so a 3.9 regression is
 invisible until it fails on deployment.
+
+### 8a. Environment — what was actually built and measured (2026-08-03)
+
+The deployment environment is **`sysid_deploy`: python 3.11 with CDS 4.1.4.** It is a *lean* env — the
+CDS control packages this project uses plus its own dependencies — with every version pinned to the
+CDS-published `cds-py311.yaml` (2026-03-12), which is what the help desk confirms as supported.
+Declarative spec: `environment_deploy.yml`; exact export: `environment_deploy_lock.yml`.
+
+Solved and installed versions:
+
+| | |
+|---|---|
+| python | 3.11.15 |
+| numpy / scipy | 1.26.4 / 1.13.1 |
+| control / slycot | 0.10.2 / 0.6.1 |
+| matplotlib-base / pyyaml / plotly | 3.10.8 / 6.0.3 / 6.6.0 |
+| cds-crtools / foton / python-foton / libawg / python-awg / dtt-awgstream | 4.1.4 (`py311` builds) |
+| cdsutils / gpstime | 1.7.0 / 0.10.0 |
+| nds2-client / python-nds2-client | 0.16.8 / 0.16.12 |
+
+268 packages, ~740 MB. Nothing dragged numpy to 2.x — the specific hazard, since the compiled
+extensions are built against 1.26.
+
+**Measured, read-only, on the deployment machine. No injection was performed.**
+
+1. `awg`, `foton`, `gpstime`, `nds2` and `cdsutils` all import.
+2. **Deployment-gate subset: 61 passed / 1 skipped** — *identical* to the py3.9 baseline above. The
+   gate is unchanged by the move.
+3. Full suite: **290 passed / 8 failed / 17 skipped**, against py3.9's 250 passed / 35 failed / 12
+   skipped / 4 errors. All 8 failures are `np.trapezoid` in `test_arcade` / `test_playground`.
+4. `import system_ident` pulls in neither `awg` nor `cdsutils` — the lazy-import contract holds.
+5. `cdsutils.getdata(<readback>, 2)` returned live data: exactly `2 × 256` samples, all finite, with
+   the buffer exposing `.data` / `.sample_rate` / `.start_time` — which is what Stage A's `FakeGetdata`
+   is specified to mimic, so the fake matches the real object.
+
+**The compat table above is now mostly moot**, because control 0.10.2 ships in this environment:
+
+| break | status at py3.11 / control 0.10.2 |
+|---|---|
+| `frdata` / `fresp` | **no shim needed** — `.frdata` exists. Do not write `_frd()`. |
+| `control.tf2ss(StateSpace)` | **accepted** — the 6 renames and 11 failures are gone |
+| `plotly` absent | **present** (6.6.0) — the 3 collection errors are gone |
+| `np.trapezoid` | **still broken** (numpy 1.26 < 2.0) — the 8 remaining failures, 5 sites |
+| `darm_adapter` circular import | unchanged; version-independent |
+
+So issue #23 reduces to the 5 `np.trapezoid` sites plus the circular import, and its extra CI leg
+should be **py3.11** (matching deployment), not py3.9.
+
+**One thing is NOT settled and cannot be settled here.** `awg` in this environment is **4.1.4**; the
+only awg client ever proven against the site's real-time system (**advLigoRTS branch-3.4**, 2017) is
+**3.1.2**. The read half is verified (item 5, and the `nds2` versions are *identical* across both
+stacks); the **injection** half is a hardware-only unknown — issue #27, and gated per §1 Rule 2:
+operator-chosen channels, separate approval for every single injection, live supervision. Usefully,
+`awg` 4.1.4 no longer calls `Thread.isAlive`, so §4.1's shim is unnecessary here — keep it
+`hasattr`-guarded rather than deleted, because fallback rungs 2 and 4 below still need it.
+
+Fallback ladder if awg 4.1.4 will not drive the front ends. Each rung is a fresh
+operator-supervised bring-up:
+
+```
+1. python 3.11 + CDS 4.1.4   <- built and read-validated (this section)
+2. python 3.10 + CDS 3.1.2   <- isolates the variable: proven awg, newer python.
+                                3.10 is the HIGHEST python with a python-awg 3.1.2 build.
+3. python 3.10 + CDS 4.1.4   <- site cds-py310.yaml; note it is ALSO 4.1.4, so it only helps
+                                if the fault is python-3.11-specific rather than awg-generation
+4. python 3.9  + CDS 3.1.2   <- the pre-existing installed env; the original fallback of record
+```
+
+Practical notes for anyone repeating this: the deployment machine's conda is 22.11.1 with **no mamba**,
+and its classic solver could not solve this in 30 minutes (it falls through `current_repodata.json`
+because the pins predate latest-only metadata, then grinds on full repodata); a static `micromamba` in
+a user-owned directory does it in seconds, and base conda need not be touched. `cds-crtools` pulls
+**ROOT** (~255 MB, a third of the download) — droppable for a slimmer env.
 
 ## 9. Open questions
 

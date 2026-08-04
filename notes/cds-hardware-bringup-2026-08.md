@@ -40,11 +40,16 @@ injection.
 - **`CLAUDE.md:47-49`'s Phase-1 hardware gate is lifted for transport work** as of 2026-08-03. Live
   injection remains human-gated, per the new hardware-safety rules. Recorded rather than deleted so a
   future reader does not revert the port on sight.
-- **A newer environment is not available for the hardware path.** The CDS 3.1.2 control packages
-  (`foton`, `python-foton`, `python-awg`, `libawg`, `dtt-*`, `python-nds2-client`) are **py3.9-only
-  builds** in the deployment machine's channel — which is exactly why the sibling repo had to pin
-  `python=3.9` and drop the `anaconda` metapackage. This was the option we were asked to investigate;
-  the answer is that the *reverse* is cheap. See §Environment.
+- ~~**A newer environment is not available for the hardware path.**~~ **REVERSED 2026-08-03** (later
+  the same day). The claim below was wrong: it described the environment *installed* on the deployment
+  machine (a 2022 `cds-crtools 3.1.2` clone) and generalised that to "the channel". CDS publishes a
+  **python 3.11** environment (`cds-py311.yaml`) with CDS **4.1.4**, and all those packages are on
+  conda-forge with `py311`/`py312`/`py313` builds. **`sysid_deploy` (py3.11 + CDS 4.1.4) is built and
+  read-validated.** Struck through rather than deleted so the mistake stays visible. Original text:
+  *The CDS 3.1.2 control packages (`foton`, `python-foton`, `python-awg`, `libawg`, `dtt-*`,
+  `python-nds2-client`) are py3.9-only builds in the deployment machine's channel — which is exactly why
+  the sibling repo had to pin `python=3.9` and drop the `anaconda` metapackage. This was the option we
+  were asked to investigate; the answer is that the reverse is cheap.* See §Environment.
 - **This repo is public.** Deployment-machine hostnames, accounts, paths and SSH mechanics stay in an
   untracked local note; only redacted workflow-level facts are committed
   (`notes/deployment.md`). The sibling repo tracks the concrete values only because that GitLab project
@@ -106,6 +111,24 @@ enforce them: a single-use approval token inside `CDSBackend.inject()`, `--yes` 
 hardware path, and pre-injection amplitude ceilings (spec §5).
 
 ## Environment
+
+**Superseded 2026-08-03 — read this box first.** The hardware path is now **`sysid_deploy`: python
+3.11 with CDS 4.1.4**, built and read-validated on the deployment machine. Declarative spec
+`environment_deploy.yml`, exact export `environment_deploy_lock.yml`, full measured detail in **spec
+§8a**. Headlines:
+
+- python 3.11.15 / numpy 1.26.4 / scipy 1.13.1 / control 0.10.2 / slycot 0.6.1; CDS `4.1.4` on
+  `py311` builds; `cdsutils 1.7.0`, `gpstime 0.10.0`, `nds2 0.16.8`/`0.16.12`.
+- Deployment-gate subset **61 passed / 1 skipped** — *identical* to the py3.9 baseline. Full suite
+  **290 / 8 / 17**, and all 8 failures are `np.trapezoid` (numpy < 2.0) in the arcade/playground half.
+- Live **read-only** `cdsutils.getdata` returned data at the expected rate. **No injection.**
+- **Unverified and human-gated:** awg here is 4.1.4; the only client proven against the site's
+  advLigoRTS branch-3.4 front ends is 3.1.2. Fallback ladder in spec §8a; issue #27.
+- Also open: the deploy key needs **repo-admin rights**, so the checkout is `rsync`-delivered for now
+  and cannot `git fetch`.
+
+The paragraphs below describe the *previous* target and are retained because fallback rungs 2–4 still
+reference that stack.
 
 The hardware path is pinned to the site CDS baseline: **python 3.9.13 / numpy 1.22.4 / scipy 1.8.1 /
 control 0.9.2 / slycot 0.4.0.0**. Not because those versions are required by the hardware, but because

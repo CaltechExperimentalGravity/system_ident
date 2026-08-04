@@ -1,0 +1,80 @@
+# environment_deploy.yml
+#
+# DECLARATIVE SPEC for the `sysid_deploy` hardware environment on the CDS workstation
+# (linux-64). This is the human-readable source of intent; `environment_deploy_lock.yml` is the
+# exact export of what is actually installed there and is the source of truth for versions.
+#
+# Create (from the repo root, so the editable install resolves):
+#     conda env create -f environment_deploy.yml
+#     conda run -n sysid_deploy pip install -e . --no-deps
+#
+# `--no-deps` is MANDATORY. All six core dependencies (numpy, scipy, control, slycot, pyyaml,
+# matplotlib) are pinned below, and nothing may bump numpy/scipy underneath the compiled
+# foton / awg / nds2 extension modules.
+#
+# WHY THESE VERSIONS. Every pin is taken verbatim from the CDS-published environment
+#     https://apt.ligo-wa.caltech.edu/sources/conda/environments/linux-64/cds-py311.yaml
+# (version 2026-03-12), which is the python 3.11 CDS rollout the help desk confirms as supported.
+# Matching it is an ABI argument, not a preference: `python-foton`, `python-awg` and
+# `python-nds2-client` are compiled extensions built against that numpy/python pair.
+#
+# This is a LEAN SUBSET of that environment — the CDS control packages this project actually
+# uses, plus its own dependencies — not the full 1090-package set. If the lean env ever shows
+# behaviour the full one does not, install `cds-py311.yaml` unmodified (as `cds-311-test`) and
+# clone it instead; the full set is what the site validates. See
+# `docs/superpowers/plans/2026-08-03-cds-hardware-backend.md` Stage H.
+#
+# HISTORY. This supersedes the previous plan of cloning the site's *installed* `cds` environment
+# (python 3.9.13 / numpy 1.22.4 / scipy 1.8.1 / control 0.9.2 / cds-crtools 3.1.2, a 2022
+# vintage). That environment is a 2022 install, not a limit of the channel: every CDS package is
+# on conda-forge with linux-64 py311/py312/py313 builds. See issue #22 and design spec §8.
+#
+# FALLBACK LADDER, if awg 4.1.4 will not talk to the site's real-time system (advLigoRTS
+# branch-3.4, 2017 — the only awg client proven against it is 3.1.2):
+#   1. python 3.11 + CDS 4.1.4   <- this file
+#   2. python 3.10 + CDS 3.1.2   <- isolates the variable: proven awg, newer python
+#                                   (3.10 is the highest python with a python-awg 3.1.2 build)
+#   3. python 3.10 + CDS 4.1.4   <- site cds-py310.yaml; only helps if the fault is py3.11-specific
+#   4. python 3.9  + CDS 3.1.2   <- the pre-existing installed environment
+# Each awg-generation change needs its own operator-supervised, per-injection approvals from
+# scratch (CLAUDE.md §Hardware safety).
+#
+# The dev/docs environment is unchanged: `environment.yml` (`sysid`, python 3.12) stays primary.
+#
+name: sysid_deploy
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+
+  # Core scientific stack. control 0.10.2 is what makes the py3.9 compat shims
+  # unnecessary: FrequencyResponseData.frdata exists and tf2ss accepts a StateSpace.
+  - numpy=1.26.4
+  - scipy=1.13.1
+  - control=0.10.2
+  - slycot=0.6.1
+  - matplotlib-base=3.10.8
+  - pyyaml=6.0.3
+
+  # plotly is a `docs` extra, but it is in the CDS set and three test modules fail
+  # collection without it — cheaper to have than to skip.
+  - plotly=6.6.0
+
+  # Test runner. Not ABI-bound; pin lower if a pytest-9 removal breaks collection.
+  - pytest=9.0.2
+  - pytest-cov
+  - pytest-mock=3.15.1
+
+  # CDS control packages — the hardware transport. Lazy-imported by
+  # `system_ident.backends.cds`, so nothing here is needed on the twin path.
+  - cds-crtools=4.1.4
+  - foton=4.1.4
+  - python-foton=4.1.4
+  - libawg=4.1.4
+  - python-awg=4.1.4
+  - dtt-awgstream=4.1.4
+  - cdsutils=1.7.0
+  - gpstime=0.10.0
+  - nds2-client=0.16.8
+  - python-nds2-client=0.16.12
