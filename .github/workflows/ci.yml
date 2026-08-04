@@ -34,9 +34,20 @@ jobs:
           # The example .qmd files execute Python, so register a jupyter kernel.
           python -m ipykernel install --user --name python3 --display-name python3
       - name: Provenance gate — no fabricated ("ASSUMED") numbers may ship
-        # Fast (~1 s): imports the physics modules and fails if any physical input
-        # is an un-reviewed placeholder. The heavy test suite stays local, not in CI.
-        run: python -m pytest tests/test_provenance.py -q
+        # Fast (~1 s): import the physics modules and fail if any physical input is an un-reviewed
+        # placeholder. Run as plain Python (no pytest — it is not a CI dependency; the full
+        # tests/test_provenance.py suite stays local). require_grounded() raises on any ASSUMED value.
+        run: |
+          python - <<'PY'
+          import importlib
+          from system_ident import provenance as prov
+          for m in ("system_ident.darm", "system_ident.darm_callines"):
+              importlib.import_module(m)
+          prov.require_grounded()
+          bad = [e.name for e in prov.registry().values() if e.kind != prov.CONSTANT and not e.source]
+          assert not bad, f"registered values missing a source: {bad}"
+          print(f"provenance gate OK — {len(prov.registry())} grounded physical inputs")
+          PY
       - name: Build API reference
         working-directory: docs
         run: quartodoc build
