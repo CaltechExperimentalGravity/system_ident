@@ -70,6 +70,21 @@ spec; the headlines:
    **2.81e-1** error, vs **1.4e-11** using the AWG's own `ramptime` (which is what the sibling repo
    does). `base.py`'s "MUST pass through `_soft_start_stop`" contract mandates the broken construction
    and is rewritten.
+   > **AMENDED 2026-08-04 (issue #31, spec §2.3).** Note the emphasis: `_soft_start_stop` is wrong **for
+   > a *looping* transport** — not wrong in itself. The conclusion originally drawn from this, *"so use
+   > the AWG's own `ramptime`"*, was a mistake, because **the AWG ramp is linear** (`awgSetGain`,
+   > measured to five decimals in §8b) while `_soft_start_stop` is a **cosine** Tukey taper, which is
+   > **gentler on the actuator and preferred**. The linearity is the reason the transport ramp is *not*
+   > an equivalent substitute.
+   >
+   > The fix is to stop looping: build the whole excitation as one array with a cosine envelope —
+   > segmented ramp-on / settle / main / ramp-off — and inject it once via **`awg.ArbitraryStream`**.
+   > Note this table's own third row already scored the **one-shot lead+record+tail construction at
+   > 8.8e-12**, so the preferred construction was measured from the start, and it is the
+   > `RTSfreerunBackend` one — twin and hardware can share a single envelope construction.
+   > `ArbitraryLoop` is retained as a **supported peer mode** (`cds.exc_mode: stream | loop`), for
+   > development, on request, and for very long records where it is structurally immune to the stream's
+   > underrun risk.
 3. **A bare `CDSBackend` silently disables all automatic safety.** `config.py:121-122` builds the
    watchdog with no channel maps and `safety.py:77-84` falls back to `getattr(backend, "exc_channels",
    {})`; with neither attribute, `check()` never raises **and** `abort()` never calls `ramp_down` — for
@@ -195,3 +210,8 @@ Two environment traps carried over from the sibling repo's first hardware run, n
    >   sine/square used here. **Half-closed.**
    > - **Still open:** AWG slot release for a second `ArbitraryLoop`; live `getdata` short/gap behaviour;
    >   actual DAC counts vs the design budget.
+   > - **New, from issue #31** — the default excitation mode is now `awg.ArbitraryStream`, which has
+   >   **never been driven at the site**: can `append` sustain a multi-hour real-time feed without an
+   >   underrun; what does an underrun look like at the front end (gap, hold, or silence); does
+   >   `set_gain(gain, ramptime=…)` ramp a *stream* as cleanly as it ramps a loop; and does `abort()`
+   >   stop a stream promptly. All human-gated, per-injection.

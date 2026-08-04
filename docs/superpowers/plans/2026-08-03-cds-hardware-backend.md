@@ -31,6 +31,7 @@ I  documentation                (rolling)
 
 | Stage | Issues |
 |---|---|
+| **Excitation construction (cross-cutting, 2026-08-04)** | **#31** `ArbitraryStream` + cosine envelope; `ArbitraryLoop` as peer mode — supersedes #9's implied fix and touches A, C, D, E, F |
 | A — fake transport harness | #5 |
 | B — loop/estimator hardening | #6 `P_eff<2` weight · #7 energy-span slice · #8 blind `H_err` · #9 ramp contract · #10 `resample_poly` |
 | C — transport seam | #11 `AWGNDSTransport` · #12 `TwinTransport` |
@@ -55,6 +56,12 @@ the dev machine, so every CDS test must fake them. Model on `tests/test_rtsfreer
   **construction**, `start` and `stop` at class level. Tests assert *the loop was never constructed*,
   not merely that `.start` was not called; a gate that constructs the object and then declines is
   still a gate that reached the AWG API.
+- **`FakeArbitraryStream` (added by #31)** — the default excitation mode is now the stream, so the
+  harness needs both. Record `open`/`close`/`abort`/`set_gain(gain, ramptime)` and, critically, **the
+  size and order of every `append`**, so chunked feeding and a simulated **underrun** (a gap in the
+  appended data) are both testable off-hardware. Same class-level construction counting as the loop
+  fake, for the same reason. `ArbitraryLoop` subclasses `ArbitraryStream` in real `awg`, so the fakes
+  should mirror that relationship rather than duplicate it.
 - `FakeGetdata` — returns objects with `.data` / `.sample_rate` / `.start_time`, driving an `lfilter`ed
   plant, with a **settable GPS offset** so misalignment is directly testable, plus switches for
   short reads, gaps and a missing channel.
@@ -75,7 +82,22 @@ Each is spec §3.x; the measured signature is the acceptance test.
 | **B1** #6 | `loop.py:444`, `:460` | `P_eff < 2` → `H_err = inf` (zero weight in `_accumulate`) or raise. Never `0`. Add a config check that `n_segments ≥ n_transient + 3` (`loop.py:376` needs the headroom). | weight at `P_eff==1` goes 4.56e+19 → 0 |
 | **B2** #7 | `loop.py:419-423` | Take the longest genuinely **contiguous** run of full-energy periods, not the span; or drop the heuristic and raise when the per-period energy spread exceeds tolerance. | energies `[1,1,1,1,.571,.492,1,1]` no longer yield the slice `0:8` |
 | **B3** #8 | `loop.py:438-464` | Independent misalignment check that does **not** use period-to-period scatter: compare measured `Xbar` phase against the known injected multisine phase; require the residual to be at most a small fraction of a sample of pure delay. Backends expose the injected waveform so `read()` can assert before returning. | the 2.00e+0 stashed-X case is flagged, not reported as coherence 1.00000 |
-| **B4** #9 | `base.py:19-24`, `:45-47` | Rewrite the ramp contract: a backend MUST apply a `ramp_s` on/off envelope **either** via `_soft_start_stop` on a one-shot lead+record+tail array **or** via an equal-duration transport-level gain ramp — never both, and it must document which. | contract text permits `CDSBackend`; a test asserts the CDS drive is an untapered integer-period tiling with `ramptime == ramp_s` |
+| **B4** #9 | `base.py:19-24`, `:45-47` | Rewrite the ramp contract: a backend MUST apply a `ramp_s` on/off envelope **either** via `_soft_start_stop` on a one-shot lead+record+tail array **or** via an equal-duration transport-level gain ramp — never both, and it must document which. **RETARGETED by #31 — see below.** | contract text permits `CDSBackend`; a test asserts the CDS drive is an untapered integer-period tiling with `ramptime == ramp_s` |
+
+> **B4 retargeted 2026-08-04 (#31).** The diagnosis in #9 stands; its *implied fix* does not. "Use the
+> transport-level gain ramp" was taken to be a neutral swap, but that ramp is **linear**
+> (`awgSetGain`, measured to five decimals in spec §8b) while `_soft_start_stop` is a **cosine** Tukey
+> taper — which is **gentler on the actuator and preferred**. The replacement is spec **§2.3**: a cosine
+> envelope baked into a one-shot **`awg.ArbitraryStream`** array, segmented ramp-on / settle / main /
+> ramp-off, with `ArbitraryLoop` kept as a **supported peer mode** under `cds.exc_mode`.
+>
+> Two changes to the row above:
+> - The contract stays **two-branch**, but each branch must now also document **which envelope shape it
+>   produces**, and that cosine is preferred. That omission is exactly what allowed a cosine taper and a
+>   linear gain ramp to be treated as interchangeable.
+> - The acceptance test applies to **loop mode only**. Stream mode's assertion is the opposite: the
+>   staged array *is* tapered — cosine, `t_ramp` at each end — and the taper falls entirely outside the
+>   analysed window.
 | **B5** #10 | `rtsfreerun_adapter.py:153-155`, `:183`, `:296-301` | Replace `resample_poly` on the tiled array with `sig.resample` on **one period**, then tile. Better where possible: regenerate the multisine at the model rate (exactly periodic). | per-period deviation 5.32e-1 → <1e-9 at the shipped 256/16384 ratio; median `H_err/\|H\|` returns to 1e-9 |
 
 **Verification:** new cases in `tests/test_periodic_measurement.py` reproducing each measured
@@ -87,6 +109,12 @@ signature, plus the existing suite unchanged.
 
 New `src/system_ident/backends/cds_transport.py`. Protocol per spec §4.1, with `AWGNDSTransport` and
 `TwinTransport`.
+
+> **Amended by #31.** The protocol must express **both** excitation modes, not just the loop: a
+> `stream` mode (`open`/`append`/`close`, one-shot enveloped array — the default) and a `loop` mode
+> (staged tiling + `start`/`stop` with `ramptime`). Both need `set_gain(gain, ramptime)` and `abort()`,
+> which `awg.ArbitraryStream` provides independently of the queued data. `TwinTransport` must honour
+> both so mode selection is testable off-hardware.
 
 Ported from `automatic-frf-measurement` `40m-sys-test:measurement/backend_rtcds.py`, comments included
 — these are the hardware lessons, and the comments are why they exist:
@@ -115,7 +143,18 @@ Stage A fakes.
 
 ## Stage D — `CDSBackend`  · issues #13–#16
 
-Fill `src/system_ident/backends/cds.py`. Spec §4.2 is the specification; the four issues split it:
+Fill `src/system_ident/backends/cds.py`. Spec §4.2 is the specification; the four issues split it.
+
+> **Amended by #31 — read spec §2.3 alongside §4.2, which still assumes `ArbitraryLoop` only.** In the
+> default **stream** mode: `inject()` builds one array with a **cosine** envelope, segmented
+> ramp-on (`t_ramp`) / settle (`warmup_s`) / main (`segment_duration × n_segments`) / ramp-off
+> (`t_ramp`), and must **not** override `_soft_start_stop` to a pass-through — that override belongs to
+> **loop mode only**. `read()`'s analysed window is **segment 3 only** (#14), so the taper never touches
+> the periods entering the FRF. #15's settle *is* segment 2. #16's `ramp_down` maps to
+> `set_gain(0, ramptime=secs)` and the hard stop to `abort()`, both independent of the queued data — so
+> §2.2's "impossible to rewrite a queued array" objection does not apply. The `finally` must also handle
+> a **stream underrun**, which #8's independent check and an `_EXC`-vs-commanded comparison are what
+> detect, since `H_err`/coherence are structurally blind to it.
 
 **#13 — construction and staging.**
 `from_config(config)` is the constructor of record. It must expose `exc_channels` /
@@ -173,7 +212,9 @@ first injection; add `--skip-background` and a `measurement.Pyy_from_file` path 
 time otherwise spent before anything is injected).
 
 **#19 — mandatory out-of-band STOP.** Require *a* stop path on the CDS backend: the dashboard, or the
-SIGINT handler documented and printed prominently at startup. Do **not** force `--no-dashboard` —
+SIGINT handler documented and printed prominently at startup. **(#31: on the stream path the underlying
+primitives are `set_gain(0, ramptime=…)` for a graceful ramp and `abort()` → `SIStrAbort` for a hard cut
+— both available on `awg.ArbitraryStream` and both independent of the queued data.)** Do **not** force `--no-dashboard` —
 `cli.py:108-113` already degrades gracefully and the extra is pip-installable under py3.9.
 
 **Verification (all on fakes):** denying authorizer raises *and* `FakeArbitraryLoop` was never
@@ -189,7 +230,9 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
 - `cli.py` — add `--cds`; remove the hard refusal at `:62-68`.
 - `config.py` — `build_cds_backend(...)` beside `build_twin_backend` (`:144`) /
   `build_rtsfreerun_backend` (`:162`); a `BACKENDS` registry mirroring `ESTIMATORS` / `DESIGNERS`
-  (`:31-35`); a `cds:` section (`transport: awg_nds | twin`, `start_buffer`, the site IFO key)
+  (`:31-35`); a `cds:` section (`transport: awg_nds | twin`, **`exc_mode: stream | loop` defaulting to
+  `stream` (#31) — selecting `loop` must emit a warning naming the consequence, a linear envelope
+  harsher on the actuator than the cosine taper**, `start_buffer`, the site IFO key)
   validated in `REQUIRED`; **`channels.drive` mandatory** for this backend — a `ConfigError`, not
   `loop.py:90`'s silent fallback and `_warn_open_drive_monitor`'s warning, because that fallback *is*
   the 200%-error configuration.

@@ -124,6 +124,28 @@ an implementer toward exactly the alignment code this section rules out.
 
 ### 2.2 `_soft_start_stop` is wrong for a **looping** transport
 
+> **CORRECTION (2026-08-04).** Everything below about the *looping* transport stands — the measurements
+> are real. Two things in it are wrong, and **§2.3 supersedes its design consequence**:
+>
+> 1. **The two ramps are not interchangeable.** `_soft_start_stop` is `scipy.signal.windows.tukey`, a
+>    **cosine** taper (C¹ — slope starts at zero). `ArbitraryLoop.start(ramptime)` is `set_gain(0)` then
+>    `set_gain(g, ramptime=…)` → `awgSetGain`, a **linear** gain ramp with a slope discontinuity at both
+>    ends. The 2026-08-04 operator run (§8b) measured that linearity to five decimals. A cosine taper is
+>    **gentler on the actuator and is preferred**, so "use the transport's own ramp" is a *downgrade* in
+>    envelope quality, not a neutral swap. It was accepted below only because the looped construction
+>    left no alternative.
+> 2. **"`ramp_down` would have to rewrite an already-queued array, which is impossible" is false** for
+>    `awg.ArbitraryStream`. `ArbitraryStream` — which `ArbitraryLoop` *subclasses* — carries
+>    `set_gain(gain, ramptime=…)` → `awgSetGain` and `abort()` → `SIStrAbort`, both **independent of the
+>    queued data**. So `ramp_down(channel, secs) → set_gain(0, ramptime=secs)` maps exactly on a one-shot
+>    stream, and §5's mandatory STOP has `abort()`. This removes one of the two arguments that pushed the
+>    design to `ArbitraryLoop`.
+>
+> Note the table below already scores **one-shot lead+record+tail at 8.8e-12**, as good as the
+> `ramptime` path — so the preferred construction was measured all along, and it is the
+> `RTSfreerunBackend` one, which means twin and hardware can share a single envelope construction.
+> `ArbitraryLoop` remains a **supported peer mode**, not a deprecated path: see §2.3.
+
 `base.py:26-39` applies a Tukey envelope to the whole injected array, and `base.py:30-32` says every
 actuating backend MUST use it. But `ArbitraryLoop` **repeats** the staged array, so the taper becomes
 a periodic amplitude modulation at the *loop* period rather than a one-shot envelope: the drive is
@@ -159,6 +181,88 @@ envelope, **either** via `_soft_start_stop` on a one-shot lead+record+tail array
 `RTSfreerunBackend.read`) **or** via an equal-duration transport-level gain ramp (see `CDSBackend`) —
 never both, and it must document which.* A test asserting the staged CDS drive is an untapered
 integer-period tiling with `ramptime == ramp_s` is what keeps that from becoming a loophole.
+
+**Amended by §2.3:** the contract stays two-branch, but each branch must additionally document **which
+envelope shape it produces** — the omission that let a cosine taper and a linear gain ramp be treated as
+equivalent in the first place.
+
+### 2.3 The segmented `ArbitraryStream` excitation, and two peer modes
+
+Since a cosine envelope cannot be had from a *looped* array (§2.2: tapering the staged array gives
+**2.81e-1**), get it from a different awg API. Build the whole excitation as **one array carrying a
+cosine on/off envelope** and inject it once with **`awg.ArbitraryStream`**, in four temporal segments:
+
+| # | segment | duration | envelope | analysed? |
+|---|---|---|---|---|
+| 1 | **ramp-on** | `t_ramp` | cosine (rising half-taper) | no |
+| 2 | **settle** — the system under test's transient decays | `warmup_s` | flat, full amplitude | **no — discarded** |
+| 3 | **main excitation** — read back, FRF measured | `segment_duration × n_segments` | flat, full amplitude | **yes** |
+| 4 | **ramp-off** | `t_ramp` | cosine (falling half-taper) | no |
+
+**No new configuration.** The four durations derive from keys that already exist and already mean this
+in the twin and `rtsfreerun` backends — `t_ramp`, `warmup_s`, `segment_duration`, `n_segments` — so there
+is one meaning per knob across every backend. Shipped `configs/rtsfreerun_hsts.yml`: `3 + 24 + 96 + 3 =
+126 s`.
+
+Segments 1, 2 and 4 lie **outside** the analysed window, which is the whole point: the taper never
+touches the periods that enter the FRF, so §2.1's requirements are untouched and the periodicity of
+segment 3 is exact. `read()` must therefore window **segment 3 only** (§4.2), and a config check must
+enforce `t_ramp ≤` the lead it is tapering into.
+
+#### Two supported peer modes — `cds.exc_mode: stream | loop`
+
+`ArbitraryLoop` is **not** demoted to a fallback. Both modes are supported, both tested, both in the
+fake harness. `exc_mode` defaults to **`stream`**; selecting `loop` is a deliberate choice and **warns**,
+naming the consequence — a linear envelope, harsher on the actuator than the cosine taper.
+
+`loop` has four legitimate roles:
+
+1. **Fallback** if stream injection misbehaves on hardware.
+2. **Development pipeline** — simpler to drive.
+3. **Valid on request**, or wherever a linear ramp carries no disadvantage for the use case.
+4. **Very long excitations.** ← see the correction below.
+
+#### Role 4, computed rather than asserted
+
+Per the feasibility gate: do not claim a limit without the number.
+
+- Shipped config, one experiment = 126 s. At `fs_hw = 16384` in float64: `126 × 16384 × 8` ≈ **16.5 MB**.
+  Memory is a non-issue.
+- A **Q-limited** physics-sized record is different. `T ≥ ~Q/f0` gives `T_perseg ≈ 1493 s` for Q = 1000
+  at 0.67 Hz, so 6 periods ≈ 8955 s ≈ 2.5 h → **≈1.17 GB per channel**, ≈3.5 GB for 3 DoF simultaneous.
+  Large but tractable, and §4.2's campaign estimates already run to hours.
+- **But `append(data, scale)` can be fed in chunks.** The segmented envelope needs only the total
+  *length* up front — not the samples — so the array need never be resident, and it can be generated
+  period by period. **The memory rationale for `loop` therefore dissolves.**
+- **What does not dissolve is stream underrun.** `append` pushes data in real time from Python; a stall
+  (GC, NFS, network) starves the stream and leaves a **gap in the excitation**. `ArbitraryLoop` is
+  structurally immune, because the front end repeats a staged buffer with no further Python involvement.
+
+So role 4 is justified — **on underrun-immunity grounds, not memory.** That is the stronger argument, and
+it makes the case less remote than a pure edge case: it scales with record duration, and the durations
+this campaign targets are hours.
+
+#### Underrun is a §3.3-class fault, and must be detected explicitly
+
+A gap in the excitation is exactly what `H_err` and coherence **cannot see** (§3.3: they are
+period-to-period scatter, so a corrupted FRF can still report coherence ≈ 1). Two detections already
+exist in the design and should be reused rather than reinvented:
+
+1. **§3.3's independent check** — measured `Xbar` phase against the known injected multisine phase.
+2. **Compare the `_EXC` readback against the commanded array.** Newly known to be feasible: §8b measured
+   `_EXC` as NDS-readable at the model rate, round-tripping amplitude and shape exactly. A gap shows up
+   directly.
+
+#### Deferred — planned, not implemented
+
+- **Shrinking segment 2, via issue #1** (Local Polynomial Method / GraFIT). LPM estimates the
+  transient/leakage term rather than waiting it out, so the discarded settle could shrink and with it the
+  dominant fixed cost per experiment. **Defer planning.**
+- **MIMO.** Segments 1–4 constitute one **'experiment'**. A MIMO measurement contains one experiment
+  **per input**, so `n_experiments = n_inputs`. **Defer planning.**
+
+**§4.1 and §4.2 below still specify `ArbitraryLoop` as the only transport** and must be reworked to
+express both modes. Not done here — tracked on the owning issue.
 
 ## 3. Defects in `system_ident` that a hardware run would hit
 
@@ -604,9 +708,17 @@ square wave, whose envelope is exactly `|x|`, recovers √5 to five decimals in 
 **Three things this settles, beyond the client-version question:**
 
 1. **The AWG's own `ramptime` is a clean *linear* gain ramp**, measured to five decimals and symmetric
-   on the way down. This is direct hardware evidence for §2.2: the transport-level ramp is real and
-   behaves as the ramp contract (§3.4 / plan B4) assumes, so `_soft_start_stop`'s Tukey taper is not
-   merely unnecessary — the correct alternative is confirmed to exist.
+   on the way down.
+   > **CORRECTED 2026-08-04.** This bullet originally continued: *"…so `_soft_start_stop`'s Tukey taper
+   > is not merely unnecessary — the correct alternative is confirmed to exist."* **That inverted the
+   > conclusion.** What the measurement establishes is that the transport ramp is **linear**, and
+   > `_soft_start_stop` is a **cosine** taper — which is *gentler on the actuator and preferred*. So the
+   > linearity is precisely the reason the transport ramp is **not** an equivalent substitute. The
+   > measurement is sound; the inference was not. See **§2.3** for the resolution: a cosine envelope
+   > baked into a one-shot `ArbitraryStream` array, with `ArbitraryLoop` retained as a supported peer
+   > mode. What this bullet *does* establish is narrower and still useful: the transport gain-ramp
+   > mechanism works on real hardware and is accurately characterised, which is what makes `loop` a
+   > usable peer mode and `set_gain`-based `ramp_down` trustworthy.
 2. **`_EXC` is NDS-readable at the site, at the model rate.** That was an explicit hardware-only
    unknown (see the bring-up note's open questions). It matters because §2.1 requires `read()` to use a
    real readback for X rather than synthesising it, and this is the channel that supplies it.
