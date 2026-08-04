@@ -196,9 +196,10 @@ dd.design_fig(dc)
 display(dd.design_table(dc))
 ```
 
-The designed handful of lines reaches a far lower joint cost than a broadband multisine of the same
-budget — the drive belongs where the parameters are informative, not spread thin. Injecting exactly
-this roster on the twin and reading it back leakage-free recovers the drifting parameters:
+A **handful** of designed lines reaches a lower joint cost than a broadband multisine that spends the
+same budget over ~six times as many lines — the drive belongs where each parameter is informative,
+not spread thin across the band (much of which is the seismic wall or a stage's dead zone). Injecting
+exactly this roster on the twin and reading it back leakage-free recovers the drifting parameters:
 
 ```{python}
 #| code-summary: "Track the joint set from the DESIGNED cal-line readout (not broadband)"
@@ -214,10 +215,19 @@ The **κ_C drift prior is measured** (Sun et al. 2020: the optical gain varies 1
 placeholders** — the O3/O4 papers do not quantify them — and the per-stage force caps are **derived**
 by matching the Pcal ruler, since the papers give no per-stage line amplitude. The design tracks the
 **identifiable joint set** for this twin and the O4 floor: `κ_C`, `δ`, and the two in-band stages
-`κ_PUM`/`κ_ESD`. The other TDCFs are feasibility-gated, not hidden: **`κ_M0`** is the *top mass*,
-offloaded below ~0.5 Hz, so its line falls outside the ≥10 Hz band the O4 floor covers; and
-**`f_cc`/`τ`** need a wideband high-frequency Pcal spread to become well-conditioned. The joint
-Fisher (`darm_callines.joint_fisher`) quantifies exactly what each of those would require.
+`κ_PUM`/`κ_ESD`. The other TDCFs are feasibility-gated, not hidden:
+
+- **`κ_M0`** — the design frequency band runs down to **1 Hz** (there is no arbitrary cap), and the
+  placement uses the honest **seismic wall** extrapolated below 10 Hz (`darm_o4_asd_seismic`, ≈ f⁻⁷).
+  With that real floor the top mass is squeezed out from both sides: below ~10 Hz the seismic wall
+  buries its line, and above ~10 Hz its own hierarchical offload rolls its DARM authority off as
+  ≈ f⁻⁸. A leakage-free simulation confirms the line cannot be recovered anywhere in band, so
+  `κ_M0` is **not** claimed here — it would need a sub-Hz line, where the detector is deaf. (The
+  analytic Fisher is optimistic for this offloaded stage; the simulation is the arbiter.)
+- **`f_cc`/`τ`** need a wideband high-frequency Pcal spread to become well-conditioned.
+
+The joint Fisher (`darm_callines.joint_fisher`) plus the simulated readout together say what each of
+those would require, rather than reporting a number the simulation won't back up.
 :::
 
 ## Honest gaps

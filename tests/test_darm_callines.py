@@ -143,13 +143,13 @@ def test_a_optimal_design_beats_broadband_and_is_well_conditioned():
     abs_std = {n: (_PRIORS[n] * abs(nom[i]) if n in frac else _PRIORS[n]) for i, n in enumerate(_SCOPE)}
     P = cl._prior_cov(abs_std, _SCOPE)
     d = cl.design_lines(loop, _PRIORS, T=60.0, n_pcal=3, names=_SCOPE)
-    # broadband: many equal Pcal lines flat across the band
-    bb = [(f, "PCAL", cl.line_displacement(loop, "PCAL", f, caps, pcal_weight=1 / 30))
-          for f in np.geomspace(10, 1200, 30)]
+    # broadband on every port (fair: measures the same params, but spreads the power thin)
+    bb = cl.broadband_roster(loop, _SCOPE, caps, n_per_port=10)
     cost_bb = cl.a_optimal_cost(cl.joint_fisher(loop, bb, 60.0, names=_SCOPE)[0], P)
     assert d["cost"] < cost_bb, f"A-optimal {d['cost']:.3f} not better than broadband {cost_bb:.3f}"
     assert d["full_rank"], "designed roster is rank-deficient"
-    assert 0.0 < d["cost"] <= len(_SCOPE)                          # bounded Bayesian A-cost
+    # data-A cost = Σ (snapshot σ / drift prior)² = Σ 1/margin²; < n_par ⇔ every drift resolved
+    assert 0.0 < d["cost"] < len(_SCOPE)
     assert all(m > 1.0 for m in d["margins"].values())            # every drift resolved
 
 
@@ -204,3 +204,15 @@ def test_provenance_gate_flags_a_planted_assumption():
             prov.require_grounded()
     finally:
         prov._REGISTRY.pop("planted_placeholder", None)
+
+
+def test_o4_floor_clamped_vs_seismic_wall():
+    """The simulation floor (darm_o4_asd) clamps flat below the ~10 Hz table start; the DESIGN floor
+    (darm_o4_asd_seismic) extrapolates the seismic wall (≈ f^−7) — steeply rising, finite to DC, and
+    identical to the clamped floor at/above 10 Hz (so every line ≥10 Hz is simulated exactly)."""
+    from system_ident.darm import darm_o4_asd, darm_o4_asd_seismic
+    f_hi = np.geomspace(11.0, 4000.0, 40)
+    np.testing.assert_allclose(darm_o4_asd(f_hi), darm_o4_asd_seismic(f_hi), rtol=1e-9)
+    assert np.isclose(darm_o4_asd(1.0), darm_o4_asd(9.0))                  # clamped flat below table
+    assert darm_o4_asd_seismic(1.0) > 100.0 * darm_o4_asd_seismic(9.0)    # wall rises steeply
+    assert np.all(np.isfinite(darm_o4_asd_seismic(np.array([0.0, 0.1, 1.0, 10.0]))))

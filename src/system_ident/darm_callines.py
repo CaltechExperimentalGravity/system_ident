@@ -223,6 +223,23 @@ def line_displacement(loop, actuator: str, freq_hz: float, caps: dict | None = N
     return float(min(force_disp, pcal_range_disp(freq_hz)))       # ruler ceiling
 
 
+def broadband_roster(loop, names=PARAM_NAMES, caps=None, *, n_per_port=10, band=(10.0, 1200.0)):
+    """A **broadband** drive — the white-ish excitation the P&S design rejects — for a fair
+    head-to-head: ``n_per_port`` equal lines geom-spaced across ``band`` on every actuator (Pcal +
+    each stage), each sharing that actuator's budget (Pcal weight ``1/n``, stage force cap ``/n``).
+    Drives all the same parameters as the designed roster, but spreads the power thin instead of
+    concentrating it where each parameter is informative."""
+    caps = caps if caps is not None else stage_force_caps(loop, names=names)
+    stages = [n[len("kappa_"):] for n in names if n.startswith("kappa_")]
+    fs = np.geomspace(band[0], band[1], n_per_port)
+    roster = [(float(f), "PCAL", line_displacement(loop, "PCAL", float(f), pcal_weight=1.0 / n_per_port))
+              for f in fs]
+    for st in stages:
+        caps_st = {**caps, st: caps[st] / n_per_port}
+        roster += [(float(f), st, line_displacement(loop, st, float(f), caps_st)) for f in fs]
+    return roster
+
+
 def pcal_budget_crosscheck(loop) -> dict:
     """Order-of-magnitude check that the ±200 mW Pcal displacement is consistent with the 17.1 Hz
     line height read off Wade 2025 Fig. 2 (``PCAL_LINE_17HZ_STRAIN`` × 4 km arm). Returns both
@@ -268,26 +285,35 @@ def posterior_cov(gamma: np.ndarray, prior_cov: np.ndarray) -> np.ndarray:
     return post_scaled * np.outer(std, std)                       # back to absolute units
 
 
+#: Tiny ridge (in prior-σ units) that keeps the data-A-optimal objective finite for a degenerate
+#: line placement without letting the prior *hide* an unmeasured parameter. Small ⇒ a data-degenerate
+#: direction costs ~1/ridge (huge, so the design avoids it); a well-measured one costs 1/margin².
+_A_OPT_RIDGE = 1e-6
+
+
 def a_optimal_cost(gamma: np.ndarray, prior_cov: np.ndarray) -> float:
-    """Bayesian A-optimality objective ``tr(Σ_prior⁻¹·Σ_post) = tr((Γ'+I)⁻¹) = Σ_i 1/(λ_i+1)`` in
-    prior-σ units (λ_i = eigenvalues of the scaled data Fisher Γ'). Bounded in ``(0, n_par]``: it
-    equals ``n_par`` when the lines add nothing and → 0 as the lines fully determine θ. Smaller ⇒
-    the design resolves the drifts (relative to their priors) better. Robustly PSD."""
+    """Prior-weighted DATA A-optimality objective ``tr(Σ_prior⁻¹·Σ_data) ≈ Σ_i 1/λ_i`` in prior-σ
+    units (λ_i = eigenvalues of the scaled data Fisher Γ'; a tiny ridge keeps it finite). This is the
+    sum over parameters of ``(snapshot σ / drift prior)² = 1/margin²`` — exactly the joint estimator
+    variance on the *variations*, weighted by how much each drifts. Smaller ⇒ every drift is resolved
+    more sharply; a parameter the lines leave **data-degenerate** blows the cost up (≈ 1/ridge) rather
+    than being quietly propped up by the prior, so the design must actually measure every one."""
     Gs, _ = _scaled_fisher(gamma, prior_cov)
-    return float(np.sum(1.0 / (_psd_eig(Gs) + 1.0)))
+    return float(np.sum(1.0 / (_psd_eig(Gs) + _A_OPT_RIDGE)))
 
 
-def _single_line_info(loop, actuator, freq_hz, param_idx, caps=None, pcal_weight=1.0) -> float:
+def _single_line_info(loop, actuator, freq_hz, param_idx, caps, floor, pcal_weight=1.0) -> float:
     """The (unnormalised) Fisher information a single line at ``freq_hz`` on ``actuator`` carries
     about parameter ``param_idx`` — ``|∂lnH/∂θ|²·disp²/floor²``. Used to seed line placement at each
-    parameter's information peak (the physical-parameter analogue of the P&S dispersion function)."""
+    parameter's information peak (the physical-parameter analogue of the P&S dispersion function).
+    ``floor`` is the design noise floor callable (the honest seismic-wall floor)."""
     J = _log_jacobian(loop, actuator, [freq_hz], PARAM_NAMES)[param_idx, 0]
     disp = line_displacement(loop, actuator, freq_hz, caps, pcal_weight)
-    floor = float(loop.displacement_noise_asd([freq_hz])[0])
-    return float((abs(J) ** 2) * (disp ** 2) / (floor ** 2))
+    fl = float(np.atleast_1d(floor([freq_hz]))[0])
+    return float((abs(J) ** 2) * (disp ** 2) / (fl ** 2))
 
 
-def _seed_frequencies(loop, names, caps, band, n_pcal, n_scan=160):
+def _seed_frequencies(loop, names, caps, band, n_pcal, floor, n_scan=160):
     """Physics-aware seed: each stage line at the frequency where that stage best informs its own κ
     (its SNR peak in band), and ``n_pcal`` Pcal lines at the information peaks of the sensing
     parameters (g_c, f_cc, delta, tau — cycled if n_pcal differs). Beats a blind log-spread, which
@@ -295,19 +321,19 @@ def _seed_frequencies(loop, names, caps, band, n_pcal, n_scan=160):
     fs = np.geomspace(band[0], band[1], n_scan)
     stages = [n[len("kappa_"):] for n in names if n.startswith("kappa_")]
     sensing = [n for n in names if not n.startswith("kappa_")]
-    stage_seed = [fs[int(np.argmax([_single_line_info(loop, st, f, names.index("kappa_" + st), caps)
+    stage_seed = [fs[int(np.argmax([_single_line_info(loop, st, f, names.index("kappa_" + st), caps, floor)
                                     for f in fs]))] for st in stages]
     pcal_seed = []
     for j in range(n_pcal):
         p = sensing[j % len(sensing)]
         k = names.index(p)
-        pcal_seed.append(fs[int(np.argmax([_single_line_info(loop, "PCAL", f, k, pcal_weight=1.0)
+        pcal_seed.append(fs[int(np.argmax([_single_line_info(loop, "PCAL", f, k, caps, floor, pcal_weight=1.0)
                                            for f in fs]))])
     return np.log10(np.array(pcal_seed + stage_seed, dtype=float))
 
 
 def design_lines(loop, prior_std: dict, *, T: float = 60.0, caps: dict | None = None,
-                 n_pcal: int = 4, band=None, names=PARAM_NAMES, seed_freqs=None):
+                 n_pcal: int = 4, band=None, names=PARAM_NAMES, seed_freqs=None, floor=None):
     """Place the cal lines to minimise the A-optimal cost ``tr(Σ_prior⁻¹·Σ_snapshot)`` under the
     force caps — a **few** optimally-placed lines, not a broadband drive.
 
@@ -320,12 +346,16 @@ def design_lines(loop, prior_std: dict, *, T: float = 60.0, caps: dict | None = 
     snapshot σ per parameter; >1 ⇒ the drift is resolved).
     """
     from scipy.optimize import minimize
-    # Default to the real calibration band: ≥10 Hz (where the O4 floor is measured data, not the
-    # clamped low-f endpoint, and the quad stages are past their longitudinal resonances so a
-    # force-capped line stays at a physical amplitude — matching where real O3/O4 lines sit).
-    band = band or (max(loop.fmin, 10.0), min(loop.fmax, 1200.0))
+    # Design band down to ~1 Hz: a stage's authority can lie well below 10 Hz. The lower edge is not
+    # an arbitrary cap — the real limiter is the O4 seismic wall (≈ f^−7 below ~10 Hz, the honest
+    # `floor` = `darm_o4_asd_seismic`), which the objective sees and avoids; and `line_displacement`'s
+    # ruler ceiling keeps a low-f line at a physical amplitude near the quad resonances.
+    band = band or (max(loop.fmin, 1.0), min(loop.fmax, 1200.0))
     lo, hi = np.log10(band[0]), np.log10(band[1])
     caps = caps if caps is not None else stage_force_caps(loop, names=names)
+    if floor is None:                              # honest sub-10 Hz seismic wall for PLACEMENT
+        from .darm import darm_o4_asd_seismic
+        floor = darm_o4_asd_seismic
     stages = [n[len("kappa_"):] for n in names if n.startswith("kappa_")]
     nom = _nominal(loop, names)
     # prior std in ABSOLUTE θ units (fractional priors × nominal for the scale knobs)
@@ -334,9 +364,25 @@ def design_lines(loop, prior_std: dict, *, T: float = 60.0, caps: dict | None = 
                for i, n in enumerate(names)}
     P = _prior_cov(abs_std, names)
 
+    # Per-line frequency bounds: confine each STAGE line to a ±0.5-decade window around its own
+    # authority peak (argmax SNR-shape), so the optimiser can't strand it in the seismic wall (low f)
+    # or above its actuation band (high f); Pcal lines roam the full band.
+    scan = np.geomspace(band[0], band[1], 160)
+
+    def _stage_peak(st):
+        snr = np.array([line_displacement(loop, st, float(f), caps) /
+                        float(np.atleast_1d(floor([f]))[0]) for f in scan])
+        return float(scan[int(np.argmax(snr))])
+
+    stage_peaks = [_stage_peak(st) for st in stages]
+    _HALF = 0.5   # ±0.5-decade window
+    lb = np.array([lo] * n_pcal + [max(lo, np.log10(p) - _HALF) for p in stage_peaks])
+    ub = np.array([hi] * n_pcal + [min(hi, np.log10(p) + _HALF) for p in stage_peaks])
+
     def roster_from(x):
-        pcal_f = 10.0 ** np.clip(x[:n_pcal], lo, hi)
-        stage_f = 10.0 ** np.clip(x[n_pcal:], lo, hi)
+        xf = np.clip(x, lb, ub)
+        pcal_f = 10.0 ** xf[:n_pcal]
+        stage_f = 10.0 ** xf[n_pcal:]
         roster = [(float(f), "PCAL", line_displacement(loop, "PCAL", float(f),
                                                         pcal_weight=1.0 / n_pcal)) for f in pcal_f]
         roster += [(float(f), st, line_displacement(loop, st, float(f), caps))
@@ -344,19 +390,20 @@ def design_lines(loop, prior_std: dict, *, T: float = 60.0, caps: dict | None = 
         return roster
 
     def cost(x):
-        gamma, _, _, _ = joint_fisher(loop, roster_from(x), T, names=names)
+        gamma, _, _, _ = joint_fisher(loop, roster_from(x), T, names=names, floor_fn=floor)
         return a_optimal_cost(gamma, P)
 
     if seed_freqs is None:
-        seed = _seed_frequencies(loop, names, caps, band, n_pcal)
+        seed = _seed_frequencies(loop, names, caps, band, n_pcal, floor)
     else:
         seed = np.log10(np.asarray(seed_freqs, dtype=float))
+    seed = np.clip(seed, lb, ub)
     res = minimize(cost, seed, method="Nelder-Mead",
                    options={"xatol": 1e-3, "fatol": 1e-6, "maxiter": 4000})
-    # Nelder-Mead can wander uphill in this multimodal 7-D landscape; keep the better of seed/result.
+    # Keep the better of seed/result (Nelder-Mead can still wander uphill on this stiff landscape).
     best_x = res.x if cost(res.x) < cost(seed) else seed
     roster = roster_from(best_x)
-    gamma, _, corr, _ = joint_fisher(loop, roster, T, names=names)
+    gamma, _, corr, _ = joint_fisher(loop, roster, T, names=names, floor_fn=floor)
     # Per-snapshot precision is the FREQUENTIST data CRB (each drift snapshot is an independent
     # measurement — the prior sets the drift we compare against, not part of one snapshot). Compute
     # it in prior-σ units for conditioning, then map back. The Bayesian posterior is used only as the

@@ -125,17 +125,59 @@ def _o4_strain_table() -> tuple[np.ndarray, np.ndarray]:
     return d[:, 0].copy(), d[:, 1].copy()
 
 
+#: Below this frequency the extrapolated seismic wall is held flat (it would otherwise → ∞ at DC and
+#: break any noise-colouring FFT). We place no calibration line below it; only the noise floor's
+#: cosmetic value in the ~sub-Hz bins depends on it.
+_O4_EXTRAP_FLOOR_HZ = 1.0
+
+
+@_lru_cache(maxsize=1)
+def _o4_low_slope() -> float:
+    """Log-log slope of the O4 strain curve at its low-frequency end (the seismic wall), fit over the
+    lowest decade (≤ 20 Hz). Used to EXTRAPOLATE the wall below the table (~10 Hz) instead of the
+    physically-wrong flat clamp — the wall keeps rising steeply toward DC (measured slope ≈ f^−7)."""
+    tf, ts = _o4_strain_table()
+    m = tf <= 20.0
+    lf, ls = np.log(tf[m]), np.log(ts[m])
+    return float(np.polyfit(lf, ls, 1)[0])
+
+
 def darm_o4_asd(freq) -> np.ndarray:
     """Advanced-LIGO **O4** DARM **displacement** noise ASD [m/√Hz] = strain × 4 km arm.
 
     Log-log interpolation of the vendored ``aligo_O4high.txt`` representative O4 sensitivity
     (LIGO-T2000012), clamped to the table ends outside ~10–5000 Hz. Best ≈ 1.2e-20 m/√Hz near
-    330 Hz, climbing steeply into the seismic wall below ~20 Hz (~2.7e-17 m/√Hz at 10 Hz) and into
-    shot noise above ~1 kHz. Use as ``DARMLoop.noise_asd`` for a real O4 DARM floor."""
+    330 Hz, into the seismic wall below ~20 Hz (~2.7e-17 m/√Hz at 10 Hz) and shot noise above
+    ~1 kHz. This is the measured-floor model used to simulate the DARM readout (numerically clean:
+    the sub-10 Hz clamp keeps injected noise from leaking within a short analysis period). For the
+    honest sub-10 Hz seismic wall used to *place* cal lines, see :func:`darm_o4_asd_seismic`. Use as
+    ``DARMLoop.noise_asd``."""
     f = np.asarray(freq, dtype=float)
     tf, ts = _o4_strain_table()
     lf = np.log(np.clip(f, tf[0], tf[-1]))
     strain = np.exp(np.interp(lf, np.log(tf), np.log(ts)))
+    return _ALIGO_ARM_LENGTH_M * strain
+
+
+def darm_o4_asd_seismic(freq) -> np.ndarray:
+    """O4 DARM displacement floor with the **seismic wall EXTRAPOLATED below ~10 Hz** — the honest
+    floor for *placing* cal lines (line design), as opposed to :func:`darm_o4_asd` (clamped, for
+    simulating the readout).
+
+    Identical to :func:`darm_o4_asd` at and above the ~10 Hz table start; below it the wall is
+    continued along the curve's own low-end log-log slope (≈ f^−7, :func:`_o4_low_slope`), held flat
+    below ``_O4_EXTRAP_FLOOR_HZ`` so it stays finite. A flat clamp there would grossly under-state the
+    sub-10 Hz noise and lure the optimiser into placing lines where the real detector is deaf; this
+    steep wall makes the design honestly avoid the low-frequency region (e.g. the top-mass M0 line
+    lands at its ~20–35 Hz sweet spot, not at 1 Hz). Data-derived extrapolation, not measured points."""
+    f = np.asarray(freq, dtype=float)
+    tf, ts = _o4_strain_table()
+    lf = np.log(np.clip(f, tf[0], tf[-1]))
+    strain = np.exp(np.interp(lf, np.log(tf), np.log(ts)))
+    low = f < tf[0]
+    if np.any(low):
+        f_ex = np.clip(f, _O4_EXTRAP_FLOOR_HZ, tf[0])
+        strain = np.where(low, ts[0] * (f_ex / tf[0]) ** _o4_low_slope(), strain)
     return _ALIGO_ARM_LENGTH_M * strain
 
 

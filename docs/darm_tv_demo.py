@@ -319,8 +319,7 @@ def design_campaign():
     abs_std = {n: (_DESIGN_PRIORS[n] * abs(nom[i]) if n in frac else _DESIGN_PRIORS[n])
                for i, n in enumerate(_SCOPE)}
     P = _cl._prior_cov(abs_std, _SCOPE)
-    bb = [(f, "PCAL", _cl.line_displacement(loop, "PCAL", f, caps, pcal_weight=1 / 24))
-          for f in np.geomspace(10, 1200, 24)]
+    bb = _cl.broadband_roster(loop, _SCOPE, caps, n_per_port=10)   # power spread thin on every port
     cost_bb = _cl.a_optimal_cost(_cl.joint_fisher(loop, bb, NPER_LINE * 4096 / loop.fs, names=_SCOPE)[0], P)
     ff = np.geomspace(loop.fmin, min(loop.fmax, 1400.0), 1200)
     floor = loop.displacement_noise_asd(ff)
@@ -375,8 +374,9 @@ def design_table(dc=None):
     return sp.param_table(["parameter", "drift prior (1σ)", "snapshot σ", "margin", "prior source"],
                           rows,
                           caption=f"A-optimal designed drive: joint cost {dc.cost:.3f} vs {dc.cost_bb:.3f} "
-                                  f"for a broadband multisine of the same budget (lower = better; "
-                                  f"max = {len(_SCOPE)} means the lines add nothing). Every drift is "
+                                  f"for a broadband multisine of the same budget. The cost is "
+                                  f"Σ (snapshot σ / drift prior)² = Σ 1/margin² (lower = better; "
+                                  f"< 1 per parameter ⇒ its drift is resolved). Every drift here is "
                                   f"resolved (margin > 1). κ_C's prior is measured (Sun 2020); the "
                                   f"others are representative placeholders.")
 

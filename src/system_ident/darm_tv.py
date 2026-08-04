@@ -287,26 +287,24 @@ def track_joint(base_loop, truth_series: dict, times, *, nperseg=4096, n_periods
 
 
 # ── line-based readout: inject the DESIGNED cal lines (not a broadband multisine) ────────────────
-def _line_bins(loop, nperseg, freqs):
-    """Snap ``freqs`` to the synchronous DFT grid ``k·fs/nperseg`` and return ``(snapped_freqs,
-    band_mask)`` over the full rfft grid. Line injection + integer-period DFT ⇒ leakage-free readout
-    at exactly these bins (the same synchronous-grid trick the broadband path uses, restricted to a
-    few lines)."""
-    fa = np.fft.rfftfreq(int(nperseg), d=1.0 / loop.fs)
-    bins = np.unique([int(round(f * nperseg / loop.fs)) for f in np.atleast_1d(freqs)])
-    band = np.zeros(len(fa), bool)
-    band[bins] = True
-    return fa[bins], band
-
-
 def _frf_lines(loop, port, lines_hz, rms_amps, nperseg, n_periods, seed):
     """Leakage-free FRF measured ONLY at the designed line frequencies for one port. ``rms_amps`` is
     the injected line amplitude per line in the port's native rms units (Pcal displacement [m], or
-    stage drive [ct]). Returns ``(freqs, H, H_err)`` at the grid-snapped lines."""
+    stage drive [ct]). Returns ``(freqs, H, H_err)`` at the grid-snapped lines. Two designed lines
+    that snap to the same DFT bin are merged (their powers add), so a coincident placement can't
+    desync the frequency and amplitude arrays."""
     channel = "PCAL_EXC" if port == "PCAL" else "EXC"
-    freqs, band = _line_bins(loop, nperseg, lines_hz)
+    fa = np.fft.rfftfreq(int(nperseg), d=1.0 / loop.fs)
     df = loop.fs / nperseg
-    Pxx = (np.asarray(rms_amps, dtype=float) ** 2) / df           # one line per freq bin
+    power_by_bin: dict[int, float] = {}
+    for f, a in zip(np.atleast_1d(lines_hz), np.atleast_1d(rms_amps)):
+        k = int(round(float(f) * nperseg / loop.fs))
+        power_by_bin[k] = power_by_bin.get(k, 0.0) + float(a) ** 2
+    bins = np.array(sorted(power_by_bin), dtype=int)
+    freqs = fa[bins]
+    band = np.zeros(len(fa), bool)
+    band[bins] = True
+    Pxx = np.array([power_by_bin[k] for k in bins], dtype=float) / df
     be = DARMBackend(loop, {channel: port}, "DARM_ERR", seed=seed)
     x = multisine_from_psd(Pxx, loop.fs, nperseg, n_periods, freqs, seed=np.random.default_rng(seed))
     be.inject(channel, x, loop.fs)

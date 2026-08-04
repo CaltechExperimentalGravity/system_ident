@@ -533,3 +533,24 @@ not identifiable with ≥10 Hz lines; f_cc/τ need a wideband high-f Pcal spread
 designed drive beats a same-budget broadband multisine ~1000× on the A-cost. The rest are
 feasibility-gated (the CRB states what each needs). Example 08's fabricated pareto/response-budget
 section was already fully reverted from source (confirmed; `_site` is stale local build only).
+
+### Addendum 2026-08-03 — the 10 Hz band was arbitrary; the real limiter is the seismic wall
+
+Rana asked why lines were capped at 10 Hz (M0 could go lower). Lifted the design band to **1 Hz**.
+Investigating honestly: the O4 curve stops at 10.2 Hz, and a flat clamp below it is wrong — the
+seismic wall keeps rising (measured local slope ≈ **f^−7.36**). Added `darm.darm_o4_asd_seismic`
+(extrapolates that wall below 10 Hz, held flat below 1 Hz for finiteness) as the **design/placement
+floor**, while `darm_o4_asd` stays **clamped** as the **simulation** floor (a huge sub-10 Hz noise
+injection leaks broadband within a 1 s analysis period; the two floors are identical ≥10 Hz where
+every designed line lands, so the sim is exact at each line). Objective changed from the Bayesian
+posterior to the **data-A-optimal** `Σ 1/margin²` (a ridge, not the prior, keeps it finite) so a
+data-degenerate parameter blows the cost up instead of being propped up by the prior; added per-line
+frequency bounds (each stage line confined to its authority window).
+
+Result on κ_M0: with the honest wall, the top mass is **squeezed out both sides** — the f^−7 seismic
+wall buries its line below ~10 Hz, and its own hierarchical offload rolls its DARM authority off as
+≈ f^−8 above ~10 Hz. The analytic Fisher is optimistic for this offloaded stage, but a leakage-free
+simulation cannot recover κ_M0 anywhere in band, so it is **not** claimed (documented; it would need
+a sub-Hz line where the detector is deaf). The identifiable tracked set stays **κ_C, δ, κ_PUM,
+κ_ESD** (recovered within CRB). Lesson reinforced: the simulation is the arbiter; don't ship an
+analytic CRB the sim won't back up.
