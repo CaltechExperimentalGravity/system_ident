@@ -128,9 +128,9 @@ Ported from `automatic-frf-measurement` `40m-sys-test:measurement/backend_rtcds.
 4. **Lazy import** inside `AWGNDSTransport.__init__`, never module scope.
 5. **Site environment precondition** — check the site IFO variable before importing `cdsutils` (it is
    read at *import* time) and raise actionably. The **value is site config, not a constant**; it lives
-   in the site profile (Component 2). Document the workstation-rc trap: sourcing it prepends the
-   Python 2.7 CDS stack to `PYTHONPATH` and `import cdsutils` then fails with `ModuleNotFoundError: No
-   module named 'matrix'`; unsetting `PYTHONPATH` recovers.
+   in the site profile (Component 2). Document the workstation-rc trap: sourcing it prepends a
+   legacy site CDS python stack to `PYTHONPATH` and `import cdsutils` then fails with
+   `ModuleNotFoundError: No module named 'matrix'`; unsetting `PYTHONPATH` recovers.
 
 `TwinTransport` routes `start`/`stop`/`fetch` at an rtsfreerun `mdl` with a synthetic GPS clock, so the
 same `CDSBackend` code path runs against a compiled model.

@@ -389,9 +389,9 @@ Ported from `backend_rtcds.py`, comments included:
 
 - **The `Thread.isAlive` shim** (`:21-30`). python-awg 3.1.2 calls `Thread.isAlive()` at `awg.py:706`,
   removed in Python 3.9, so `ArbitraryLoop.start()` dies on its first line and *every* injection fails
-  before it begins. The site CDS stack runs awg under Python 2.7, so this only appears in a pinned
-  py3.9 conda env. Keep the comment explaining why patching site-packages is wrong (an env rebuild
-  discards it).
+  before it begins. The site CDS stack runs awg under an older interpreter where `isAlive` still
+  exists, so this only appears in a pinned modern conda env. Keep the comment explaining why patching
+  site-packages is wrong (an env rebuild discards it).
 - **The `started`-flag `finally` stop** (`:118-144`), verbatim.
 - **Rate is probed, not configured** (`:70-72`), and printed — a Foton-derived seed model assumes a
   front-end rate and a mismatch silently invalidates the run.
@@ -402,9 +402,9 @@ Ported from `backend_rtcds.py`, comments included:
   raises `NDSError: IFO environment variable not specified` otherwise. Check it before importing, and
   raise with an actionable message. The variable's **value is site configuration, not a constant** —
   it is `C1` at the 40m; that value belongs in the site profile (Component 2), never hardcoded.
-  Related trap to document: do **not** source the site workstation rc script — it prepends the Python
-  2.7 CDS stack to `PYTHONPATH` and `import cdsutils` then dies with `ModuleNotFoundError: No module
-  named 'matrix'`; unsetting `PYTHONPATH` recovers.
+  Related trap to document: do **not** source the site workstation rc script — it prepends a legacy
+  site CDS python stack to `PYTHONPATH` and `import cdsutils` then dies with `ModuleNotFoundError: No
+  module named 'matrix'`; unsetting `PYTHONPATH` recovers.
 
 ### 4.2 `CDSBackend` — stage on `inject`, execute on `read`
 

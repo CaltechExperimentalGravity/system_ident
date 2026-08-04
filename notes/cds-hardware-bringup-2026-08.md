@@ -171,7 +171,7 @@ order-dependent circular import at `backends/darm_adapter.py:14` ← `darm.py:50
 Two environment traps carried over from the sibling repo's first hardware run, neither a code bug:
 - **The site IFO variable is not set by conda**, and `cdsutils/nds.py` reads it at *import* time. Set it
   (`C1` at the 40m — a site fact, so it belongs in the Component 2 site profile, never hardcoded).
-- **Do not source the site workstation rc script.** It prepends the Python 2.7 CDS stack to
+- **Do not source the site workstation rc script.** It prepends a legacy site CDS python stack to
   `PYTHONPATH`, and `import cdsutils` then dies with `ModuleNotFoundError: No module named 'matrix'`.
   Unsetting `PYTHONPATH` recovers.
 

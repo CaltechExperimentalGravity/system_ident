@@ -102,8 +102,8 @@ These are not bugs in this code. Each one cost the sibling project time on its f
    **Its value is site configuration, not a constant** (it is `C1` at the 40m). In this project it comes
    from the site profile (issue #26) and is never hardcoded.
 
-3. **Do not source the site workstation rc script.** It prepends the **Python 2.7** CDS stack to
-   `PYTHONPATH`, after which `import cdsutils` picks up the py2.7 copy and dies with
+3. **Do not source the site workstation rc script.** It prepends a **legacy site CDS python stack** to
+   `PYTHONPATH`, after which `import cdsutils` picks up that copy and dies with
    `ModuleNotFoundError: No module named 'matrix'`. Only `PYTHONPATH` is poisoned — `unset PYTHONPATH`
    recovers.
 
