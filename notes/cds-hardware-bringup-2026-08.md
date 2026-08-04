@@ -122,8 +122,14 @@ hardware path, and pre-injection amplitude ceilings (spec §5).
 - Deployment-gate subset **61 passed / 1 skipped** — *identical* to the py3.9 baseline. Full suite
   **290 / 8 / 17**, and all 8 failures are `np.trapezoid` (numpy < 2.0) in the arcade/playground half.
 - Live **read-only** `cdsutils.getdata` returned data at the expected rate. **No injection.**
-- **Unverified and human-gated:** awg here is 4.1.4; the only client proven against the site's
-  advLigoRTS branch-3.4 front ends is 3.1.2. Fallback ladder in spec §8a; issue #27.
+- ~~**Unverified and human-gated:** awg here is 4.1.4 …~~ **RESOLVED 2026-08-04, operator-run:
+  awg 4.1.4 does drive the branch-3.4 front ends.** A human operator hand-injected a 1 Hz sine
+  (20 pp, 3 s ramp) and a 2 Hz square (2√3 pp, √5 s ramp) on one suspension ASC-pitch excitation
+  channel under live supervision. Both recover their commanded frequency, peak-to-peak, shape and
+  **ramp time** to float-level residuals — full numbers in **spec §8b**. The fallback ladder in §8a is
+  therefore *not* needed, but is retained. Note this covers two **built-in waveforms**, not
+  `awg.ArbitraryLoop`; and it is **not** standing authorization — every future injection still needs its
+  own approval. Issue #27.
 - Also open: the deploy key needs **repo-admin rights**, so the checkout is `rsync`-delivered for now
   and cannot `git fetch`.
 
@@ -179,3 +185,13 @@ Two environment traps carried over from the sibling repo's first hardware run, n
    integer-period array with `ramptime` start/stop; whether a channel's AWG slot is released so a
    second `ArbitraryLoop` succeeds; whether `_EXC` is NDS-readable at the site; `getdata` live
    short/gap behaviour; actual DAC counts vs the design budget.
+   > **Partially answered 2026-08-04** by the operator-run injections in spec §8b — and on **awg 4.1.4**,
+   > not 3.1.2:
+   > - **`_EXC` IS NDS-readable at the site**, at the model rate (16384 Hz): the records *are* `_EXC`
+   >   captures. **Closed.** This matters because §2.1 forbids synthesising X.
+   > - **`ramptime` is a clean linear gain ramp**, recovered to five decimals, symmetric up and down. So
+   >   the start/stop ramp mechanism works. What is still untested is whether it does so for an
+   >   **`ArbitraryLoop`-staged untapered integer-period array** — a different awg API from the built-in
+   >   sine/square used here. **Half-closed.**
+   > - **Still open:** AWG slot release for a second `ArbitraryLoop`; live `getdata` short/gap behaviour;
+   >   actual DAC counts vs the design budget.

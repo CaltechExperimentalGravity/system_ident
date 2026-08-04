@@ -578,13 +578,55 @@ extensions are built against 1.26.
 So issue #23 reduces to the 5 `np.trapezoid` sites plus the circular import, and its extra CI leg
 should be **py3.11** (matching deployment), not py3.9.
 
-**One thing is NOT settled and cannot be settled here.** `awg` in this environment is **4.1.4**; the
-only awg client ever proven against the site's real-time system (**advLigoRTS branch-3.4**, 2017) is
-**3.1.2**. The read half is verified (item 5, and the `nds2` versions are *identical* across both
-stacks); the **injection** half is a hardware-only unknown — issue #27, and gated per §1 Rule 2:
-operator-chosen channels, separate approval for every single injection, live supervision. Usefully,
 `awg` 4.1.4 no longer calls `Thread.isAlive`, so §4.1's shim is unnecessary here — keep it
 `hasattr`-guarded rather than deleted, because fallback rungs 2 and 4 below still need it.
+
+### 8b. awg 4.1.4 **does** drive the front ends — operator-run, 2026-08-04
+
+The open question of §8a — whether an `awg` **4.1.4** client can inject into front ends running
+**advLigoRTS branch-3.4** (2017), where the only previously proven client was 3.1.2 — has been
+**answered yes**, by a **human operator** running two excitations by hand under live supervision on a
+single suspension ASC-pitch excitation channel. Concrete channel and file paths are in the untracked
+local access note; this repo stays site-agnostic.
+
+Both records were captured from the `_EXC` channel itself at **16384 Hz** and verified numerically
+against what was commanded:
+
+| commanded | measured |
+|---|---|
+| sine, 1 Hz, 20 pp, 3 s ramp | pp **20.000000** (whole-period windows, zero spread); LSQ fit 1.00000000 Hz, amplitude 10.000000, **residual rms 1.96e-07** (0.0000 % of amplitude), no odd harmonics; ramp up/down **3.017 / 3.002 s** |
+| square, 2 Hz, 2√3 pp, √5 s ramp | pp **3.464102**; levels exactly **±√3**, symmetric to 0.00e+00; h3/h5/h7 = 0.33333/0.20000/0.14286 (ideal square); period 0.500000 s over 49 transitions; ramp up/down **2.23607 / 2.23607 s** vs √5 = 2.2360680 |
+
+Both had leading and trailing zeros (GUI-captured windows) and ran well under 25 s. The sine's +0.56 %
+ramp figure is Hilbert-envelope ripple at 2f in the *estimator*, not a deviation in the data — the
+square wave, whose envelope is exactly `|x|`, recovers √5 to five decimals in both directions.
+
+**Three things this settles, beyond the client-version question:**
+
+1. **The AWG's own `ramptime` is a clean *linear* gain ramp**, measured to five decimals and symmetric
+   on the way down. This is direct hardware evidence for §2.2: the transport-level ramp is real and
+   behaves as the ramp contract (§3.4 / plan B4) assumes, so `_soft_start_stop`'s Tukey taper is not
+   merely unnecessary — the correct alternative is confirmed to exist.
+2. **`_EXC` is NDS-readable at the site, at the model rate.** That was an explicit hardware-only
+   unknown (see the bring-up note's open questions). It matters because §2.1 requires `read()` to use a
+   real readback for X rather than synthesising it, and this is the channel that supplies it.
+3. **Amplitude and shape survive the round trip exactly** — pp, levels and harmonic structure come back
+   at their commanded values with float-level residuals, so there is no hidden gain, offset or filtering
+   between the commanded waveform and the `_EXC` record on this path.
+
+**What this does NOT establish — do not over-read it:**
+
+- These were **two simple built-in waveforms on one channel**. The backend's actual path is
+  `awg.ArbitraryLoop` with a tiled, integer-period array (§4.2), which is a *different* awg API. Unless
+  the operator used `ArbitraryLoop`, the remaining §9 unknowns stand: whether awg accepts the untapered
+  integer-period array with `ramptime` start/stop, whether a channel's AWG slot is released so a second
+  `ArbitraryLoop` succeeds, live `getdata` short/gap behaviour, and actual DAC counts vs the design
+  budget.
+- **Nothing here is standing authorization.** Per §1 Rule 2, every future injection still needs its own
+  separate operator approval; two successful injections authorize a third exactly as much as zero would.
+- Simultaneous-mode start semantics (§9.3) are untouched by this.
+
+Recorded so the client-version risk is not re-litigated, and so the ramp evidence is not lost.
 
 Fallback ladder if awg 4.1.4 will not drive the front ends. Each rung is a fresh
 operator-supervised bring-up:

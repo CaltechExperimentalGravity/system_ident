@@ -236,8 +236,17 @@ Follow the repo's own idioms: `MockRTSModel` for fakes,
 >
 > Still open from #22: the read-only **deploy key requires repo-admin rights**, which the current
 > operator does not have, so the deployment checkout is delivered by `rsync` in the interim and cannot
-> `git fetch`. And **awg 4.1.4 injection against advLigoRTS branch-3.4 is unverified** — issue #27,
-> human-gated per injection.
+> `git fetch`.
+>
+> **UPDATE 2026-08-04 — awg 4.1.4 injection IS verified, operator-run.** A human operator hand-injected
+> a 1 Hz sine (20 pp, 3 s ramp) and a 2 Hz square (2√3 pp, √5 s ramp) on one suspension ASC-pitch
+> excitation channel under live supervision; both recover frequency, peak-to-peak, shape and **ramp
+> time** to float-level residuals. Spec **§8b** has the numbers. Two knock-on results for this plan:
+> **Stage B4/#9's ramp contract is now backed by hardware** — the AWG `ramptime` is a clean *linear*
+> gain ramp, symmetric up and down — and **`_EXC` is confirmed NDS-readable at the model rate**, which
+> is what Stage D/#14's "never synthesise X" invariant depends on. Caveats: this used awg's **built-in
+> waveforms, not `awg.ArbitraryLoop`**, so Stage D's staged-array questions stand; and it is **not**
+> standing authorization for anything.
 
 Independent of A–G, and deliberately after them: spec §8 shows the CDS-relevant test subset already
 passes on the deployment baseline, so this is not on the critical path.
@@ -320,3 +329,12 @@ Cheapest first; nothing before step 8 needs hardware.
     script.
 11. **Hardware injection — out of scope, human-gated.** Every individual injection needs separate
     operator approval (spec §1, Rule 2). No automated hardware test exists or should exist.
+    > **Operator-run precedent, 2026-08-04 (spec §8b).** Two hand-run injections — a 1 Hz sine and a
+    > 2 Hz square, on one suspension ASC-pitch excitation channel, under live supervision — confirm that
+    > **awg 4.1.4 drives the branch-3.4 front ends**, that **`ramptime` is a clean linear gain ramp**,
+    > and that **`_EXC` is NDS-readable at the model rate**. Commanded frequency, peak-to-peak, shape and
+    > ramp time all come back at float-level residuals.
+    >
+    > This is a *precedent*, not a permission and not a step in this ladder. It used awg's **built-in
+    > waveforms, not `awg.ArbitraryLoop`**, so the staged-array behaviour Stage D depends on is still
+    > untested. Two successful injections authorize a third exactly as much as zero would.
