@@ -401,7 +401,7 @@ Ported from `backend_rtcds.py`, comments included:
 - **Site environment precondition.** `cdsutils/nds.py` reads the site IFO variable at *import* time and
   raises `NDSError: IFO environment variable not specified` otherwise. Check it before importing, and
   raise with an actionable message. The variable's **value is site configuration, not a constant** —
-  it is `C1` at the 40m; that value belongs in the site profile (Component 2), never hardcoded.
+  its value is site-specific and belongs in the site profile (Component 2), never hardcoded.
   Related trap to document: do **not** source the site workstation rc script — it prepends a legacy
   site CDS python stack to `PYTHONPATH` and `import cdsutils` then dies with `ModuleNotFoundError: No
   module named 'matrix'`; unsetting `PYTHONPATH` recovers.
@@ -554,8 +554,8 @@ lock-state abort. Full filter-module/SDF snapshot and restore. Foton ZPK/SOS exp
 manifest. The operator-answer gate (`notes/40m-sos-campaign-handoff-2026-07.md:66-70`,
 `notes/strategic-roadmap-2026-07-draft.md:309-334`).
 
-**Deliberately deferred so it can be generalised.** Component 1 must not hard-code a single 40m
-channel name or the `C1` IFO value, so that non-40m hardware needs only a new profile.
+**Deliberately deferred so it can be generalised.** Component 1 must not hard-code a single site
+channel name or the site IFO value, so that other hardware needs only a new profile.
 
 **The hardware-only unknowns** — the human-gated set, which no fake transport can settle: whether awg
 3.1.2 accepts the untapered integer-period array with `ramptime` start/stop semantics; whether a

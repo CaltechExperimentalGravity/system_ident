@@ -99,8 +99,8 @@ These are not bugs in this code. Each one cost the sibling project time on its f
 2. **The site `IFO` environment variable is not set by conda**, and `cdsutils/nds.py` reads it at
    *import* time — without it you get `NDSError: IFO environment variable not specified`. Export it
    before running anything on the hardware path.
-   **Its value is site configuration, not a constant** (it is `C1` at the 40m). In this project it comes
-   from the site profile (issue #26) and is never hardcoded.
+   **Its value is site configuration, not a constant** (a site-specific prefix; see the local
+   `ssh_deploy.md`). In this project it comes from the site profile (issue #26) and is never hardcoded.
 
 3. **Do not source the site workstation rc script.** It prepends a **legacy site CDS python stack** to
    `PYTHONPATH`, after which `import cdsutils` picks up that copy and dies with

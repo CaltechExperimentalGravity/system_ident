@@ -64,10 +64,11 @@ hardware bring-up.
   check hooking `safety.py` (today's watchdog is post-hoc); (3) Foton ZPK/SOS export + provenance
   manifest. Wire a `--cds` path in `cli.py`/`config.py` (twin-transport mode runs the full stack).
 - **Stage 5 (GATED — enumerate, no code)** — 40m-specific operator questions before any live
-  injection: exact SOS optic + channel names (`C1:SUS-<optic>_..._EXC` / drive monitor / readback);
+  injection: exact SOS optic + channel names (`<IFO>:<MDL>-<optic>_..._EXC` / drive monitor / readback);
   OSEM basis matrix + counts↔N calibration + DAC/coil limit; awg/nds2 GPS timing / fractional-sample
   drift; damping-on vs off + stability margin with a comb near UGF; Guardian / lock-state +
-  abort-on-lock-loss; delivered-fit manifest + Foton drop-in. Pull `C1SUS.txt` foton bank from site.
+  abort-on-lock-loss; delivered-fit manifest + Foton drop-in. Pull the `<IFO><MDL>.txt` foton bank
+  from site.
 
 ### Recommended defaults (open items — revisit with Rana)
 
@@ -112,13 +113,13 @@ hardware bring-up.
 - Foton "f"-plane sign flips vs "s" (`orchestrator._coerce_zpk`); sci-notation needs explicit `+`.
 
 **40m SOS specifics:**
-- Physical params: `/Users/rana/Desktop/Dropbox/GIT/40m/NoiseBudget/GWINC40/SOSparameters.m` — optic
+- Physical params: `<personal-checkout>/40m/NoiseBudget/GWINC40/SOSparameters.m` — optic
   R=0.075/2 m, H=0.025 m, fused silica (ρ=2200), moments of inertia, steel wire (radius, tension,
   Young's modulus, loss φw=1.7e-4), geometry. Measured modes at top: **pend 1, side 1, pitch 0.6,
   yaw 0.7, vert 16, roll 16·√2 Hz**. Also `40m/pygwinc/CIT40m/noises40.py` ("SOS optic, susp1.m").
-- **No 40m foton bank on disk** — only the live-site path `/opt/rtcds/caltech/c1/chans/C1SUS.txt`
-  (referenced by `40m/NoiseBudget/NB40/C1NB_2017_10_09.py`). Pull from site at hardware time.
-- Zero prior 40m/SOS/C1 control artifacts in either repo — the whole site layer is greenfield.
+- **No 40m foton bank on disk** — only the live-site path `<site rtcds chans path>/<IFO><MDL>.txt`
+  (referenced by `<site noise-budget repo>/<IFO>NB_<date>.py`). Pull from site at hardware time.
+- Zero prior site/SOS control artifacts in either repo — the whole site layer is greenfield.
 
 ## Repo state at parking
 

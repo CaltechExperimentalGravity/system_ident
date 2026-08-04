@@ -237,7 +237,8 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
   `loop.py:90`'s silent fallback and `_warn_open_drive_monitor`'s warning, because that fallback *is*
   the 200%-error configuration.
 - `src/system_ident/configs/cds_twin_transport.yml` — runnable, modelled on
-  `configs/rtsfreerun_hsts.yml`, deliberately **site-agnostic**: no 40m channel names, no `C1`.
+  `configs/rtsfreerun_hsts.yml`, deliberately **site-agnostic**: no site channel names, no site IFO
+  value.
 - `warnings.warn` when `freq_max > 0.8·(fs/2)`, explaining the SNR (not bias) cost, and recording in
   the docstring that the decimation filter cancels in `Ybar/Xbar` **only because X is a readback**.
 - `pyproject.toml:34` already reserves the `cds = []` extra — no change.
