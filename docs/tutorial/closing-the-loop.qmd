@@ -186,9 +186,9 @@ Declare it in the config:
 
 ```yaml
 channels:
-  excitation: {POS: C1:EXC}        # where the multisine is injected
-  readback:   {POS: C1:RSP}        # response y  →  FRF output Y
-  drive:      {POS: C1:DRV}        # after-controller drive u  →  FRF input X
+  excitation: {POS: X1:EXC}        # where the multisine is injected
+  readback:   {POS: X1:RSP}        # response y  →  FRF output Y
+  drive:      {POS: X1:DRV}        # after-controller drive u  →  FRF input X
 
 twin:
   controllers:

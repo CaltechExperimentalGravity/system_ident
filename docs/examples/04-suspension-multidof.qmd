@@ -43,8 +43,8 @@ from system_ident.loop import SysIDLoop
 cfg = {
     "run": {"name": "susp3dof", "excitation_mode": "sequential"},
     "channels": {
-        "excitation": {"POS": "C1:EXC_POS", "PIT": "C1:EXC_PIT", "YAW": "C1:EXC_YAW"},
-        "readback":   {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT", "YAW": "C1:RSP_YAW"},
+        "excitation": {"POS": "X1:EXC_POS", "PIT": "X1:EXC_PIT", "YAW": "X1:EXC_YAW"},
+        "readback":   {"POS": "X1:RSP_POS", "PIT": "X1:RSP_PIT", "YAW": "X1:RSP_YAW"},
     },
     "measurement": {"fs": 32, "freq_min": 0.1, "freq_max": 5.0,
                     "segment_duration": 128.0, "n_segments": 4, "px_total": 1.0},  # T_fft>3/f_min

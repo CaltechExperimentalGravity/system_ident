@@ -20,8 +20,8 @@ def _config(actuator_sat=1e3, rms_ceiling=1e3, target=0.05, max_iter=4):
     return {
         "run": {"excitation_mode": "sequential"},
         "channels": {
-            "excitation": {"POS": "C1:EXC_POS"},
-            "readback": {"POS": "C1:RESP_POS"},
+            "excitation": {"POS": "X1:EXC_POS"},
+            "readback": {"POS": "X1:RESP_POS"},
         },
         "measurement": {
             "fs": FS, "freq_min": 0.1, "freq_max": 5.0,
@@ -70,7 +70,7 @@ def test_loop_improves_fit_and_finishes_cleanly():
     # teardown ran the handoff -> injected drive cleared (monitor the drive
     # channel, which carries no sensor noise)
     np.testing.assert_array_equal(
-        backend.read(["C1:EXC_POS"], 4.0)["C1:EXC_POS"], 0.0
+        backend.read(["X1:EXC_POS"], 4.0)["X1:EXC_POS"], 0.0
     )
 
 
@@ -142,5 +142,5 @@ def test_loop_aborts_on_actuator_saturation():
     assert "actuator saturation" in result.abort_reason
     # safe-state handoff cleared the injected drive
     np.testing.assert_array_equal(
-        backend.read(["C1:EXC_POS"], 4.0)["C1:EXC_POS"], 0.0
+        backend.read(["X1:EXC_POS"], 4.0)["X1:EXC_POS"], 0.0
     )

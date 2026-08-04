@@ -23,11 +23,11 @@ def _f0_q(model):
 
 def _cfg(injection_point="after_controller", with_drive=False):
     channels = {
-        "excitation": {"POS": "C1:EXC"},
-        "readback": {"POS": "C1:RSP"},
+        "excitation": {"POS": "X1:EXC"},
+        "readback": {"POS": "X1:RSP"},
     }
     if with_drive:
-        channels["drive"] = {"POS": "C1:DRV"}     # after-controller drive monitor
+        channels["drive"] = {"POS": "X1:DRV"}     # after-controller drive monitor
     return {
         "run": {"name": "cl", "excitation_mode": "sequential"},
         "channels": channels,
@@ -52,7 +52,7 @@ def test_config_parses_controllers_injection_and_drive():
     num, den = tw.controllers["POS"]
     np.testing.assert_allclose(num, [2.0e-3, 0.0])
     assert tw.injection_point["POS"] == "before_controller"
-    assert tw.drive_channels == {"C1:DRV": "POS"}
+    assert tw.drive_channels == {"X1:DRV": "POS"}
 
 
 @pytest.mark.parametrize("injection_point,with_drive", [

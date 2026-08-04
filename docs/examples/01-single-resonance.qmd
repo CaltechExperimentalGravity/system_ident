@@ -121,9 +121,9 @@ improving model.
 ```{python}
 #| code-summary: "Run 3 passes of Pintelon–Schoukens refinement"
 tw = TwinBackend(SuspensionPlant({"POS": true}, FS),
-                 {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS, sensor_asd=5e-3)
+                 {"X1:EXC": "POS"}, {"X1:RSP": "POS"}, fs=FS, sensor_asd=5e-3)
 
-hist = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+hist = run_siso_passes(tw, "X1:EXC", "X1:RSP", prior, fs=FS, nperseg=NPERSEG,
                        n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
                        px_total=Px_tot, n_passes=3, prior_uncertainty=0.5, seed=0)
 final = hist[-1]["model"]
@@ -151,7 +151,7 @@ true plant. Drag the slider to step through passes by hand.
 
 ```{python}
 #| code-summary: "Animated convergence over passes"
-anim = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+anim = run_siso_passes(tw, "X1:EXC", "X1:RSP", prior, fs=FS, nperseg=NPERSEG,
                        n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
                        px_total=Px_tot, n_passes=6, prior_uncertainty=0.5, seed=1)
 sp.animate_passes(freq, np.abs(true.eval(freq)),

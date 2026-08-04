@@ -61,7 +61,7 @@ k, wc = 2e-3, 2 * np.pi * 12.0                                # velocity-damping
 C = ([k, 0.0], [1.0 / wc, 1.0])
 
 tw = TwinBackend(SuspensionPlant({"POS": P_TRUE}, FS),
-                 {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS,
+                 {"X1:EXC": "POS"}, {"X1:RSP": "POS"}, fs=FS,
                  sensor_asd=1e-4, disturbance_asd=1e-4, controllers={"POS": C}, seed=3)
 
 f_all = np.fft.rfftfreq(NPERSEG, 1 / FS)
@@ -102,7 +102,7 @@ sp.excitation_design(
 
 ```{python}
 #| code-summary: "Run 3 passes through the closed loop"
-hist = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+hist = run_siso_passes(tw, "X1:EXC", "X1:RSP", prior, fs=FS, nperseg=NPERSEG,
                        n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
                        px_total=Px_tot, n_passes=3, prior_uncertainty=0.5, seed=0)
 final = hist[-1]["model"]    # already the OPEN-LOOP plant — the loop is cancelled
@@ -134,8 +134,8 @@ from system_ident.loop import SysIDLoop as _Loop
 
 cfg = {
   "run": {"name": "cl", "excitation_mode": "sequential"},
-  "channels": {"excitation": {"POS": "C1:EXC"}, "readback": {"POS": "C1:RSP"},
-               "drive": {"POS": "C1:DRV"}},        # after-controller drive monitor → X
+  "channels": {"excitation": {"POS": "X1:EXC"}, "readback": {"POS": "X1:RSP"},
+               "drive": {"POS": "X1:DRV"}},        # after-controller drive monitor → X
   "measurement": {"fs": FS, "freq_min": 0.1, "freq_max": 5.0,
                   "segment_duration": NPERSEG / FS, "n_segments": N_PERIODS, "px_total": 1.0},
   "strategy": {"estimator": "gml", "input_designer": "pintelon_schoukens", "n_design_iter": 3},

@@ -88,8 +88,8 @@ PRIOR = coupled_suspension([(f * 1.12, q * 0.8) for f, q in LONG],
 
 plant = SuspensionPlant({"POS": TRUE[("POS", "POS")], "PIT": TRUE[("PIT", "PIT")]}, FS)
 coupling = {("PIT", "POS"): TRUE[("PIT", "POS")], ("POS", "PIT"): TRUE[("POS", "PIT")]}
-exc = {"POS": "C1:EXC_POS", "PIT": "C1:EXC_PIT"}
-rsp = {"POS": "C1:RSP_POS", "PIT": "C1:RSP_PIT"}
+exc = {"POS": "X1:EXC_POS", "PIT": "X1:EXC_PIT"}
+rsp = {"POS": "X1:RSP_POS", "PIT": "X1:RSP_PIT"}
 tw = TwinBackend(plant, {c: d for d, c in exc.items()}, {c: d for d, c in rsp.items()},
                  fs=FS, sensor_asd=2e-3, coupling=coupling)
 

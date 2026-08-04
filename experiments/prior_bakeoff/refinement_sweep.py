@@ -54,7 +54,7 @@ def _cfg(mode, punc, pf, pq, pg, sens, dist):
         strat["lock_uncertainty"] = 0.15
     return {
         "run": {"excitation_mode": "sequential"},
-        "channels": {"excitation": {"POS": "C1:EXC"}, "readback": {"POS": "C1:RSP"}},
+        "channels": {"excitation": {"POS": "X1:EXC"}, "readback": {"POS": "X1:RSP"}},
         "measurement": {"fs": 32, "freq_min": 0.1, "freq_max": 5.0,
                         "segment_duration": 64.0, "n_segments": 4, "px_total": 1.0, "t_ramp": 4.0},
         "twin": {"sensor_asd": sens, "disturbance_asd": dist,

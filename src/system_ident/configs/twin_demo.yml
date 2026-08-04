@@ -12,11 +12,11 @@ run:
 
 channels:
   excitation:
-    POS: C1:SUS-DEMO_TM_POS_EXC
-    PIT: C1:SUS-DEMO_TM_PIT_EXC
+    POS: X1:SUS-DEMO_TM_POS_EXC
+    PIT: X1:SUS-DEMO_TM_PIT_EXC
   readback:
-    POS: C1:SUS-DEMO_TM_POS_RESP
-    PIT: C1:SUS-DEMO_TM_PIT_RESP
+    POS: X1:SUS-DEMO_TM_POS_RESP
+    PIT: X1:SUS-DEMO_TM_PIT_RESP
 
 measurement:
   fs: 32

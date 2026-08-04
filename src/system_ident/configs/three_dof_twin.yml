@@ -15,13 +15,13 @@ suspension:
 # Channel map (twin reuses these names against the simulated plant).
 channels:
   excitation:
-    POS: C1:SUS-SINGLE_PLANT_TM_EXC_1
-    PIT: C1:SUS-SINGLE_PLANT_TM_EXC_2
-    YAW: C1:SUS-SINGLE_PLANT_TM_EXC_3
+    POS: X1:SUS-SINGLE_PLANT_TM_EXC_1
+    PIT: X1:SUS-SINGLE_PLANT_TM_EXC_2
+    YAW: X1:SUS-SINGLE_PLANT_TM_EXC_3
   readback:
-    POS: C1:SUS-SINGLE_PLANT_TM_RESP_1
-    PIT: C1:SUS-SINGLE_PLANT_TM_RESP_2
-    YAW: C1:SUS-SINGLE_PLANT_TM_RESP_3
+    POS: X1:SUS-SINGLE_PLANT_TM_RESP_1
+    PIT: X1:SUS-SINGLE_PLANT_TM_RESP_2
+    YAW: X1:SUS-SINGLE_PLANT_TM_RESP_3
 
 measurement:
   fs: 16384                # CDS sample rate [Hz]

@@ -12,15 +12,15 @@ run:
 
 channels:
   excitation:
-    POS: C1:SUS-DEMO_TM_POS_EXC      # where the multisine is injected
+    POS: X1:SUS-DEMO_TM_POS_EXC      # where the multisine is injected
   readback:
-    POS: C1:SUS-DEMO_TM_POS_RESP     # sensor response y -> FRF output Y
+    POS: X1:SUS-DEMO_TM_POS_RESP     # sensor response y -> FRF output Y
   # drive: the after-controller drive monitor u -> FRF input X. Optional here:
   # with after-controller injection the twin's excitation read-back already returns
   # u. For before-controller injection on real hardware this MUST name the drive
   # monitor (else X would be the bare reference and the fit biased toward T):
   drive:
-    POS: C1:SUS-DEMO_TM_POS_DRIVE
+    POS: X1:SUS-DEMO_TM_POS_DRIVE
 
 measurement:
   fs: 32

@@ -108,8 +108,8 @@ def _config():
     return {
         "run": {"excitation_mode": "sequential"},
         "channels": {
-            "excitation": {"POS": "C1:EXC_POS"},
-            "readback": {"POS": "C1:RESP_POS"},
+            "excitation": {"POS": "X1:EXC_POS"},
+            "readback": {"POS": "X1:RESP_POS"},
         },
         "measurement": {
             "fs": FS, "freq_min": 0.1, "freq_max": 5.0,

@@ -95,8 +95,8 @@ is large.
 ```{python}
 #| code-summary: "Run 3 passes of Pintelon–Schoukens refinement"
 tw = TwinBackend(SuspensionPlant({"POS": true}, FS),
-                 {"C1:EXC": "POS"}, {"C1:RSP": "POS"}, fs=FS, sensor_asd=1e-3, seed=0)
-hist = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
+                 {"X1:EXC": "POS"}, {"X1:RSP": "POS"}, fs=FS, sensor_asd=1e-3, seed=0)
+hist = run_siso_passes(tw, "X1:EXC", "X1:RSP", prior, fs=FS, nperseg=NPERSEG,
                        n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
                        px_total=Px_tot, n_passes=3, prior_uncertainty=0.5, seed=0)
 final = hist[-1]["model"]
