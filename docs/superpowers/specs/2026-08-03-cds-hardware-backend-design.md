@@ -110,6 +110,9 @@ only time-*varying* drift bites.
    NDS buffer's own boundary (integer-second aligned in practice, but that is an implementation detail,
    not a contract), the AWG's start latency relative to `start_gps` is unspecified, and resampling
    introduces the rate ratio. It would be a correction whose failure mode is a silent 200% error.
+   **This is unaffected by §4.3's chunked acquisition.** Reading in blocks and concatenating them is
+   *verification*, never correction: each block must begin exactly where the previous one ended, and a
+   gap is a hard failure rather than something to close. See §4.3.2.
 3. `channels.drive` becomes **mandatory** for this backend. `loop.py:90` currently falls back to
    `exc[d]` silently and `_warn_open_drive_monitor` (`:274-297`) only warns. On hardware, "X falls back
    to the excitation channel" plus "the excitation channel returns the stashed drive" is precisely the
@@ -377,13 +380,24 @@ what makes everything in §5 verifiable without hardware.
 CDSTransport (Protocol)
     now_gps() -> float
     probe_rate(channels) -> float                       # getdata(chans, 1)
+    classify(channels) -> dict[str, ChannelInfo]        # existence, rate, retrievability (§4.3.5)
     start(channel, array, rate, start_gps, ramptime) -> handle
     stop(handle, ramptime) -> None
-    fetch(channels, duration) -> dict[str, Capture]      # Capture: data, start_gps, rate
+    stream(channels, duration, chunk_s) -> Iterator[Capture]   # §4.3.2; Capture: data, start_gps, rate
+    fetch(channels, duration) -> dict[str, Capture]      # convenience: consume stream(), verify, concat
+
+CDSTransportError (base — catching this alone is enough to stop driving)
+    TransportUnavailable · TestpointLost · TestpointTimeout
+    ChannelNotFound · ChannelNotInjectable · DataIntegrityError · TimingFault
 
 AWGNDSTransport   # awg + cdsutils + gpstime, lazy-imported in __init__
 TwinTransport     # routes to an rtsfreerun mdl, synthetic GPS clock
 ```
+
+`stream` is the primitive and `fetch` is derived from it, not the other way round — see §4.3.2 for
+why, and §4.3.1 for the constraint that forces it: a test point cannot be re-fetched, so the request
+must stay open for the whole record rather than being reissued per block. Both transports raise the
+same error types, so every handler in §4.3 is testable on the Stage A fakes without hardware.
 
 Ported from `backend_rtcds.py`, comments included:
 
@@ -437,6 +451,13 @@ pre-injection, and worth more than any downstream cleverness.
   at `loop.py:97` is a float), that the returned length is `round(duration · fs_hw)` per channel (NDS
   live reads can come back short or gapped and nothing at `loop.py:214-217` checks), and that it is an
   exact multiple of `nperseg_hw`. Silence here becomes a §2.1/§3.4-class error downstream.
+  **Amended by §4.3:** these asserts become one enumerable *record verdict* (§4.3.6) rather than
+  scattered `assert`s, `fs_hw` is established **per channel** rather than once globally (§4.3.1), and
+  the acquisition is chunked with block-adjacency verification (§4.3.2).
+- **Decimate once, after assembly.** The hardware-rate → `fs` step is applied to the assembled
+  contiguous record, never per block: per-block decimation would reintroduce §3.5's measured edge
+  failure (6.9 % on the first period, 53 % on the last) at every chunk boundary. Because gaps are a
+  hard failure (§4.3.2) there is never a seam to decimate across.
 - **Read cache** keyed on `(injection generation, duration)`: fetch the union of every channel the
   campaign needs once per window, serve per-DoF subsets. Transparent to `SysIDLoop`. Today each DoF
   triggers its own `read()` (`loop.py:214`), so *simultaneous* mode — whose entire purpose is to
@@ -465,6 +486,223 @@ captured. On hardware `restore_state` is the "hand control back to the damping l
 `pyproject.toml:21-28` — plus operator sign-off on what may be written. That is Component 2. Do not
 fake it.
 
+### 4.3 Fault model — ten ways the transport fails, and the seams that must exist now
+
+**Added 2026-08-04, from issue #32.** Everything above assumes the transport works. Issue #32
+enumerates ten ways it does not. With one exception (§4.3.2, item 3) **none of them has been
+observed**: every run to date has been a closely supervised single-operator session, where a human
+noticed anything wrong. So the design's implicit failure model is *"the transport works, or somebody
+is watching."* Production means several users sharing test points and unattended multi-hour records,
+and neither half of that holds.
+
+This section is **architecture, not incident response.** It does not build ten recovery paths against
+zero observed failures. It fixes the *seams* — a fault taxonomy, a validation call site, fault
+injection in the test fakes, and a read path that can see a fault while it is still happening — so
+that hardening later is filling in handlers rather than reshaping the backend. Component 1 detects
+and fails safely; recovery policy, and anything needing EPICS, is Component 2.
+
+#### 4.3.1 Channel retrievability — the axis this design was missing
+
+Many front-end channels are **not recorded to disk**. They must be captured live from the
+framebuilder or they are unretrievable — and this applies to exactly the channels this measurement
+depends on, the `<IFO>:<MDL>-<optic>_..._EXC` excitation readback and `..._IN2`-class monitors.
+
+That lands directly on §2.1's central invariant: `read()` must never synthesise X and must use a real
+readback — and the channel supplying it is a live-only test point.
+
+| class | naming heuristic | fetch | on loss |
+|---|---|---|---|
+| **recorded** (frame-backed) | fast non-EPICS channels normally carry a **`_DQ`** suffix | re-fetchable after the fact; a retry is cheap | retry |
+| **test point** (live only) | `..._EXC` drive monitor, `..._IN2` | must be streamed live and continuously for the whole record | **unrecoverable** — the window is gone |
+
+Four consequences, each of which changes something concrete:
+
+1. **The request must stay open for the whole record.** Back-to-back `getdata` calls drop samples at
+   every boundary — harmless for a frame-backed channel, permanent loss for a test point. So chunked
+   acquisition (§4.3.2) is *one open request delivering blocks*, not N independent requests. This is
+   why §4.1 makes `stream` the primitive and `fetch` the derived convenience.
+2. **A lost or rejected test-point record cannot be re-fetched.** For an *excited* record, re-taking
+   it means re-injecting, which under §1 Rule 2 needs fresh operator approval. Rejecting a record is
+   expensive in a way nothing else in this spec accounts for.
+3. **Pre-flight validation earns its keep** (§4.3.5). A mistyped channel name must be caught before an
+   injection is burned, not after.
+4. **The §4.2 read cache is promoted** from a speed optimisation to a correctness affordance: for a
+   test point there is no second chance to fetch.
+
+**`_DQ` is a usable heuristic, not a contract.** It gives normally-reliable identification of a
+readback channel that has look-back, so pre-flight uses it as a prior — but the class is always
+*confirmed by probing*, never assumed from the name. Two caveats travel with it:
+
+- **`_DQ` channels are normally served at a lower rate** than the corresponding full-rate channel, by
+  proper decimation. So §4.2's rate and integer-ratio conditions (`fs_hw % fs == 0`, `T_perseg · fs_hw`
+  integer) are **per channel**, not one global `fs_hw`.
+- **An X/Y rate mismatch costs the exact cancellation §7 relies on.** §7 records that the decimation
+  anti-alias filter is harmless *because it is LTI and applied to both X and Y, so it cancels in
+  `Ybar/Xbar`*. A full-rate `..._EXC` X against a lower-rate `_DQ` Y is two different filters, so
+  `H_meas = H · D_Y/D_X` — a systematic magnitude **and phase** error growing toward Nyquist.
+  **Default: warn and proceed**, not refuse; the residual is documented and partly bounded by the
+  `freq_max > 0.8·(fs/2)` warning. Characterising `D_Y` well enough to divide it out needs
+  site-supplied filter data — site profile, Component 2.
+- The front-end decimation filters' **type is not known here** — plausibly IIR rather than FIR, not
+  confirmed. Listed as an unknown in §6; not asserted. What *is* known is that they run continuously
+  on the realtime machines, so their transient behaviour is only a concern around a restart — and a
+  restart already hard-faults upstream (§4.3.4).
+
+#### 4.3.2 Chunked acquisition, and why concatenation is not stitching
+
+**Chunk the read from the start.** Three reasons, strongest first:
+
+1. **Fault detection during the record.** A single blocking fetch discovers a framebuilder reboot, a
+   lost test point or a stream underrun *hours* late — §4.2's own campaign estimates run to 2.5 h —
+   and leaves the §3.6 SIGINT handler nowhere to land.
+2. **Bounded framebuilder resource use.** The binding constraint is *the resources available to the
+   framebuilder*. Two independent causes: hardware with less memory, **and/or** a machine also running
+   other tasks so its memory is shared. Either, or both, limits how much it can buffer.
+3. **A weak empirical driver, recorded as such.** Framebuilders failing to provide long data stretches
+   **has actually been observed.** The cause was never investigated — candidates are a test-point
+   timeout, framebuilder resource limits, or a client-side limitation — and workarounds are commonly
+   used instead. **Not authoritative:** no numbers, no logs, no root cause. It sits *alongside* the
+   architectural reasons as additional support, never as the basis.
+
+**Concatenating verified-adjacent blocks is required, and is equivalent to one continuous read.**
+Block *k+1* must begin exactly where block *k* ended — same samples, same order, same spacing —
+checked on each block's `start_time` and length against the previous block's end. Chunking is an
+acquisition detail and must be invisible to everything downstream. This does not weaken §2.1: that
+section forbids *correcting* the buffer, and this only *verifies* it.
+
+**A gap is a hard failure.** Three operations, three rules, spelled out so they are never conflated:
+
+| operation | rule |
+|---|---|
+| **concatenation** of verified-adjacent blocks | **required** — this *is* the continuous record |
+| **fabrication** — zero-fill, interpolate, resample or realign across a hole | **forbidden always**: synthetic samples in X or Y is §2.1's failure class |
+| **gap-tolerant reassembly** — analysing two contiguous runs separated by a known GPS gap | **disallowed** |
+
+Recorded in §7's spirit so it is not re-derived: gap-tolerant reassembly is superficially attractive
+because a common phase shift cancels in the ratio-of-averages (§2.1), and it does — but the period
+*straddling* the seam contains a discontinuity that appears **differently** in X (a raw drive jump)
+than in Y (that same jump filtered by the plant), so `Y_seam ≠ H·X_seam` and it biases `Ybar` and
+`Xbar` inconsistently at order 1/P. It is **disallowed as policy**, not as a cost-benefit call.
+
+**Re-attempt is asymmetric between passive and excited records:**
+
+- A gap in a record containing **one or more excitations** is a failure mode. The record is dead, and
+  re-taking it is a **new injection needing its own operator approval** (§1 Rule 2). Never automatic.
+- A **passive** measurement — the quiet-time background read that yields `Pyy` (§5) — carries no
+  excitation, so it **may be re-attempted a limited number of times.** Bounded, logged, and it must
+  not silently extend the campaign's time budget.
+
+#### 4.3.3 The fault taxonomy
+
+Every #32 item, mapped to a named exception, the signal that detects it, its class, and where the
+work lands. The classes live in `cds_transport.py` (§4.1) so both transports raise the same types:
+
+| #32 item | exception | detection signal | class | Component |
+|---|---|---|---|---|
+| 1 — injection test point cleared by another user/process | `TestpointLost` | `..._EXC` readback diverges from the commanded array; handle invalid | transport | 1 (detect) |
+| 2 — readback test point cleared | `TestpointLost` | channel drops out of a block, or variance collapses below the pre-flight floor | transport | 1 (detect) |
+| 3 — framebuilder reboot | `TransportUnavailable` | block fetch raises or times out mid-record | transport | 1 (detect + teardown) |
+| 4 — suspension watchdog trips | `HardwareStateFault` | drive present at `..._EXC` while response RMS collapses against the quiet-time `Pyy` baseline — **inferential only** | hardware-state | 1 flags; authoritative check is Component 2 |
+| 5 — large / NaN / underflow in the excitation | `DataIntegrityError` | non-finite or over-ceiling pre-injection; `..._EXC`-vs-commanded gap post-hoc | integrity | 1 |
+| 6 — invalid injection channel, incl. slow read-only EPICS | `ChannelNotInjectable` | pre-flight grammar + retrievability probe | pre-flight | 1 structural; site tables Component 2 |
+| 7 — invalid readback channel | `ChannelNotFound` | pre-flight existence probe | pre-flight | 1 |
+| 8 — test point timeout | `TestpointTimeout` | bounded wait on allocation | transport | 1 (detect + bounded retry) |
+| 9 — CDS timing issue | `TimingFault` | block `start_time` vs requested; sample count vs duration; probed rate changing mid-campaign; non-monotonic GPS | integrity | 1 |
+| 10 — network issue | `TransportUnavailable` | connection error on any transport call | transport | 1 (bounded read retry) |
+
+All inherit `CDSTransportError`, so a caller that only wants *"something went wrong, stop driving the
+suspension"* has one thing to catch. **The taxonomy existing at all is the highest-value item in this
+section** — if the transports raise bare `RuntimeError`, every handler added later is a retrofit
+across the whole backend.
+
+On GPS monotonicity: hardware GPS comes from an antenna (best case) or an NTP server (worst case) and
+normally only increases, but an NTP-disciplined clock can step backwards. The check stays, and a
+backwards step is a `TimingFault`.
+
+#### 4.3.4 Extending the taxonomy — faults not in #32
+
+#32 is a starting list and explicitly invites additions, so the taxonomy has to absorb them without
+new mechanism. Place a new fault by answering two questions:
+
+1. **Can we get data at all?** No → **transport**. Data arrives but is wrong → **integrity**. Data is
+   fine but the plant never received the drive, or changed underneath the measurement →
+   **hardware-state**.
+2. **Is the affected channel recorded or a test point?** (§4.3.1) — this decides whether a retry is
+   even meaningful, and whether the loss is recoverable at all.
+
+Those two answers fix the base class and the reject-vs-abort outcome. Worked examples, none in #32:
+
+| fault | class | routing |
+|---|---|---|
+| front-end model restart / DAQ config change mid-record | transport | already manifests as upstream data unavailability → `TransportUnavailable` → abort. This is also why front-end decimation transients are not our problem: those filters run continuously, so a transient only exists around a restart, and a restart already hard-faults. |
+| excitation slot taken by another client (a DTT / diaggui session) | transport | `TestpointLost` on the injection channel → abort |
+| ADC/DAC overflow, or a saturating filter module in the drive path | integrity | `DataIntegrityError` via `..._EXC`-vs-commanded → reject the record; *physical* saturation is separately caught by the existing `Watchdog` `actuator_sat` breach |
+| framebuilder disk full | transport | `TransportUnavailable` → abort |
+| duotone / timing-comparator discrepancy | integrity | `TimingFault` → reject |
+| an operator changes a filter-module gain mid-record | hardware-state | not a transport fault at all — the plant changed under the measurement. Inferential only in Component 1; authoritative detection needs EPICS/SDF, Component 2 |
+
+Two standing rules. An **unclassified** fault still hits the `CDSTransportError` base and therefore
+still triggers safe teardown — the default is safe. And a fault with no matching class is **a gap in
+the taxonomy, not a licence for an ad-hoc handler**: add the class.
+
+#### 4.3.5 Pre-flight channel validation
+
+§4.2's `from_config` already probes the rate once with a one-second read. Extend **that same probe** —
+zero extra hardware cost, still pre-injection — to establish, for every channel the campaign will
+ever touch:
+
+- **existence** (item 7);
+- **retrievability class**, recorded vs test point: `_DQ` as a prior, probing as the arbiter (§4.3.1);
+- **rate**, per channel, and §4.2's integer-ratio conditions against it (item 9);
+- **liveness** — finite, and variance above a floor. This is the check §5 already specifies for `Pyy`,
+  generalised to every channel (item 2);
+- **injectability** for excitation channels — structurally, an excitation channel must be a fast
+  front-end test point, never a slow read-only EPICS record (item 6). Component 1 ships the
+  *structural* check; the site-specific naming tables are site-profile data, Component 2.
+
+Failing here costs nothing. Failing after an injection costs an injection, an operator approval, and —
+for a test point — data that cannot be re-fetched.
+
+#### 4.3.6 The record verdict, and the reject-vs-abort split
+
+`read()` returns data only after a validation pass, expressed as one small **verdict** object rather
+than scattered asserts, so the checks are enumerable, reportable and testable.
+
+- **Integrity faults** — `DataIntegrityError`, `TimingFault`, a short or non-finite block, any gap —
+  **reject the record.** It contributes **zero weight**, never a small one. This is §3.2's lesson
+  restated: `loop.py:444` zeroing `var_H` plus the `1e-9` floor at `:460` turns "exclude this" into
+  weight **4.56e+19**. Exclude with `inf`. Whether the campaign may re-take it follows §4.3.2's
+  passive/excited asymmetry.
+- **Transport and hardware-state faults** — `TestpointLost`, `TransportUnavailable`,
+  `TestpointTimeout`, `HardwareStateFault` — **abort the campaign**, through the *existing* path: the
+  backend's idempotent `_stop_all` in its `finally` (§3.6), then `watchdog.abort()`. No new abort
+  mechanism, and no second teardown path to keep in sync.
+- **Guard rail, stated because it will otherwise be got wrong.** Data-integrity and coherence faults
+  must **not** be routed through `Watchdog.evaluate`'s breach list. `safety.py:5-7` deliberately keys
+  automatic abort on **physical hardware safety only** — actuator saturation and output RMS — with
+  coherence and fit-health surfaced as *status*. Item 4 above is detected inferentially *from
+  coherence*, so without this sentence someone will reasonably wire it to auto-abort and quietly
+  invert that design rule. Faults surface via the verdict and the dashboard, never as
+  `SafetyReport.breaches`.
+
+A rejected record must **not** enter §4.2's read cache, and must invalidate that generation's entry.
+
+#### 4.3.7 Retry policy — asymmetric on two axes
+
+- **Passive reads retry.** Bounded count, with backoff, for `TransportUnavailable` /
+  `TestpointTimeout` — and per §4.3.2 a passive record may also be re-attempted after a gap.
+- **Excited records never retry automatically.** Re-taking one means re-injecting: a new actuation,
+  needing a new approval token under §1 Rule 2.
+- **Injections never auto-retry**, and any fault **invalidates** the §5 approval token.
+- A retry never silently extends a record's duration or the campaign's time budget. The requested
+  window is fixed, and the retry count is reported.
+
+#### 4.3.8 What this section defers
+
+Authoritative suspension-watchdog and Guardian state, and SDF monitoring for filter-module changes —
+all need EPICS. Test-point ownership and arbitration between users. Site channel-naming tables and
+`_DQ` decimation-filter characterisation. All Component 2, and all listed in §6.
+
 ## 5. Safety enforcement
 
 **The gate lives inside `CDSBackend.inject()`** — the only code path from any caller to the actuator,
@@ -487,6 +725,9 @@ inject-internal gate with extra indirection.
   `inject()` mints a new token. That is Rule 2 exactly.
 - The prompt is injectable (`authorizer=`) for testability and **defaults to deny** on `EOFError` /
   non-TTY. Never proceed in batch.
+- **Added by §4.3.7:** any fault **invalidates** the token, and there is **no automatic
+  re-injection**. Re-taking a failed excited record is a new actuation and prompts again — which is
+  Rule 2, applied to the failure path rather than only the happy path.
 
 **Absolute amplitude limits, enforced pre-injection.** `actuator_sat` exists but is only read at
 `safety.py:105` from `evaluate()`, which runs at `loop.py:215` — *after* inject and read. The budget is
@@ -511,7 +752,10 @@ semantics — scale the whole series to preserve the spectrum, report the factor
 `SafetyAbort` when the required scale-down is large**: a 22× shrink means the design is wrong, not
 that it should be quietly scaled. Print the actual RMS and peak before injecting; that is the other
 repo's cheapest, highest-value lesson. Implement as an opt-in, default-off
-`ChannelBackend._check_drive_limits(ts)` so twin behaviour stays bit-identical.
+`ChannelBackend._check_drive_limits(ts)` so twin behaviour stays bit-identical. **#32 item 5 — large
+or non-finite samples in the excitation — folds in here** rather than becoming a second mechanism:
+the same call rejects a non-finite drive before it can reach `append`/`ArbitraryLoop`. Its
+post-injection counterpart, the `..._EXC`-vs-commanded comparison, is §4.3.3's `DataIntegrityError`.
 
 Note the 12% energy the ramp discards feeds `fisher_matrix` (`loop.py:225-227`) via the *designed*
 `Pxx`, not the realised one, so reported uncertainty is optimistic by ~6% in amplitude. Record it;
@@ -523,6 +767,10 @@ converge" minutes later. `design/pintelon.py:24-30` documents that failure mode 
 guards `Pyy`. Check finite, positive and above a floor **before the first injection**. Add
 `--skip-background` and a `measurement.Pyy_from_file` path (the other repo's §3.1): at physics-sized
 resolution the unconditional quiet measurement is ≈**1.7 h before anything is injected**.
+**Amended by §4.3:** the same floor check is generalised to *every* campaign channel at pre-flight
+(§4.3.5), where it also catches a dead or cleared readback test point before an injection is spent;
+and the `Pyy` read is the **one** measurement that may be re-attempted automatically after a fault or
+a gap, because it carries no excitation (§4.3.2, §4.3.7).
 
 **Fix the existing CLI gate.** `cli.py:89` calls `_confirm(twin=True)` unconditionally, so the
 `"HARDWARE"` label at `cli.py:129` is dead code and a hardware run announces itself as a twin run →
@@ -547,12 +795,18 @@ against the **existing compiled `x1hsts` model**, scored against the rtsfreerun 
 the same criterion Stage 1 used (`tests/test_sos_sysid.py`, worst 1.64σ). This deliberately decouples
 the work from Stage 2 (`gen_x1sos6dof.py`, not yet written, in the `digital_twin` repo): the transport
 is plant-agnostic, so an HSTS validates it as well as an SOS would.
+**Added by §4.3 (#32):** the `CDSTransportError` taxonomy; the pre-flight channel probe; chunked
+acquisition with block-adjacency verification; the per-record verdict and the reject-vs-abort split;
+and fault injection for all ten items in the fake harness.
 
 **Out of scope (Component 2).** Any live injection. The site-profile layer (channel naming, the IFO
 key, counts↔newtons, DAC/coil limits, OSEM basis, front-end rate — data, not code). Guardian /
 lock-state abort. Full filter-module/SDF snapshot and restore. Foton ZPK/SOS export and the provenance
 manifest. The operator-answer gate (`notes/40m-sos-campaign-handoff-2026-07.md:66-70`,
 `notes/strategic-roadmap-2026-07-draft.md:309-334`).
+**Added by §4.3 (#32):** EPICS-backed hardware state (suspension watchdog, Guardian, SDF); test-point
+ownership and arbitration between users; automatic re-take of a failed *excited* record; and
+characterising the front-end `_DQ` decimation filters so `D_Y/D_X` could be divided out.
 
 **Deliberately deferred so it can be generalised.** Component 1 must not hard-code a single site
 channel name or the site IFO value, so that other hardware needs only a new profile.
@@ -562,6 +816,20 @@ channel name or the site IFO value, so that other hardware needs only a new prof
 channel's AWG slot is released so a second `ArbitraryLoop` on it succeeds; multi-channel common
 `start_gps` when `start()` blocks until it (simultaneous mode); whether `_EXC` is NDS-readable at the
 site; `getdata` live short/gap behaviour; actual DAC counts against the design budget.
+
+**Added by §4.3 (#32)** — also human-gated, also unsettleable off-hardware:
+
+- Whether the live NDS path sustains a continuous multi-hour **test-point** stream without dropping
+  blocks, and whether `cdsutils.getdata` can be used that way at all or whether the NDS2
+  iterate/stride API is required (§4.3.1, §4.3.2).
+- What a **test-point release by another user** looks like to a reader mid-record — an error, a gap,
+  silence, or held values.
+- The framebuilder resource limits that set a workable **chunk size**. No default can be justified
+  without this measurement, so the shipped one is provisional (§9.4).
+- The **type and response of the front-end `_DQ` decimation filters** — plausibly IIR rather than FIR,
+  unconfirmed — which sets the size of the `D_Y/D_X` residual under an X/Y rate mismatch (§4.3.1).
+- The root cause of the **observed** long-stretch failures (§4.3.2): test-point timeout, framebuilder
+  resource limits, or a client-side limitation. Never investigated; workarounds used instead.
 
 ## 7. What is NOT a defect here
 
@@ -585,6 +853,12 @@ And one that is much less binding here:
   A `warnings.warn` above `0.8·(fs/2)` suffices; no `--f-max` flag. **That cancellation is a second
   reason X must never be a synthesised array** (§2.1): synthesise X and the filter no longer cancels,
   giving a systematic −2.4 dB at 0.95·Nyquist.
+  > **Extended 2026-08-04 (§4.3.1).** A synthesised X is not the only way to break that cancellation:
+  > so is an **X/Y rate mismatch**. If X comes from a full-rate `..._EXC` test point and Y from a
+  > lower-rate `_DQ` channel, the two decimation filters differ and `H_meas = H · D_Y/D_X` — a
+  > systematic magnitude *and phase* error growing toward Nyquist. The chosen default is **warn and
+  > proceed**, not refuse; dividing `D_Y` out needs site-supplied filter data (Component 2), and the
+  > filters' type is itself unknown (§6).
 
 Also not ported: the other repo's `effective_coherence`, which algebraically ignores its `u_signal`
 argument (its §4.0) so denominator read-back noise never enters any reported uncertainty. This repo
@@ -773,3 +1047,9 @@ a user-owned directory does it in seconds, and base conda need not be touched. `
    synchronous simultaneous excitation the mode assumes, and the loop cannot tell. Candidate fix —
    start all with `ramptime=0` at a common `start_gps` and ramp separately — is unverifiable without
    the real `awg`.
+4. **What chunk size should §4.3.2 ship?** Per the feasibility gate, no limit is claimed without a
+   number — and the number here belongs to the framebuilder, not to us: it is set by the resources
+   that machine has available, which depend on its hardware **and/or** on what else it is running.
+   Smaller chunks detect faults sooner and buffer less; larger ones cost less Python-side turnaround.
+   Ship a conservative default, mark it **provisional**, expose it as `cds.read_chunk_s`, and replace
+   it with a measured value at bring-up. Recorded so the default is not later mistaken for a result.

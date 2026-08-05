@@ -106,6 +106,28 @@ spec; the headlines:
    At physics-sized resolution a 3-DoF × 3-iteration campaign is ≈**7.0 h**; a read cache brings it to
    ≈2.5 h.
 
+9. **Many front-end channels are not recorded to disk** — they must be captured **live** from the
+   framebuilder or they are unretrievable, and that includes the `<IFO>:<MDL>-<optic>_..._EXC`
+   excitation readback that finding 1 makes mandatory. *Operator-supplied 2026-08-04, not measured
+   here.* Four consequences, all in spec **§4.3.1**: the NDS request must stay **open** for the whole
+   record (N back-to-back `getdata` calls lose samples at every boundary); a lost or rejected
+   test-point record **cannot be re-fetched**, so re-taking an excited one is a new injection needing
+   fresh approval; pre-flight channel validation must happen **before** an injection is burned; and
+   the read cache is a correctness affordance, not just a speed-up.
+   - **`_DQ` is a useful prior:** fast non-EPICS channels normally carry it, so it normally identifies
+     a readback with look-back — confirmed by probing, never assumed. But `_DQ` channels are usually
+     served at a **lower rate** (properly decimated), so rate checks are **per channel**, and a
+     full-rate X against a `_DQ` Y breaks §7's exact `Ybar/Xbar` filter cancellation. Default is warn
+     and proceed. The filters' type is unknown — plausibly IIR; they run continuously on the realtime
+     machines, so transients only matter around a restart, and a restart already hard-faults.
+10. **Framebuilders failing to deliver long data stretches HAS been observed** — the one #32 item that
+    is not hypothetical. Cause **never investigated** (candidates: test-point timeout, framebuilder
+    resource limits, a client-side limitation); workarounds are commonly used instead. **Not
+    authoritative** — no numbers, no logs, no root cause — so it is recorded as a *weak empirical
+    driver* sitting alongside the architectural reasons for chunked reads (spec §4.3.2), never as
+    their basis. The binding constraint is the **resources available to the framebuilder**: hardware
+    with less memory, **and/or** a machine also running other tasks. Issue #32.
+
 And two of the sibling repo's scariest findings are **NOT** latent here — recorded so nobody "fixes"
 working code: the `normalise_rms` ≈22.6× overshoot (measured realised `var/px_total` = **1.033** here)
 and the unbanded first excitation with a −17.35-count DC offset (DC is explicitly dropped;
@@ -215,3 +237,14 @@ Two environment traps carried over from the sibling repo's first hardware run, n
    >   underrun; what does an underrun look like at the front end (gap, hold, or silence); does
    >   `set_gain(gain, ramptime=…)` ramp a *stream* as cleanly as it ramps a loop; and does `abort()`
    >   stop a stream promptly. All human-gated, per-injection.
+4. **New, from issue #32** (spec §4.3, §6) — the read side, and none of it settleable off-hardware:
+   - Can the live NDS path sustain a continuous multi-hour **test-point** stream without dropping
+     blocks, and can `cdsutils.getdata` be used that way at all, or is the NDS2 iterate/stride API
+     required? This is load-bearing: a test point cannot be re-fetched.
+   - What does a **test-point release by another user** look like to a reader mid-record — an error, a
+     gap, silence, or held values?
+   - What framebuilder resource limit sets a workable **chunk size**? The shipped default is
+     provisional until this is measured.
+   - What **type** are the front-end `_DQ` decimation filters (plausibly IIR, unconfirmed), and how
+     big is the `D_Y/D_X` residual under an X/Y rate mismatch?
+   - **Root cause of the observed long-stretch failures** (finding 10) — never investigated.

@@ -32,6 +32,7 @@ I  documentation                (rolling)
 | Stage | Issues |
 |---|---|
 | **Excitation construction (cross-cutting, 2026-08-04)** | **#31** `ArbitraryStream` + cosine envelope; `ArbitraryLoop` as peer mode — supersedes #9's implied fix and touches A, C, D, E, F |
+| **Transport edge cases (cross-cutting, 2026-08-04)** | **#32** CDS backend edge cases — fault taxonomy, pre-flight channel validation, chunked live read, per-record verdict; spec **§4.3**; touches A, C, D, E, F, G. Spin-outs: **#34** pre-flight validation · **#35** taxonomy + chunked read + retry · **#36** record verdict + drive round-trip · **#37** *(deferred)* EPICS hardware-state faults |
 | A — fake transport harness | #5 |
 | B — loop/estimator hardening | #6 `P_eff<2` weight · #7 energy-span slice · #8 blind `H_err` · #9 ramp contract · #10 `resample_poly` |
 | C — transport seam | #11 `AWGNDSTransport` · #12 `TwinTransport` |
@@ -66,6 +67,24 @@ the dev machine, so every CDS test must fake them. Model on `tests/test_rtsfreer
   plant, with a **settable GPS offset** so misalignment is directly testable, plus switches for
   short reads, gaps and a missing channel.
 - `FakeGpstime` — a controllable clock, so no test ever sleeps a real `start_buffer`.
+
+> **Amended by #32 — the largest early-planning win in that issue.** The harness must be able to
+> **cause** every fault in spec §4.3.3, from day one. Retrofitting fault injection into fakes that only
+> model the happy path is precisely the rebuild #32 exists to avoid, and it is far cheaper here than
+> anywhere downstream. Add, as switches on the existing fakes rather than as parallel classes:
+>
+> - channel **disappearing mid-record**; block fetch raising `TransportUnavailable`; test-point
+>   **allocation timeout**; **channel-not-found**;
+> - **short**, **gapped** and **non-finite** blocks; **rate changing mid-campaign**; GPS **jump, skew
+>   and backwards step** (an NTP-disciplined clock can step back, so this is not hypothetical);
+> - an **`..._EXC`-diverges-from-commanded** mode — which also simulates #31's stream underrun, so one
+>   mechanism serves both issues.
+>
+> `FakeGetdata` must also model the two **retrievability classes** (spec §4.3.1): a test-point channel
+> is obtainable only while a stream is open, a recorded channel is re-fetchable afterwards. Without
+> that distinction the "no second fetch" behaviour the whole read path is built around is untestable.
+> The fakes must emit **chunked blocks** with settable adjacency, so both the verified-adjacent
+> concatenation and the gap rejection are exercised off-hardware.
 
 **Verification:** the harness is exercised by every test in Stage G. No standalone assertions needed
 beyond a self-test that the fake plant's `freqz` matches the FRF the loop recovers from it.
@@ -132,8 +151,35 @@ Ported from `automatic-frf-measurement` `40m-sys-test:measurement/backend_rtcds.
    legacy site CDS python stack to `PYTHONPATH` and `import cdsutils` then fails with
    `ModuleNotFoundError: No module named 'matrix'`; unsetting `PYTHONPATH` recovers.
 
+> **Amended by #32 (spec §4.3).** Three additions to the seam, all of which are far cheaper here than
+> retrofitted later:
+>
+> 1. **The `CDSTransportError` hierarchy** — `TransportUnavailable`, `TestpointLost`,
+>    `TestpointTimeout`, `ChannelNotFound`, `ChannelNotInjectable`, `DataIntegrityError`,
+>    `TimingFault`, under one base. If the transports raise bare `RuntimeError`, every handler added
+>    later is a retrofit across the whole backend. An unclassified fault still hits the base and so
+>    still triggers safe teardown — the default is safe.
+> 2. **`stream(channels, duration, chunk_s)` is the primitive**, with `fetch` derived from it. Blocks
+>    are **verified adjacent** — block *k+1* begins exactly where *k* ended — and concatenated; a gap
+>    is a hard failure, never closed. The request stays **open** for the whole record, because a test
+>    point cannot be re-fetched (spec §4.3.1); N back-to-back `getdata` calls would lose samples at
+>    every boundary.
+> 3. **`classify(channels)`** — the pre-flight retrievability/rate/liveness probe (spec §4.3.5),
+>    folded into the rate probe that already happens, so it costs no extra hardware time.
+>
+> Bounded read retry lives here too, and is **asymmetric**: `TransportUnavailable` /
+> `TestpointTimeout` on a *passive* read retry; nothing that would re-actuate ever does (spec §4.3.7).
+
 `TwinTransport` routes `start`/`stop`/`fetch` at an rtsfreerun `mdl` with a synthetic GPS clock, so the
 same `CDSBackend` code path runs against a compiled model.
+
+> **#32, on what `TwinTransport` must NOT pretend.** It has to raise every error type and emit chunked
+> blocks, so all of the above is testable off-hardware. But there is a genuine hardware/simulation
+> difference to respect rather than paper over: in the twin, GPS is **instantiated at runtime** and
+> each `mdl.run()` is a fresh evolution, so continuity *across* records is meaningless there, and
+> re-acquiring a whole stretch is cheap and simple — neither is true on hardware, where GPS comes from
+> an antenna (best case) or an NTP server (worst case). A gap *within* one twin record **is**
+> representable — keep running cycles, do not fetch them — and that is what the gap tests should use.
 
 **Verification:** `tests/test_cds_lazy_import.py` — `import system_ident` must not import
 `awg`/`cdsutils` (style of the sibling repo's `test/test_cli.py:77-81`). Transport unit tests on the
@@ -183,6 +229,26 @@ record, no `settle_duration` knob.
 live-excitation state only, with the docstring stating that filter-module/gain/offset state is **not**
 captured (Component 2). Add `KeyboardInterrupt` to `loop.py:181`.
 
+> **Amended by #32 (spec §4.3).** Each of the four issues grows, none is replaced:
+>
+> - **#13** — the rate probe becomes the **pre-flight channel probe** (§4.3.5): existence,
+>   retrievability class (`_DQ` as a prior, probing as the arbiter), **per-channel** rate and
+>   integer-ratio checks, liveness above a variance floor, and a structural injectability check that
+>   refuses a slow read-only EPICS record as an excitation channel. `fs_hw` is no longer one global
+>   number. Failing here costs nothing; failing after an injection costs an injection, an operator
+>   approval, and — for a test point — data that cannot be re-fetched.
+> - **#14** — the scattered asserts become one enumerable **record verdict** (§4.3.6), and the read is
+>   **chunked with adjacency verification** (§4.3.2). Integrity faults **reject** the record at *zero*
+>   weight (never a small one — that is #6's `4.56e+19` lesson); transport and hardware-state faults
+>   **abort** through the existing `_stop_all` + `watchdog.abort()` path. Software decimation is
+>   applied **once to the assembled record**, never per block, or §3.5's 6.9 %/53 % edge failure
+>   returns at every chunk boundary.
+> - **#15** — a **rejected record must not be cached**, and must invalidate its generation's entry. The
+>   cache's rationale is upgraded: for a test point there is no second chance to fetch, so it is a
+>   correctness affordance and not only a 7.0 h → 2.5 h speed-up.
+> - **#16** — `finally`/`_stop_all` becomes the single teardown for **every** transport fault, not just
+>   `KeyboardInterrupt`.
+
 **Verification:** all of it on the Stage A harness. No hardware.
 
 ---
@@ -217,6 +283,24 @@ primitives are `set_gain(0, ramptime=…)` for a graceful ramp and `abort()` →
 — both available on `awg.ArbitraryStream` and both independent of the queued data.)** Do **not** force `--no-dashboard` —
 `cli.py:108-113` already degrades gracefully and the extra is pip-installable under py3.9.
 
+> **Amended by #32 (spec §4.3).**
+>
+> - **#17** — any fault **invalidates** the approval token, and there is **no automatic
+>   re-injection**. Re-taking a failed *excited* record is a new actuation and prompts again: Rule 2
+>   applied to the failure path, not only the happy path.
+> - **#4** — #32 item 5 (large / NaN / underflow in the excitation) folds into `_check_drive_limits`
+>   rather than becoming a second mechanism: the same call rejects a non-finite drive before it can
+>   reach `append`/`ArbitraryLoop`. Its post-injection counterpart is the `..._EXC`-vs-commanded
+>   comparison (#36).
+> - **#18** — the `Pyy` floor check generalises into the pre-flight liveness check (§4.3.5), where it
+>   also catches a cleared readback test point before an injection is spent. And `Pyy` is the **one**
+>   measurement that may be re-attempted automatically after a fault or a gap, bounded and logged,
+>   because it carries no excitation (§4.3.2).
+> - **#19** — gains an explicit guard rail: data-integrity and coherence faults must **never** enter
+>   `SafetyReport.breaches`. `safety.py:5-7` deliberately keys automatic abort on physical hardware
+>   safety only, with coherence as *status*. #32 item 4 is detected inferentially *from* coherence, so
+>   without this someone will reasonably wire it to auto-abort and silently invert that design rule.
+
 **Verification (all on fakes):** denying authorizer raises *and* `FakeArbitraryLoop` was never
 constructed; authorizer called twice for two injects and once for one inject + three reads;
 staged-but-unapproved `read()` raises with `.start` never called; default authorizer denies on
@@ -243,6 +327,15 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
   the docstring that the decimation filter cancels in `Ybar/Xbar` **only because X is a readback**.
 - `pyproject.toml:34` already reserves the `cds = []` extra — no change.
 
+> **Amended by #32.** Keep the config surface minimal, honouring #31's "no new configuration" instinct.
+> Only two additions to the `cds:` section, both with in-code defaults:
+> **`read_chunk_s`** (validated `≤ segment_duration`; the default is **provisional** — no value can be
+> justified without a framebuilder measurement, spec §9.4) and **`passive_read_retries`**. The
+> variance floor, retry backoff and transport retry bounds stay in-code until a measurement justifies
+> exposing them. Also: because `_DQ` channels are normally served at a lower rate, the rate and
+> integer-ratio validation is **per channel**, and an X/Y rate mismatch **warns and proceeds** rather
+> than refusing — with the `D_Y/D_X` residual documented (spec §4.3.1, §7).
+
 ---
 
 ## Stage G — tests and the exit gate  · issue #21
@@ -262,6 +355,13 @@ Follow the repo's own idioms: `MockRTSModel` for fakes,
   CRB — the criterion Stage 1 used (`tests/test_sos_sysid.py`, worst 1.64σ). `skipif` the model is
   absent. Using `x1hsts` rather than an SOS composite decouples this from Stage 2
   (`gen_x1sos6dof.py`, unwritten, in the `digital_twin` repo): the transport is plant-agnostic.
+- **`tests/test_cds_faults.py` (#32)** — one case per #32 checkbox, all on the Stage A fakes: the
+  correct exception type, the correct reject-vs-abort outcome, and the excitation stopped **exactly
+  once**. Plus the three that matter most structurally:
+  1. verified-adjacent chunks reconstruct **bit-identically** to a single fetch — chunking is invisible;
+  2. a gap in an **excited** record is rejected, never reassembled, and contributes **zero** weight to
+     `_accumulate` (guarding against #6's `4.56e+19` failure mode reappearing here);
+  3. a gap in a **passive** record is re-attempted, bounded, and the retry count is reported.
 - A `skipif find_spec("awg") is None` **read-only** real-transport smoke test — probe the rate, quiet
   `getdata`, **no injection**. Safe to run on the deployment machine without operator approval.
 
@@ -325,7 +425,10 @@ Rolling, but these land with their code:
 - `CLAUDE.md` — the **Hardware safety** hard-rule section (done in the docs commit); the two dated
   notes on `:42` and `:47-49` (done).
 - `docs/tutorial/safety-and-ops.qmd` — the "Human authorization" section (done); extend with the
-  per-injection token and the mandatory-STOP requirement when Stage E lands.
+  per-injection token and the mandatory-STOP requirement when Stage E lands. **Plus (#32) an
+  operator-facing fault table**: what each fault looks like, whether the campaign continued or
+  aborted, and what to check. This is the deliverable that replaces "a human was watching" — every
+  run to date has been a supervised single-operator session, and production is neither.
 - `docs/_quarto.yml:143-150` — register `backends.cds.CDSBackend` in "Plant & backends" when it stops
   being a stub. The API reference is hand-curated, so a new symbol is invisible until listed;
   `RTSfreerunBackend` is missing too and should be added at the same time.
@@ -352,6 +455,10 @@ Cheapest first; nothing before step 8 needs hardware.
 3. **Lazy import.** `python -c "import system_ident, sys; assert 'awg' not in sys.modules"`.
 4. **Fake transport.** `pytest tests/test_cds_backend.py -v`.
 5. **Safety.** `pytest tests/test_cds_safety.py -v`, plus `main(["run", cfg, "--yes"])` → 2.
+5a. **Fault injection (#32).** `pytest tests/test_cds_faults.py -v` — for each of #32's ten items, the
+   correct exception, the correct reject-vs-abort outcome, and the excitation stopped exactly once.
+   Plus: chunked reads reconstruct bit-identically to a single fetch; a gapped **excited** record is
+   rejected at zero weight; a gapped **passive** record is re-attempted, bounded.
 6. **Full suite.** 254+ passed; skip count unchanged bar new hardware-gated skips.
 7. **Deployment subset.** The gate is the same ten files either way; only the environment changed.
    - **Primary — `sysid_deploy` (py3.11 / numpy 1.26.4 / scipy 1.13.1 / control 0.10.2), on the
