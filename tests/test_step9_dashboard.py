@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import socket
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,26 @@ def test_operator_stop_via_listener_aborts_with_handoff():
     result = loop.run(cfg.raw, cfg.build_priors(), seed=0)
     assert result.aborted
     assert result.abort_reason == "operator STOP"
+
+
+# --- listening socket ---------------------------------------------------------
+# bind_socket() exists so the CLI can bind in its OWN thread: uvicorn.run() calls
+# sys.exit() on a bind failure, which is silent inside a daemon thread.
+def test_bind_socket_raises_on_taken_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen(1)
+        port = taken.getsockname()[1]
+        with pytest.raises(OSError):
+            server.bind_socket(port=port).close()
+
+
+def test_bind_socket_port_zero_resolves_to_a_real_port():
+    sock = server.bind_socket(port=0)
+    try:
+        assert sock.getsockname()[1] != 0
+    finally:
+        sock.close()
 
 
 # --- transport (env-dependent) ------------------------------------------------

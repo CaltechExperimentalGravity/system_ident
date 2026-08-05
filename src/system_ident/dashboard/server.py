@@ -13,6 +13,7 @@ the loop notices between segments and shuts down through the safe-state handoff.
 
 from __future__ import annotations
 
+import socket
 from typing import Callable
 
 from .ws import SNAPSHOT_FIELDS, to_json, validate_snapshot
@@ -154,15 +155,47 @@ def create_app(hub: SnapshotHub, on_stop: Callable[[], None] | None = None):
     return app
 
 
+def bind_socket(host: str = "127.0.0.1", port: int = 8000) -> socket.socket:
+    """Bind (and listen on) the dashboard's socket, raising ``OSError`` if it can't.
+
+    Split out of :func:`serve` so the caller can bind in its *own* thread. uvicorn
+    reports a bind failure by calling ``sys.exit()``, which is silent inside the
+    daemon thread the CLI runs the server in — the operator would be handed a URL
+    for a server that never started. Pass ``port=0`` to let the OS pick; read the
+    real port back off the returned socket with ``getsockname()[1]``.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+        sock.listen(128)
+    except OSError:
+        sock.close()
+        raise
+    return sock
+
+
 def serve(
     hub: SnapshotHub,
     on_stop: Callable[[], None] | None = None,
     host: str = "127.0.0.1",
     port: int = 8000,
+    sock: socket.socket | None = None,
 ):
-    """Run the dashboard server (lazy import of uvicorn). Blocks."""
+    """Run the dashboard server (lazy import of uvicorn). Blocks.
+
+    ``sock`` serves an already-bound socket from :func:`bind_socket` (``host``/``port``
+    are then ignored); without one, uvicorn binds here and any failure surfaces only
+    as a process exit.
+    """
     try:
         import uvicorn
     except ModuleNotFoundError as err:  # pragma: no cover - env without extra
         raise ModuleNotFoundError(_INSTALL_HINT) from err
-    uvicorn.run(create_app(hub, on_stop), host=host, port=port)
+
+    app = create_app(hub, on_stop)
+    if sock is None:
+        uvicorn.run(app, host=host, port=port)
+        return
+    config = uvicorn.Config(app, host=host, port=port)
+    uvicorn.Server(config).run(sockets=[sock])

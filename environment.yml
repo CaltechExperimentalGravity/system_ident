@@ -1,21 +1,33 @@
 # Development environment for system_ident.
 #
-# Compiled scientific libraries come from conda-forge (optimized BLAS, no
-# source builds); the package itself and the pure-Python dev/dashboard extras
-# are installed editable via pip, so pyproject.toml stays the single source of
+# Compiled scientific libraries come from conda-forge (optimized BLAS, no source
+# builds); the package itself and the pure-Python dev/dashboard/docs extras are
+# installed editable with `uv pip`, so pyproject.toml stays the single source of
 # truth for dependencies.
 #
-# Create (run from the repo root, so `-e .` resolves):
+# Create (two steps — a conda env file can only drive `pip`, not `uv`, so the
+# editable install is a separate command; run it from the repo root so `-e .`
+# resolves):
+#
 #     conda env create -f environment.yml
 #     conda activate sysid
+#     uv pip install -e ".[dev,dashboard,docs]"
 #
-# Verified with python 3.12, numpy 2.4, scipy 1.17, control 0.10.
+# `uv pip` installs into the active conda env (it honours $CONDA_PREFIX) and
+# resolves in seconds. Plain `pip install -e ".[dev,dashboard,docs]"` still works
+# if you'd rather not use uv.
+#
+# Optional, not installed by the above: `playwright` + `playwright install
+# chromium` enable the browser-parity check in tests/test_playground.py, which
+# runs the docs' excitation-playground JS and asserts it matches the Python
+# reference bin-for-bin. It skips cleanly without them.
+#
+# Verified with python 3.12, numpy 2.5, scipy 1.18, control 0.10, slycot 0.7.
 name: sysid
 channels:
   - conda-forge
 dependencies:
   - python=3.12
-  - pip
   # Compiled scientific stack. scipy must be >= 1.14, where integrate.trapezoid
   # replaces the removed integrate.trapz used by the legacy sysIDlib reference.
   - numpy
@@ -23,8 +35,11 @@ dependencies:
   - matplotlib
   - pyyaml
   - control
-  - quarto
-  - pip:
-      # docs extra included so `conda env create` yields a doc-capable env
-      # (quarto itself comes from conda above; quartodoc/jupyter are pip-only).
-      - -e .[dev,dashboard,docs]
+  # Fortran-backed MIMO backend for python-control. Declared explicitly even
+  # though conda-forge's `control` currently depends on it: it is a direct
+  # dependency of ours, and pip/uv would attempt a source build needing a
+  # Fortran compiler.
+  - slycot
+  - quarto          # renders docs/; quartodoc + jupyter come from the docs extra
+  - uv              # installs the package + extras (see the header)
+  - pip             # fallback install path, and keeps `python -m pip` available

@@ -15,6 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Deliberately light: one Python, no docs stack, no Git LFS, no coverage upload.
+  # `-m "not slow"` drops the three long Monte-Carlo / 6-DoF modal tests; anything
+  # needing a compiled RTSfreerun twin or Playwright skips itself. Run the full
+  # suite (plain `pytest`) locally before pushing.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7      # no lfs: only graphics are in LFS, tests need none
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install package + test deps
+        # uv resolves in seconds and pulls the slycot wheel rather than building it.
+        run: |
+          python -m pip install --upgrade uv
+          uv pip install --system -e ".[dev,dashboard]"
+      - name: Run the light test selection
+        run: pytest -m "not slow" -q
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +78,7 @@ jobs:
           path: docs/_site
 
   deploy:
-    needs: build
+    needs: [test, build]    # don't publish docs from a tree with failing tests
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

@@ -115,6 +115,9 @@ def test_tracks_injected_drift_within_crb():
     assert res["local_stationarity_err"] < 0.05             # record << drift timescale
 
 
+@pytest.mark.slow    # ~80 s: runs the whole example-13 campaign to build the panels.
+                     # CI's docs job renders 13-darm-drift-tracking.qmd, which walks the
+                     # same import + figure path, so deselecting it there loses no cover.
 def test_docs_glue_imports_and_builds_figures():
     """The example-13 presentation module imports fresh (no circular import) and builds its
     panels — this is the render path, so it guards against the darm↔darm_adapter cycle."""

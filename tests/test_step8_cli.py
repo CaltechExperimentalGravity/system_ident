@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import socket
 from pathlib import Path
 
 import pytest
@@ -52,8 +54,11 @@ def test_apply_overrides():
 
 
 # --- CLI ----------------------------------------------------------------------
+# NB: the run tests pass --no-dashboard. Without it, a CLI run in an env that has
+# the dashboard extra opens a real listening socket on the developer's machine and
+# leaves the daemon serve() thread alive for the rest of the session.
 def test_cli_twin_run_succeeds(capsys):
-    assert main(["run", str(DEMO), "--twin", "--yes"]) == 0
+    assert main(["run", str(DEMO), "--twin", "--yes", "--no-dashboard"]) == 0
     out = capsys.readouterr().out
     assert "DONE" in out
     assert "POS" in out and "PIT" in out
@@ -81,7 +86,44 @@ def test_cli_abort_on_saturation(tmp_path, capsys):
     p = tmp_path / "sat.yml"
     p.write_text(yaml.safe_dump(raw))
 
-    assert main(["run", str(p), "--twin", "--yes"]) == 1
+    assert main(["run", str(p), "--twin", "--yes", "--no-dashboard"]) == 1
     out = capsys.readouterr().out
     assert "ABORTED" in out and "actuator saturation" in out
     assert "safe-state handoff completed" in out
+
+
+# --- dashboard startup --------------------------------------------------------
+# Both need a server to actually start, so they only apply where the extra is
+# installed; without it the CLI reports "dashboard extra not installed" instead.
+HAVE_DASHBOARD = bool(
+    importlib.util.find_spec("fastapi") and importlib.util.find_spec("uvicorn")
+)
+
+
+@pytest.mark.skipif(not HAVE_DASHBOARD, reason="dashboard extra not installed")
+def test_cli_reports_unavailable_dashboard_port_and_runs_headless(capsys):
+    """A taken port must be diagnosed in the caller's thread.
+
+    Binding inside the daemon serve() thread makes uvicorn's failure invisible:
+    the CLI prints a dashboard URL, the operator gets no dashboard, and nothing
+    says why. The run itself must still complete.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen(1)
+        port = taken.getsockname()[1]
+        assert main(["run", str(DEMO), "--twin", "--yes", "--port", str(port)]) == 0
+
+    out = capsys.readouterr().out
+    assert "DONE" in out                                   # run unaffected
+    assert f"port {port}" in out and "headless" in out      # and diagnosed
+    assert f"http://127.0.0.1:{port}" not in out            # no dead URL offered
+
+
+@pytest.mark.skipif(not HAVE_DASHBOARD, reason="dashboard extra not installed")
+def test_cli_dashboard_reports_the_port_it_actually_bound(capsys):
+    """--port 0 lets the OS choose; the operator must be told the real port."""
+    assert main(["run", str(DEMO), "--twin", "--yes", "--port", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:0" not in out
+    assert "dashboard: http://127.0.0.1:" in out

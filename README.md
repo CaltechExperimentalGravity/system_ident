@@ -109,13 +109,22 @@ pip install -e ".[docs]"
 
 ## Install
 
+The supported path is conda-forge for the compiled stack (numpy/scipy/**slycot**
+with optimized BLAS and no source builds) plus `uv pip` for the package itself:
+
 ```bash
-pip install -e .          # core (twin path)
-pip install -e .[dev]     # + pytest
-pip install -e .[dashboard]   # + fastapi/uvicorn/websockets for the live UI
+conda env create -f environment.yml
+conda activate sysid
+uv pip install -e ".[dev,dashboard,docs]"
 ```
 
-Core deps: numpy, scipy, control, pyyaml, matplotlib.
+Two steps because a conda env file can only drive `pip`, not `uv`. Swap in plain
+`pip install -e ...` for the last line if you prefer.
+
+Extras: `dev` (pytest), `dashboard` (fastapi/uvicorn/websockets for the live UI),
+`docs` (quartodoc/jupyter/plotly). Core deps: numpy, scipy, control, slycot,
+pyyaml, matplotlib — `slycot` is Fortran-backed, so take it from conda-forge
+rather than letting pip attempt a source build.
 
 ## Test
 

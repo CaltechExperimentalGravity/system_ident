@@ -112,16 +112,26 @@ def _maybe_start_dashboard(args, watchdog):
               "(pip install system_ident[dashboard]); running headless.")
         return None
 
-    from .dashboard.server import SnapshotHub, serve
+    from .dashboard.server import SnapshotHub, bind_socket, serve
+
+    # Bind here, not in the server thread: uvicorn reports a bind failure by calling
+    # sys.exit(), which a daemon thread swallows — the operator would be handed a URL
+    # for a server that never started. A busy port must not take the run down with it.
+    try:
+        sock = bind_socket(port=args.port)
+    except OSError as err:
+        print(f"note: dashboard port {args.port} unavailable ({err}); running headless.")
+        return None
+    bound_port = sock.getsockname()[1]  # --port 0 asks the OS to choose
 
     hub = SnapshotHub()
     threading.Thread(
         target=serve,
         kwargs={"hub": hub, "on_stop": lambda: watchdog.abort("operator STOP"),
-                "port": args.port},
+                "sock": sock},
         daemon=True,
     ).start()
-    print(f"dashboard: http://127.0.0.1:{args.port}")
+    print(f"dashboard: http://127.0.0.1:{bound_port}")
     return hub.publish
 
 
