@@ -32,7 +32,15 @@ jobs:
           python -m pip install --upgrade uv
           uv pip install --system -e ".[dev,dashboard]"
       - name: Run the light test selection
-        run: pytest -m "not slow" -q
+        # -n auto (4 workers on a standard runner) with the BLAS thread pools pinned to
+        # 1: the tests are numpy-heavy, so leaving BLAS free to thread would oversubscribe
+        # the same 4 cores the workers already fill. Measured on 4 pinned cores locally:
+        # 81.5 s -> 44.7 s.
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: pytest -m "not slow" -q -n auto
 
   build:
     runs-on: ubuntu-latest
@@ -44,12 +52,26 @@ jobs:
         with:
           python-version: "3.12"
       - uses: quarto-dev/quarto-actions/setup@v2
-      - name: Install slycot (Fortran-backed; needed by python-control MIMO)
-        run: pip install slycot
+      - name: Cache executed example results (docs/_freeze)
+        # Executing the examples was 225 s of this job. The --profile ci render below sets
+        # `freeze: auto`, so a restored cache lets quarto skip re-execution.
+        #
+        # The key hashes everything a figure's numbers can depend on — library source, the
+        # docs helper modules, the pages themselves, and the committed freeze results — so
+        # touching any of them misses the cache and re-executes the lot. There are
+        # deliberately NO restore-keys: a partial match would serve figures computed from
+        # older source, which is exactly the kind of quiet staleness the provenance gate
+        # exists to prevent.
+        uses: actions/cache@v6
+        with:
+          path: docs/_freeze
+          key: freeze-${{ hashFiles('src/**/*.py', 'docs/**/*.py', 'docs/**/*.qmd', 'docs/_freeze/**') }}
       - name: Install package + docs deps
+        # uv, and no separate slycot step: PyPI ships a slycot wheel, so nothing is built
+        # from source here. 38 s -> a few seconds.
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[docs]"
+          python -m pip install --upgrade uv
+          uv pip install --system -e ".[docs]"
           # The example .qmd files execute Python, so register a jupyter kernel.
           python -m ipykernel install --user --name python3 --display-name python3
       - name: Provenance gate — no fabricated ("ASSUMED") numbers may ship
@@ -71,7 +93,9 @@ jobs:
         working-directory: docs
         run: quartodoc build
       - name: Render site
-        run: quarto render docs
+        # --profile ci merges docs/_quarto-ci.yml (freeze: auto). A plain local
+        # `quarto render docs` is unaffected and still executes every page.
+        run: quarto render docs --profile ci
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

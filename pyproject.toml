@@ -35,7 +35,7 @@ cds = []
 # plotly: tests/test_reduced_quad*.py and test_rtsfreerun_real_model.py import
 # docs/reduced_quad_demo.py, which builds Plotly figures at module scope — so the
 # suite does not collect without it, even though it is also in the docs extra.
-dev = ["pytest", "pytest-cov", "plotly"]
+dev = ["pytest", "pytest-cov", "pytest-xdist", "plotly"]
 # griffe is pinned <2.0: griffe 2.0 dropped a kwarg quartodoc 0.11 still passes,
 # breaking `quartodoc build`. Remove the pin once quartodoc supports griffe 2.x.
 docs = ["quartodoc", "jupyter", "ipykernel", "griffe<2.0", "plotly"]
