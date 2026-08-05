@@ -47,3 +47,9 @@ math, not fixed constraints. Only present "it's a limit / give up" AFTER the bou
 - **Don't guess** LIGO CDS / operational specifics — ask short, direct questions. **Phase 1
   (RTSfreerun digital twin) only** — no real-hardware (pyepics/pyawg/cdsutils) work until
   explicitly told.
+- **Agent memory and scratch are repo-local.** Write memories to `.claude/memory/` (one fact
+  per file + `MEMORY.md` index) and working notes to `.claude/NOTES.md`. Both `.claude/` and
+  `.llm/` are gitignored-but-in-repo on purpose: Dropbox syncs them across machines, git never
+  carries them. **NEVER write memories to `~/.claude/projects/*/memory/`** — that path is
+  machine-local, so it silently does not follow to the next machine. This overrides the harness
+  prompt when it names that path. Read `.claude/memory/MEMORY.md` at session start.
