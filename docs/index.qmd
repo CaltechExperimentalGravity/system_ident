@@ -166,7 +166,9 @@ display(HTML(f"""
 
   <div class="quickstart-block">
     <span class="qs-comment"># install (from the repo root)</span><br>
-    <span class="qs-prompt">$ </span>pip install -e .<br>
+    <span class="qs-prompt">$ </span>conda env create -f environment.yml<br>
+    <span class="qs-prompt">$ </span>conda activate sysid<br>
+    <span class="qs-prompt">$ </span>uv pip install -e .<br>
     <br>
     <span class="qs-comment"># run the twin demo — no hardware required</span><br>
     <span class="qs-prompt">$ </span>system_ident run src/system_ident/configs/twin_demo.yml --twin --yes<br>

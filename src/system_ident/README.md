@@ -47,13 +47,26 @@ remain untested until `CDSBackend` is implemented.
 
 ## Install (development)
 
+conda-forge supplies the compiled stack (numpy/scipy/**slycot** against an
+optimized BLAS, no source builds); `uv pip` installs the package itself, so
+`pyproject.toml` stays the single source of truth for dependencies:
+
 ```bash
-pip install -e ".[dev]"            # core + tests
-pip install -e ".[dev,dashboard]"  # also the live dashboard stack
+conda env create -f environment.yml   # from the repo root
+conda activate sysid
+uv pip install -e ".[dev,dashboard,docs]"
 ```
 
-The CDS libraries (`nds2`, `awg`/`cdsutils`) come from the LIGO CDS
-environment and are lazy-imported, so the twin path works on a plain
+Two commands because a conda environment file can only drive `pip`, not `uv`.
+Plain `pip install -e ".[...]"` works for that last line too.
+
+Extras: `dev` (pytest, pytest-xdist, plotly — the last two are needed to run the
+suite at all), `dashboard` (fastapi/uvicorn/websockets for the live UI), `docs`
+(quartodoc/jupyter/plotly).
+
+`slycot` is Fortran-backed: take it from conda-forge rather than letting pip try
+a source build. The CDS libraries (`nds2`, `awg`/`cdsutils`) come from the LIGO
+CDS environment and are lazy-imported, so the twin path works on a plain
 scientific-Python stack.
 
 ## Usage (target interface)

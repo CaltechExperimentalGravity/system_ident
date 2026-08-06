@@ -103,9 +103,14 @@ Full docs (pedagogy, API reference, and executed worked examples) are built with
 Quarto and published by CI to GitHub Pages. Build them locally with:
 
 ```bash
-pip install -e ".[docs]"
+uv pip install -e ".[docs]"        # included in the Install step below
 (cd docs && quartodoc build) && quarto render docs   # output in docs/_site
 ```
+
+A local `quarto render docs` executes every page, every time. CI instead renders
+with `--profile ci` (`docs/_quarto-ci.yml`, `freeze: auto`) against a cached
+`docs/_freeze`, so it re-executes only when the library, the docs helpers, or the
+pages themselves change.
 
 ## Install
 
@@ -121,16 +126,26 @@ uv pip install -e ".[dev,dashboard,docs]"
 Two steps because a conda env file can only drive `pip`, not `uv`. Swap in plain
 `pip install -e ...` for the last line if you prefer.
 
-Extras: `dev` (pytest), `dashboard` (fastapi/uvicorn/websockets for the live UI),
-`docs` (quartodoc/jupyter/plotly). Core deps: numpy, scipy, control, slycot,
-pyyaml, matplotlib — `slycot` is Fortran-backed, so take it from conda-forge
-rather than letting pip attempt a source build.
+Extras: `dev` (pytest, pytest-xdist, plotly), `dashboard` (fastapi/uvicorn/
+websockets for the live UI), `docs` (quartodoc/jupyter/plotly). `pytest-xdist`
+and `plotly` are not optional in practice — several test modules import the docs
+helper `docs/reduced_quad_demo.py`, which builds Plotly figures at import time,
+so the suite will not even collect without it.
+
+Core deps: numpy, scipy, control, slycot, pyyaml, matplotlib — `slycot` is
+Fortran-backed, so take it from conda-forge rather than letting pip attempt a
+source build.
 
 ## Test
 
 ```bash
-pytest
+pytest                          # everything — the expected local run
+pytest -m "not slow" -n auto    # what CI runs: drops the long tests, in parallel
 ```
+
+CI deliberately runs only the light selection; the full suite is a local
+responsibility before pushing. Mark a test `@pytest.mark.slow` when it grows long
+enough to dominate CI **and** something else already covers that path there.
 
 A handful of tests validate the ported math **bit-for-bit** against the original
 `sysIDlib` engine, used as an oracle. The single reference file
