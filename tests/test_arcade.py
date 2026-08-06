@@ -4,8 +4,7 @@ The browser game (``docs/assets/excitation-arcade.js``) reimplements the Fisher/
 JS for a smooth, instant UI. This test pins its Python twin (``docs/arcade_reference.py``) so
 the game's numbers stay (a) internally reproducible (golden ETAs the JS is calibrated to) and
 (b) faithful to the real ``system_ident`` pole convention. If these drift, the JS and the
-on-page "optimal par" label must be updated in lock-step. See
-``docs/superpowers/specs/2026-07-05-excitation-arcade-hero-design.md``.
+on-page "optimal par" label must be updated in lock-step.
 """
 from __future__ import annotations
 

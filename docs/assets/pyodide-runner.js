@@ -4,8 +4,7 @@
  * system_ident wheel and python-control (both deps=False — their deps are the Pyodide builds
  * above), then executes editable code cells. This makes the browser run not just the numpy/scipy
  * core but the time-domain / closed-loop machinery (control.forced_response, CoupledLoop). No
- * server, no install: the same pipeline the docs run, in the visitor's browser. See
- * docs/superpowers/specs/2026-07-05-excitation-arcade-hero-design.md (phase 3).
+ * server, no install: the same pipeline the docs run, in the visitor's browser.
  */
 (function () {
   "use strict";

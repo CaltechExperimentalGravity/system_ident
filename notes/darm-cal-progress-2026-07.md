@@ -75,7 +75,5 @@ representative closed-loop twin, raising fidelity toward a real instrument. Phas
 ## Pointers
 
 - Design + citations: `notes/darm-calibration-via-pns.md`.
-- Skeptic/engineering gaps: `notes/roadmap-and-engineer-questions.md`,
-  `notes/strategic-roadmap-2026-07-draft.md`.
 - P&S closed-loop / time-varying method notes: `.llm/pintelon-schoukens-mimo-fit.md`,
   `.llm/engineering-practices.md`, `.llm/ps-book/`.

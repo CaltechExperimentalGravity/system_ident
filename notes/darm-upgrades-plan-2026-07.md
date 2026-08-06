@@ -2,7 +2,7 @@
 
 > **UPDATE 2026-07-29 (review + Upgrade 1 implemented).** After a code-verified review:
 > - **Upgrade 1 is DONE** — `DARMLoop.default_reduced()` + `ReducedStageShape` in `darm.py`,
->   tests in `tests/test_darm_reduced.py` (6, green; full suite 270 pass). Stages are the real
+>   tests in `tests/test_darm_reduced.py`, green; full suite green. Stages are the real
 >   reduced-quad columns; `G==A·D·C` holds; quad modes (0.43/0.52/0.99/1.98 Hz) are embedded.
 >   **Finding:** the modes are embedded at any `fmin`; lowering the *campaign* band to 0.3 Hz
 >   biases κ recovery (Q≈50 modes, ~0.01 Hz linewidth, unresolvable at the 1 Hz bin spacing), so
@@ -29,7 +29,7 @@
 > twin actuation design. Added `darm_tv.cal_line_response(loop, freqs)`: injects calibration
 > lines on each stage and returns the ruler-calibrated per-stage actuation `A_i = H_stage/H_pcal`
 > at the lines (for measuring where each stage crosses the one below). Tests
-> `tests/test_darm_callines.py` (4); full suite 282 pass. (The placeholder `default()` loop keeps
+> `tests/test_darm_callines.py`; full suite green. (The placeholder `default()` loop keeps
 > its UIM/PUM/TST toy stages.)
 
 > **UPDATE 2026-07-29 (twin offload filters wired in).** `default_reduced(hierarchical=True)`
@@ -323,7 +323,8 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > the O3/O4 line placements need ~4.5×/5.5× longer, the gap concentrated in δ,τ (which LIGO
 > monitors but does not correct to 0.1%); κ's are comparable.** Absolute time scales with drive
 > (representative; paper amplitude/full-O4-list match deferred) — the ratio is scale-invariant.
-> Tests `tests/test_darm_fisher.py` (5). Docs: `docs/darm_demo.py` (cal_sizing/convergence_to_target_fig/
+> Tests `tests/test_darm_fisher.py` — **since deleted**; see the 2026-07-31 update below, which
+> removed that engine and its tests in full. Docs: `docs/darm_demo.py` (cal_sizing/convergence_to_target_fig/
 > scheme_bars_fig/sizing_table) + example 08 §"Sizing the lines" / §"Head-to-head with LIGO O3/O4".
 > Sources: Sun 2020 (O3, dcc P1900245); Cahillane 2017 (PRD 96 102001); O4 arXiv:2508.08423.
 
@@ -454,7 +455,7 @@ critical yet") — keep `b>0`, `ωs²≥0`, poles in the LHP.
 > ~26 Hz, TST ~42 Hz) — close to where LIGO actually puts them — vindicating "no need to constrain."
 > Advantage is modest, real, and a genuine actuator-range/CRB limit. New test
 > `test_darm_o4_asd_matches_the_vendored_curve` already covers the floor; authority path exercised by
-> the existing sizing/CRB tests (12 pass). Honest gap: Pcal free-mass (1/f²) range not yet modelled
+> the existing sizing/CRB tests. Honest gap: Pcal free-mass (1/f²) range not yet modelled
 > (authority=1); absolute per-stage actuator ranges are issue #3 territory.
 
 > **UPDATE 2026-08-02 (Pcal free-mass range folded in).** Rana: fold in the Pcal free-mass range
@@ -519,7 +520,7 @@ New engine (`src/system_ident/darm_callines.py`): `joint_fisher` (coupled TDCF F
 line informs every param), `design_lines` (Bayesian A-optimal placement, `tr((Γ'+I)⁻¹)`, under
 force caps), `stage_force_caps` (DERIVED, ruler-matched), `line_displacement`, `pcal_budget_crosscheck`.
 Readout (`src/system_ident/darm_tv.py`): `joint_snapshot_lines`/`track_joint_lines` inject the
-DESIGNED lines leakage-free and fit θ jointly. Tests in `tests/test_darm_callines.py` (14 pass).
+DESIGNED lines leakage-free and fit θ jointly. Tests in `tests/test_darm_callines.py`.
 
 Grounding (all via `provenance.record`): κ_C drift 1–2 % (Sun 2020 §4.2, PAPER); Pcal ±200 mW
 (`pcal_range_disp`); O4 Pcal line freqs 17.1/33.43/53.67/77.73/102.13/284.01/410.3/1083.7 Hz (Wade

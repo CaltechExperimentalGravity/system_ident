@@ -8,8 +8,7 @@ rank-1 residues (System Identification: A Frequency Domain Approach, 2nd ed., se
 the free-numerator common-denominator model does not identify the poles at MIMO scale
 (the numerators absorb pole errors), whereas the rank-1 modal form does. Coupling lives in
 the mode shapes, not the residue rank. Frequency normalization (section 12.3.3) keeps the
-high-order evaluation conditioned. See `.llm/pintelon-schoukens-mimo-fit.md` and
-`docs/superpowers/specs/2026-06-22-joint-mimo-parametric-fit-design.md`.
+high-order evaluation conditioned. See `.llm/pintelon-schoukens-mimo-fit.md`.
 """
 from __future__ import annotations
 import numpy as np

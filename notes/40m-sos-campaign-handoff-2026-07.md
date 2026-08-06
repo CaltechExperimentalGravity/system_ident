@@ -1,10 +1,9 @@
 # 40m SOS sysID deployment — campaign parking / handoff (July 2026)
 
-Portable handoff so this project can resume on the **Linux box after a `git pull`**. The approved
-plan lived at `~/.claude/plans/structured-wishing-pelican.md` and the session memory under
-`~/.claude/.../memory/` — **neither git-syncs**, so this note is the portable copy. Read it first
-on resume; it captures the plan, the locked decisions, the exploration findings (so you don't
-re-explore), and the exact next step.
+Portable handoff so this project can resume on the **Linux box after a `git pull`**. Session
+memory lives in `.claude/memory/` — in-repo but gitignored, so Dropbox carries it and git does
+not. This note is the git-portable copy. Read it first on resume; it captures the plan, the
+locked decisions, the exploration findings (so you don't re-explore), and the exact next step.
 
 ## Goal & scope
 
@@ -163,8 +162,9 @@ Resumed on the Linux box. Corrections to the exploration findings above, and the
   `models/build_sos.py`, analytic, no `aligo-suspension-models` dep). `ReducedStateSpacePlant.load`
   gained an optional `suffix=` (default `_reduced_50hz`, so quad/hsts untouched);
   `load("sos", suffix="_6dof")` round-trips. **`sysid` conda env created here** (was absent).
-- **Tests:** `tests/test_sos_plant.py` (26) pass; full suite **246 passed, 17 skipped** (skips are
-  compiled-twin/browser deps absent on this box), no regressions.
+- **Tests:** `tests/test_sos_plant.py` passes; full suite green, no regressions. (Skips on this
+  box are the compiled-twin / browser deps. Run `pytest` for the current counts — they are not
+  recorded here because they go stale on the next test added.)
 
 ## Stage 1 DONE (2026-07-23) — open-loop recovery within CRB; closed-loop deferred to Stage 2
 
@@ -173,7 +173,7 @@ Resumed on the Linux box. Corrections to the exploration findings above, and the
   (worst 1.64σ; well-excited f0 to <2e-3). Two focused Fisher-clustered campaigns (a single broadband
   sweep collapses the per-bin covariance to rank-1 off-resonance → singular {L,P} whitening): **low
   0.4–1.2 Hz drives L,P,T,Y; high 14–26 Hz drives V,R.** Block-decoupled fit (only L–P coupled); the
-  L/T 1.8 mHz spatial doublet is resolved and scored per-DOF. Full suite 254 pass / 17 skip.
+  L/T 1.8 mHz spatial doublet is resolved and scored per-DOF. Full suite green.
 - **Closed-loop rung → moved to Stage 2 (Rana's call).** The nominal SOS damping design already
   exists in the salvage — `simplant-salvage/X1SUS_CP.txt` bank `OPT_CTRL_SUS{POS,PIT,YAW,SIDE}`
   (L/P/Y/T), native digital foton biquads @32768 Hz, each with a **BounceRoll notch**; **V (bounce)
@@ -198,8 +198,7 @@ kept local for now (Rana), commit-location still open.
 
 ## Pointers
 
-- Prior-art blueprint: `notes/strategic-roadmap-2026-07-draft.md` §Phase-C (8 operator questions,
-  4-step minimal bridge); `notes/roadmap-and-engineer-questions.md` §A–I; `notes/twin-fidelity-ledger.md`.
+- Honest-status accounting for every twin component: `notes/twin-fidelity-ledger.md`.
 - Method: `.llm/pintelon-schoukens-mimo-fit.md`, `.llm/engineering-practices.md`, `.llm/ps-book/`,
   `.llm/rtsfreerun-integration.md` (adapter design + 4-iteration bring-up ladder).
 - Twin: `digital_twin/twin/{ARCHITECTURE.md,ROADMAP.md,CLAUDE.md}`, `examples/sus_sysid/`,
