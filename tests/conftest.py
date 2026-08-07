@@ -18,6 +18,11 @@ import numpy as np
 import pytest
 import scipy.integrate as _integ
 
+# --import-mode=importlib (pyproject.toml) doesn't add tests/ to sys.path, so
+# plain ``import _fake_cds`` from a test module would otherwise fail. It's a
+# shared helper (Stage A, issue #5), not a package -- add the directory once.
+sys.path.insert(0, str(Path(__file__).parent))
+
 
 def load_oracle():
     """Import the legacy ``sysIDlib`` with minimal compatibility shims."""
