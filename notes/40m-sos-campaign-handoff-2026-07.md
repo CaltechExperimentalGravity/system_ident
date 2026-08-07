@@ -1,8 +1,8 @@
 # 40m SOS sysID deployment — campaign parking / handoff (July 2026)
 
 Portable handoff so this project can resume on the **Linux box after a `git pull`**. Session
-memory lives in `.claude/memory/` — in-repo but gitignored, so Dropbox carries it and git does
-not. This note is the git-portable copy. Read it first on resume; it captures the plan, the
+memory lives in `.claude/memory/`, which is committed, so a `git pull` brings it along too.
+Read this note first on resume; it captures the plan, the
 locked decisions, the exploration findings (so you don't re-explore), and the exact next step.
 
 ## Goal & scope
@@ -199,7 +199,7 @@ kept local for now (Rana), commit-location still open.
 ## Pointers
 
 - Honest-status accounting for every twin component: `notes/twin-fidelity-ledger.md`.
-- Method: `.llm/pintelon-schoukens-mimo-fit.md`, `.llm/engineering-practices.md`, `.llm/ps-book/`,
+- Method: `.llm/pintelon-schoukens-mimo-fit.md`, `.llm/engineering-practices.md`, `.llm/ps-book/README.md`,
   `.llm/rtsfreerun-integration.md` (adapter design + 4-iteration bring-up ladder).
 - Twin: `digital_twin/twin/{ARCHITECTURE.md,ROADMAP.md,CLAUDE.md}`, `examples/sus_sysid/`,
   `scripts/gen_x1hsts6dof.py`.

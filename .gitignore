@@ -35,17 +35,30 @@ docs/reference/
 docs/objects.json
 .jupyter_cache/
 
-# Local agent scratch / working notes (kept in-repo, not part of the package)
-.claude/
-.llm/
+# Agent notes. Deny by default, then allow the durable ones — so new agent scratch
+# (plans, todos, shell snapshots, throwaway scripts, rendered mockups) can never be
+# committed by accident. See CLAUDE.md §"Agent memory and working notes".
+.claude/*
+!.claude/memory/
+!.claude/NOTES.md
+!.claude/docs-wow-features.md
+
+.llm/*
+!.llm/*.md
+!.llm/ps-book/
+.llm/ps-book/*
+!.llm/ps-book/README.md
 
 # Generated demo figures (local quick-look artifacts; SVG per the graphics rule)
 experiments/rtsfreerun/*.png
 experiments/rtsfreerun/*.svg
 experiments/rtsfreerun/*.npz
 
-# Copyrighted reference textbook — local-only, never publish (scraped into .llm/)
+# Copyrighted reference textbook — local-only, NEVER publish. This covers both a personal
+# PDF copy and any machine-readable scrape of it. `.llm/ps-book/README.md` (a chapter index
+# we wrote, no reproduced text) is the only part of the book's shelf that is committed.
 docs/SysID-Pintelon.pdf
+.llm/ps-book/full-text*
 
 # In-browser Pyodide wheel (built by the docs pre-render hook)
 docs/_wheels/

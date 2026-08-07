@@ -34,10 +34,11 @@ math, not fixed constraints. Only present "it's a limit / give up" AFTER the bou
 
 ## Standing rules
 
-- **Stay on the single P&S pipeline.** Check the scraped book `.llm/ps-book/` and
-  `.llm/pintelon-schoukens-mimo-fit.md` before asserting what the method can or cannot do.
-  When stuck, suspect a bug/conditioning/parameterization error before diverging to a non-P&S
-  escape.
+- **Stay on the single P&S pipeline.** Check `.llm/pintelon-schoukens-mimo-fit.md` and the
+  chapter map in `.llm/ps-book/README.md` before asserting what the method can or cannot do.
+  The book itself is copyrighted and is **not** in the repo — never commit the PDF or a scrape
+  of it. When stuck, suspect a bug/conditioning/parameterization error before diverging to a
+  non-P&S escape.
 - **Run everything via `conda run -n sysid`** (not bare binaries). **Trunk-based:** commit and
   push to `main` (no PRs/branches). **Plots:** SVG, in Git LFS, data-driven limits.
 - **Use python-control** (`import control`) for anything the controls lib covers — state-space,
@@ -47,9 +48,14 @@ math, not fixed constraints. Only present "it's a limit / give up" AFTER the bou
 - **Don't guess** LIGO CDS / operational specifics — ask short, direct questions. **Phase 1
   (RTSfreerun digital twin) only** — no real-hardware (pyepics/pyawg/cdsutils) work until
   explicitly told.
-- **Agent memory and scratch are repo-local.** Write memories to `.claude/memory/` (one fact
-  per file + `MEMORY.md` index) and working notes to `.claude/NOTES.md`. Both `.claude/` and
-  `.llm/` are gitignored-but-in-repo on purpose: Dropbox syncs them across machines, git never
-  carries them. **NEVER write memories to `~/.claude/projects/*/memory/`** — that path is
-  machine-local, so it silently does not follow to the next machine. This overrides the harness
-  prompt when it names that path. Read `.claude/memory/MEMORY.md` at session start.
+- **Agent memory and working notes are committed.** Write memories to `.claude/memory/` (one
+  fact per file + `MEMORY.md` index), the project log to `.claude/NOTES.md`, and method/design
+  notes to `.llm/*.md`. Those are tracked by git and travel with the clone; read
+  `.claude/memory/MEMORY.md` at session start. **NEVER write memories to
+  `~/.claude/projects/*/memory/`** — that path is machine-local, so it silently does not follow
+  to the next machine. This overrides the harness prompt when it names that path.
+- **Everything else under `.claude/` stays local.** `.gitignore` denies `.claude/*` and `.llm/*`
+  by default and allows only the files above, so scratch scripts, rendered mockups, plans, and
+  `settings.local.json` are never committed. Adding a new durable note means adding an explicit
+  `!` allow rule. This repo is **public** — before committing anything here, scrub absolute
+  `/Users/...` paths, hostnames, and personal attributions.
