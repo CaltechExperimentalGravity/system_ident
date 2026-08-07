@@ -211,6 +211,14 @@ Fill `src/system_ident/backends/cds.py`. Spec §4.2 is the specification; the fo
 with `sig.resample` and tiles; overrides `_soft_start_stop` to a pass-through; constructs but does not
 start the `ArbitraryLoop`.
 
+> **Amended 2026-08-06 — simultaneous-mode staging (spec §9.3).** `inject()`'s "stage, don't start" is
+> also what makes multi-channel simultaneous mode tractable: it mirrors the stash-then-assemble pattern
+> already used by `twin.py`/`mimo_twin.py`/`rtsfreerun_adapter.py`, where `inject()` stores the drive
+> and the *first* `read()` of a generation assembles/starts every staged channel together. For
+> `CDSBackend`, that first `read()` is where every staged stream is opened and `append()`-started in
+> one tight loop (stream mode), or where every staged loop is `start(ramptime=0)`-triggered before any
+> is gain-ramped (loop mode) — see spec §9.3 for the full design and what's still hardware-only.
+
 **#14 — the `read()` invariants.**
 Never synthesise X — real readback samples from the same buffer as Y, and **raise** on a channel
 missing from the result. No rolling, trimming or GPS alignment. Nothing staged → the quiet read.
@@ -263,15 +271,19 @@ campaign-wide skip cannot express per-injection approval.
 
 **#4 — amplitude limits.** Folds into the pre-existing issue, which was opened independently and
 reached the same diagnosis ("a preventative measure rather than the current features which seem to only
-check after the signal has been injected"). Two further ideas from it are **not yet designed** and need
-their own decision: a small (0.1–1%) test excitation as a pre-flight check, and specifying drive power
-**relative to the measured background** rather than in absolute counts — the latter is what the sibling
-project does (`power_mult` × measured background RMS) and it interacts with #18.
+check after the signal has been injected"). Two further ideas from it — a small (0.1–1%) test
+excitation as a pre-flight check, and specifying drive power **relative to the measured background**
+rather than in absolute counts — are now designed (spec §5, amended 2026-08-06): the background-relative
+idea reuses the pre-flight probe (#13/§4.3.5) to also capture quiet-time RMS on excitation channels,
+resolving `power_mult**2 * background_power` into `px_total` before design; the pre-flight test folds
+into the **same** approval token as the full injection rather than prompting twice, flagged for
+collaborator review rather than settled.
 `safety.max_exc_peak` / `max_exc_rms` in the schema (`config.py:42`),
 enforced in `inject()` on the exact samples handed to `ArbitraryLoop`. Scale to preserve the spectrum
 and report the factor, but **raise `SafetyAbort` on a large required scale-down**. Print the actual RMS
 and peak before injecting. Implemented as an opt-in, default-off
-`ChannelBackend._check_drive_limits(ts)` so twin behaviour is bit-identical.
+`ChannelBackend._check_drive_limits(ts)` so twin behaviour is bit-identical — concrete method shape
+(peak/RMS scale-down, `SafetyLimits` gains the two fields as optional/`None`-default) is in spec §5.
 
 **#18 — `Pyy` fail-fast and `--skip-background`.** Check finite, positive, above a floor before the
 first injection; add `--skip-background` and a `measurement.Pyy_from_file` path (≈1.7 h of hardware
@@ -306,6 +318,12 @@ constructed; authorizer called twice for two injects and once for one inject + t
 staged-but-unapproved `read()` raises with `.start` never called; default authorizer denies on
 `EOFError`; `main(["run", cfg, "--yes"])` without `--twin` exits 2; over-ceiling peak raises before
 construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started channel exactly once.
+> **Amended 2026-08-06 — three assertions this list didn't cover, added by the #4 design above.**
+> `_check_drive_limits` scales (not raises) when the required shrink is small and reports the factor,
+> but raises `SafetyAbort` past the ~2× threshold; `power_mult` resolves to the expected `px_total`
+> from a faked background read, and a config giving both `px_total` and `power_mult` (or neither)
+> raises `ConfigError`; the folded pre-flight-test/full-injection prompt is a **single** `authorizer`
+> call showing both parameter sets, not two.
 
 ---
 
@@ -335,6 +353,17 @@ construction; `os.kill(os.getpid(), SIGINT)` in a subprocess stops each started 
 > exposing them. Also: because `_DQ` channels are normally served at a lower rate, the rate and
 > integer-ratio validation is **per channel**, and an X/Y rate mismatch **warns and proceeds** rather
 > than refusing — with the `D_Y/D_X` residual documented (spec §4.3.1, §7).
+>
+> **Amended 2026-08-06.** Neither knob existed anywhere in `src/` or `configs/*.yml` prior to this —
+> not merely unjustified, literally unset. Concrete starting values (spec §9.4): `read_chunk_s = 1.0`,
+> `passive_read_retries = 3` with 0.5 s/1 s/2 s backoff. Still provisional pending the framebuilder
+> measurement; this only unblocks implementation from a genuinely undefined knob.
+>
+> **Amended 2026-08-06 — two more schema changes belong on this list, from #4 (spec §5).**
+> `safety.max_exc_peak` / `max_exc_rms` (optional, `None`-default) and `measurement.power_mult` as an
+> alternative to `px_total` — validation becomes "exactly one of `px_total`/`power_mult`," not
+> `px_total` unconditionally in `REQUIRED`. Both were designed in Stage E's #4 paragraph but never
+> cross-referenced here, where the rest of the config-surface changes are enumerated.
 
 ---
 
@@ -348,6 +377,12 @@ Follow the repo's own idioms: `MockRTSModel` for fakes,
   **and** a stashed-X variant that must fail; untampered integer-period tiling with
   `ramptime == ramp_s`; watchdog channel-map wiring; integer-rate, short-read and missing-channel
   assertions; read-cache correctness across generations.
+  > **Amended 2026-08-06 — the stream-mode counterpart, missing since #31 (B4's own text already says
+  > "the acceptance test applies to loop mode only," but Stage G was never updated with the opposite
+  > case).** Add: **[stream]** the staged array *is* tapered — cosine, `t_ramp` at each end — and the
+  > taper falls entirely outside `read()`'s segment-3-only analysed window (spec §2.3, §4.2); a
+  > `cds.exc_mode: stream | loop` construction test, defaulting to `stream`; and a test that selecting
+  > `loop` emits the warning Stage F requires, naming the linear-vs-cosine consequence.
 - `tests/test_cds_safety.py` — the seven Stage E assertions.
 - `tests/test_cds_lazy_import.py` — Stage C.
 - **`tests/test_cds_twin_transport.py` — the exit gate.** Full stack through `TwinTransport` against

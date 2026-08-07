@@ -214,10 +214,25 @@ Two environment traps carried over from the sibling repo's first hardware run, n
 
 1. Does `CLAUDE.md:42`'s trunk-based rule still hold for parallel development — several people, each
    with their own agents? (issue #25)
+   > **Amended 2026-08-06.** `git branch -a` shows a second long-lived non-`main` branch on the remote,
+   > `feat/pintelon-schoukens-closed-loop`, alongside this campaign's `feat/cds-hardware-backend` — so
+   > the "one acknowledged exception" framing above is incomplete. Still a process decision, not made
+   > here. Candidate rule text recorded in spec §9 item 1: permit a long-lived branch for (a)
+   > hardware-safety-relevant work needing collaborator review before merge, or (b) avoiding
+   > destructive conflicts between concurrent agents — with an explicit merge criterion and deletion
+   > after merge.
 2. Simultaneous-mode start semantics cannot be settled off-hardware: `inj.start(ramptime>0,
    wait=False)` blocks until `start_gps`, so three loops started in a Python `for` loop with a common
    `start_gps` leave loops 2 and 3 starting late. Each individual FRF is still unbiased (X is a
    readback) but the drives are not synchronous and the loop cannot tell.
+   > **Amended 2026-08-06 — narrowed, not settled.** `loop.py` and all three existing backends already
+   > stash the drive on `inject()` and assemble/start everything together on the first `read()` of a
+   > generation, so a stream-mode design needs no interface change: open every staged stream and
+   > `append()`-start them in one tight loop (skew bounded by Python overhead, not a blocking
+   > `start_gps` wait) — `awg.ArbitraryStream.open()` isn't documented as blocking, unlike
+   > `ArbitraryLoop.start`. Loop mode keeps the `ramptime=0`-then-`set_gain` candidate fix. What's left
+   > genuinely hardware-only: confirming `open()` doesn't block and measuring the actual skew. Full
+   > design in spec §9.3.
 3. The other hardware-only unknowns, i.e. the human-gated set: whether awg 3.1.2 accepts the untapered
    integer-period array with `ramptime` start/stop; whether a channel's AWG slot is released so a
    second `ArbitraryLoop` succeeds; whether `_EXC` is NDS-readable at the site; `getdata` live
@@ -245,6 +260,11 @@ Two environment traps carried over from the sibling repo's first hardware run, n
      gap, silence, or held values?
    - What framebuilder resource limit sets a workable **chunk size**? The shipped default is
      provisional until this is measured.
+     > **Amended 2026-08-06.** The knob didn't exist at all before this (`read_chunk_s`,
+     > `passive_read_retries` — grep of `src/`/`configs/*.yml` found neither). Now fixed to a
+     > reasoned-but-still-provisional starting value: `read_chunk_s = 1.0 s`, `passive_read_retries =
+     > 3` @ 0.5 s/1 s/2 s backoff (spec §9.4). This unblocks implementation; it does not supply the
+     > framebuilder measurement.
    - What **type** are the front-end `_DQ` decimation filters (plausibly IIR, unconfirmed), and how
      big is the `D_Y/D_X` residual under an X/Y rate mismatch?
    - **Root cause of the observed long-stretch failures** (finding 10) — never investigated.

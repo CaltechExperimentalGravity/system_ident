@@ -420,6 +420,52 @@ Ported from `backend_rtcds.py`, comments included:
   site CDS python stack to `PYTHONPATH` and `import cdsutils` then dies with `ModuleNotFoundError: No
   module named 'matrix'`; unsetting `PYTHONPATH` recovers.
 
+> **AMENDED 2026-08-06 — the rework this section's own note (below, formerly at this line) called for
+> and deferred: "§4.1 and §4.2 below still specify `ArbitraryLoop` as the only transport and must be
+> reworked to express both modes. Not done here — tracked on the owning issue."** That issue is #31;
+> its content (spec §2.3, plan Stage C's amendment) already fully determines the rework, so it is
+> written here rather than deferred further. The block above stays as the loop-mode-only historical
+> version; this is what `CDSTransport` actually is:
+>
+> ```
+> CDSTransport (Protocol)
+>     now_gps() -> float
+>     probe_rate(channels) -> float                       # getdata(chans, 1)
+>     classify(channels) -> dict[str, ChannelInfo]        # existence, rate, retrievability (§4.3.5)
+>
+>     # loop mode — awg.ArbitraryLoop-shaped (peer mode, cds.exc_mode: loop)
+>     start(channel, array, rate, start_gps, ramptime) -> handle
+>     stop(handle, ramptime) -> None
+>
+>     # stream mode — awg.ArbitraryStream-shaped (default, cds.exc_mode: stream, §2.3)
+>     open(channel, rate) -> handle
+>     append(handle, array, scale=1.0) -> None            # fed in chunks; §2.3's underrun risk lives here
+>     close(handle) -> None
+>
+>     # shared by both — ArbitraryStream provides these independently of any queued/staged data (§2.2)
+>     set_gain(handle, gain, ramptime) -> None
+>     abort(handle) -> None
+>
+>     stream(channels, duration, chunk_s) -> Iterator[Capture]   # §4.3.2 READ primitive; Capture: data, start_gps, rate
+>     fetch(channels, duration) -> dict[str, Capture]      # convenience: consume stream(), verify, concat
+>
+> CDSTransportError (base — catching this alone is enough to stop driving)
+>     TransportUnavailable · TestpointLost · TestpointTimeout
+>     ChannelNotFound · ChannelNotInjectable · DataIntegrityError · TimingFault
+>
+> AWGNDSTransport   # awg + cdsutils + gpstime, lazy-imported in __init__
+> TwinTransport     # routes to an rtsfreerun mdl, synthetic GPS clock; honours both modes (Stage C)
+> ```
+>
+> `set_gain`/`abort` act on the handle independently of whatever data is queued or already `append`ed —
+> this is precisely what makes `ramp_down` (§4.2) and the mandatory STOP (§5) implementable under
+> stream mode without rewriting a live array (§2.2's correction).
+>
+> **Naming collision, flagged so it isn't rediscovered as a bug:** `transport.stream(channels, duration,
+> chunk_s)` above is the chunked **read** primitive (§4.3.2); `cds.exc_mode: stream` (§2.3) is the
+> **injection** construction. They share the word "stream" and live in the same module, but are
+> unrelated — one is how `read()` fetches, the other is how `inject()` drives.
+
 ### 4.2 `CDSBackend` — stage on `inject`, execute on `read`
 
 The other repo's shape is one blocking `measure()`; this repo's is `inject()` then `read()`. The
@@ -485,6 +531,38 @@ captured. On hardware `restore_state` is the "hand control back to the damping l
 (`safety.py:9-11`), and doing that properly needs `ezca`/`pyepics` — absent from
 `pyproject.toml:21-28` — plus operator sign-off on what may be written. That is Component 2. Do not
 fake it.
+
+> **AMENDED 2026-08-06 — the other half of §4.1's rework: `inject`/`read`/`ramp_down` for both modes.**
+> `cds.exc_mode` (§2.3, plan Stage F) selects the mode; `from_config` reads it once. Below, **[loop]**
+> is the unmarked prose above, unchanged; **[stream]** is new.
+>
+> `inject(channel, ts, fs)` — step 2 (resample one period, tile) stays common to both, since the total
+> staged length must be known even though stream mode feeds it via `append` rather than one array
+> (§2.3's memory-rationale point). Steps 3-4 split:
+> - **[loop]** unchanged: do not call `_soft_start_stop` (§2.2); construct but do not start
+>   `ArbitraryLoop`.
+> - **[stream]** builds the one-shot array with §2.3's four segments — ramp-on / settle / main /
+>   ramp-off, cosine taper on segments 1 and 4 only. This taper **is** `_soft_start_stop`'s job done a
+>   different way, so the method is equally never called here, not merely coincidentally skipped.
+>   `transport.open(channel, rate)` is called to stage a handle; `append` is **not** called yet — this
+>   is staging, exactly as loop mode defers `start`.
+>
+> `read(channels, duration)` gains one **[stream]**-only rule: window **segment 3 only** (§2.3). The
+> ramp-on/settle/ramp-off segments must never enter the analysed record — `duration` here means segment
+> 3's duration alone, and the staged array is longer than what `read()` returns. **[loop]**'s window is
+> unchanged (the whole steady-state read, per the existing prose above).
+>
+> `ramp_down(channel, secs)`:
+> - **[loop]** unchanged: `transport.stop(handle, ramptime=secs)`.
+> - **[stream]** `transport.set_gain(handle, 0, ramptime=secs)` for a graceful ramp; the hard-stop path
+>   (§5's mandatory STOP) is `transport.abort(handle)`. Both act on the handle independently of
+>   already-`append`ed data (§2.2's correction) — `ramp_down` never needs to, and never could, rewrite
+>   anything already staged or sent.
+>
+> `finally`/teardown (#16) gains one **[stream]**-only failure mode: a **stream underrun** — a gap left
+> by a starved `append` (GC pause, NFS, network). Neither `H_err` nor coherence can see it (§2.3), so
+> detection is #8's independent phase check or the `_EXC`-vs-commanded comparison (§4.3.3's
+> `DataIntegrityError`), not a new mechanism.
 
 ### 4.3 Fault model — ten ways the transport fails, and the seams that must exist now
 
@@ -760,6 +838,47 @@ post-injection counterpart, the `..._EXC`-vs-commanded comparison, is §4.3.3's 
 Note the 12% energy the ramp discards feeds `fisher_matrix` (`loop.py:225-227`) via the *designed*
 `Pxx`, not the realised one, so reported uncertainty is optimistic by ~6% in amplitude. Record it;
 don't chase it.
+
+> **AMENDED 2026-08-06 — issue #4's two "not yet designed" ideas, now designed.** Grounded against the
+> actual current code (`config.py:40`, `loop.py:96,142-146,202`, `safety.py:25-43,97-119`), not
+> invented: `px_total` is already a scalar power-budget field (counts², per
+> `configs/rtsfreerun_hsts.yml:39`'s comment), not raw per-sample counts, and `Pyy` is already computed
+> once pre-loop as a local `loop.py` dict — neither backend attribute nor cache. `SafetyLimits` has no
+> `max_exc_peak`/`max_exc_rms` fields today, and `_check_drive_limits` does not exist anywhere in
+> `src/`.
+>
+> - **`_check_drive_limits(self, ts, limits)` — the method itself, concretely.** Peak and RMS of `ts`;
+>   scale down to respect `limits.max_exc_peak`/`max_exc_rms` if either is set (`None` = no check, so
+>   twin/rtsfreerun stay bit-identical when unused); print the actual RMS and peak before injecting;
+>   raise `SafetyAbort` if the required scale-down exceeds ~2× — a large shrink means the *design* is
+>   wrong, not something to paper over. `SafetyLimits.from_config` gains the two fields as optional,
+>   defaulting to `None`.
+> - **Idea (b), drive power relative to measured background.** Extend the pre-flight probe §4.3.5
+>   already specifies (existence/rate/liveness) to also capture quiet-time RMS/PSD on **excitation**
+>   channels, not only readback — `Pyy`'s own computation (`loop.py:142-146`) is the template. Let
+>   `measurement.px_total` accept either the existing absolute number *or* a `power_mult` multiplier,
+>   resolved to `px_total = power_mult**2 * background_power` immediately before `designer.design(...)`
+>   is called, and print the resolved value. No new mechanism — a wider probe plus one config-resolution
+>   step ahead of the existing call site. **Schema note:** `px_total` is unconditionally in
+>   `REQUIRED["measurement"]` today (`config.py:40`); it cannot stay unconditionally required once
+>   `power_mult` is a valid alternative. Validation becomes "exactly one of `px_total` / `power_mult`
+>   present," not a `REQUIRED`-list membership check — a `ConfigError` on neither or both, resolved to
+>   a concrete `px_total` before it reaches `loop.py:96`.
+> - **Idea (a), a small (0.1–1%) pre-flight test excitation.** The undesigned part was its interaction
+>   with Rule 2 (§1): a low-amplitude test still actuates the hardware, so it cannot silently skip
+>   approval, and it also cannot silently *duplicate* it — two prompts for one coordinated operator
+>   action reads as noise, not safety. **Resolution:** fold the test into the **same** approval token as
+>   the full injection — the prompt (§5, `inject()`) shows both the test-level and full-level
+>   parameters together, and a single `authorizer` decision covers the coordinated pair. This is a
+>   design choice for collaborator review, not a foregone conclusion; record it as such rather than as
+>   settled.
+>
+> Also closes part of §4.3.6's guard rail with a fact rather than a promise: `Watchdog`/`SafetyReport`
+> (`safety.py:46-56,97-119`) contain **zero** coherence-related logic today, so "coherence must never
+> enter `breaches`" is already true by construction, not merely policy. The two new fields above do not
+> change that — they extend `SafetyLimits`, not `Watchdog.evaluate`'s two existing checks. The
+> guard rail remains discipline for *future* changes, worth the explicit docstring on
+> `SafetyReport.breaches` the plan's Stage E already calls for, not a present code gap.
 
 **Fail fast on a bad `Pyy`.** `loop.py:143-146` feeds it to `designer.design` → `fisher.dispersion`,
 which divides by it. A dead readback or a wrong channel name yields zeros → inf/NaN → "SVD did not
@@ -1037,6 +1156,16 @@ a user-owned directory does it in seconds, and base conda need not be touched. `
 1. **Does the trunk-based rule (`CLAUDE.md:42`) still hold for parallel development** — several
    people, each with their own agents? This work uses a long-lived branch, which the rule as written
    forbids; the rule is likely aimed at a single-agent workflow. Flagged, not changed.
+   > **AMENDED 2026-08-06 — new evidence, still not a resolution.** `git branch -a` shows
+   > `feat/cds-hardware-backend` is **not** the only long-lived non-`main` branch on the remote —
+   > `feat/pintelon-schoukens-closed-loop` also exists. The framing above, and in
+   > `notes/cds-hardware-bringup-2026-08.md`, treats the CDS branch as a single acknowledged exception;
+   > that framing is now known to be incomplete. This is a process/governance question, not a code
+   > question, so it is recorded here rather than resolved by editing `CLAUDE.md`'s hard rule
+   > unilaterally. Candidate text for a human decision: permit a long-lived feature branch when (a) it
+   > carries hardware-safety-relevant work requiring collaborator review before merge, or (b) trunk
+   > commits from concurrent parallel agents would conflict destructively — with an explicit merge
+   > criterion (exit gate / tests green) and deletion after merge.
 2. **The Phase-1 gate (`CLAUDE.md:47-49`)** has been lifted for hardware *transport* work as of
    2026-08-03, with live injection still human-gated. Recorded rather than deleted, so a future reader
    does not revert the port on sight.
@@ -1047,9 +1176,41 @@ a user-owned directory does it in seconds, and base conda need not be touched. `
    synchronous simultaneous excitation the mode assumes, and the loop cannot tell. Candidate fix —
    start all with `ramptime=0` at a common `start_gps` and ramp separately — is unverifiable without
    the real `awg`.
+   > **AMENDED 2026-08-06 — narrowed, not resolved.** Reading `loop.py:114,155-176,299-307` and the
+   > three existing backends (`twin.py:157-160`, `mimo_twin.py:38,58-59`,
+   > `rtsfreerun_adapter.py:160-194`) shows simultaneous mode already calls `inject()` for every DoF
+   > *before* any `read()`, and every existing backend already implements **stash-then-assemble**:
+   > `inject()` stores the drive, and the *first* `read()` of a generation is what actually
+   > assembles/starts every stashed channel together. No new `ChannelBackend` method is needed for
+   > this — the blocking-`start_gps` problem is specific to one real-hardware API,
+   > `awg.ArbitraryLoop.start(ramptime>0, wait=False)`, not to the backend interface.
+   >
+   > - **Stream mode (the #31 default).** `awg.ArbitraryStream.open()`/`append()` carry no documented
+   >   blocking wait-for-`start_gps`, unlike `ArbitraryLoop.start`. Design: `CDSBackend.inject()` stages
+   >   the enveloped array per channel (already planned, D13 below); the first `read()` of a generation
+   >   opens every staged stream and begins `append()` for all of them in one tight loop, so
+   >   inter-channel skew is bounded by Python loop overhead (sub-millisecond to low-millisecond), not
+   >   by a scheduled blocking start. **What remains genuinely hardware-only, narrowed:** confirm
+   >   `open()` doesn't block, and measure the actual skew.
+   > - **Loop mode (peer mode).** The candidate fix, now spelled out precisely: call
+   >   `start(ramptime=0, wait=False)` for every staged channel first — all running, unramped,
+   >   back-to-back — then apply the envelope via `set_gain(gain, ramptime=ramp_s)` per channel
+   >   afterward. Structurally compatible with the stash-then-assemble pattern the existing backends
+   >   already use.
 4. **What chunk size should §4.3.2 ship?** Per the feasibility gate, no limit is claimed without a
    number — and the number here belongs to the framebuilder, not to us: it is set by the resources
    that machine has available, which depend on its hardware **and/or** on what else it is running.
    Smaller chunks detect faults sooner and buffer less; larger ones cost less Python-side turnaround.
    Ship a conservative default, mark it **provisional**, expose it as `cds.read_chunk_s`, and replace
    it with a measured value at bring-up. Recorded so the default is not later mistaken for a result.
+   > **AMENDED 2026-08-06.** Before this, `read_chunk_s` and `passive_read_retries` were not merely
+   > provisional — grep of `src/` and `configs/*.yml` found **neither knob exists anywhere**, and no
+   > `nds2`/`cdsutils` version metadata in `environment_deploy.yml` hints at a stride/block-size
+   > recommendation either. That is a gap in what ships, not just in what's justified, so a concrete
+   > starting value is fixed here (still provisional — this does not supply the framebuilder
+   > measurement the paragraph above asks for): **`read_chunk_s = 1.0 s`**, validated `≤
+   > segment_duration` — small enough to surface a fault or gap within ~1 s against multi-hour records,
+   > large enough to keep per-block Python overhead low (≈16–96 blocks per segment across shipped
+   > configs, whose `segment_duration` ranges 16–64 s). **`passive_read_retries = 3`**, backoff **0.5 s
+   > / 1 s / 2 s** — an ordinary bounded-retry policy, not hardware-derived, so safe to fix without
+   > waiting on bring-up.
