@@ -18,4 +18,5 @@ Each entry is one durable fact in its own file; write new ones here, never to `~
 - [Schroeder has no benefit here](schroeder-has-no-benefit-here.md) — HARD RULE: Schroeder phase gives NO benefit in this pipeline (few-tone drive + never-broadband + DAC/whitening); stop claiming it does
 - [Always watch CI after push](always-watch-ci-after-push.md) — HARD RULE: after EVERY push, immediately launch a background `gh run watch` on the triggered run
 - [Use python-control, not hand-rolled](use-python-control-not-hand-rolled.md) — HARD RULE: use python-control for anything the controls lib covers; never reinvent state-space/c2d/FRF/feedback in numpy/scipy
+- [No heavy compute in slide generation](no-heavy-compute-in-slide-generation.md) — HARD RULE: build decks from `docs/_freeze` / existing caches; cache-first generators, never recompute what already ran
 - [CI stays light](ci-stays-light.md) — heavy tests and renders run locally; measure step timings before proposing any CI speedup

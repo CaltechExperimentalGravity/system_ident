@@ -31,6 +31,8 @@ env/
 # Quarto / docs build artifacts
 docs/_site/
 docs/.quarto/
+talks/_site/
+talks/.quarto/
 docs/reference/
 docs/objects.json
 .jupyter_cache/

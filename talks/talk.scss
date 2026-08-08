@@ -1,0 +1,48 @@
+/*-- scss:defaults --*/
+// House palette, lifted from docs/sysid_plots.py so the slides and the figures
+// they carry are one visual system.
+$sky:   #1F8AC0;   // truth / primary
+$gold:  #C8973A;   // fit / designed drive
+$gray:  #94A3B8;   // measured / suppressed
+$green: #2D9D6B;
+$rose:  #D2698E;
+$ink:   #1B2733;
+
+$font-family-sans-serif: "Outfit", "Inter", "Helvetica Neue", sans-serif !default;
+$presentation-font-size-root: 30px !default;
+$body-color: $ink !default;
+$link-color: $sky !default;
+$presentation-heading-color: $ink !default;
+$presentation-heading-font-weight: 600 !default;
+$code-block-font-size: 0.55em !default;
+
+/*-- scss:rules --*/
+.reveal h1, .reveal h2 { letter-spacing: -0.01em; }
+
+.reveal h2 {
+  border-bottom: 3px solid rgba(31, 138, 192, 0.28);
+  padding-bottom: 0.18em;
+  margin-bottom: 0.5em;
+}
+
+// Figures: the SVGs are the argument, so give them the room.
+.reveal .slide figure > figcaption,
+.reveal figcaption { font-size: 0.62em; color: #5b6b7d; }
+.reveal img { background: transparent; box-shadow: none; border: 0; }
+
+// Tight, readable tables of real numbers.
+.reveal table { font-size: 0.62em; }
+.reveal table th { border-bottom: 2px solid rgba(31, 138, 192, 0.35); }
+
+// Callouts used for the two audience tracks.
+.aud-sus  { border-left: 6px solid $green; padding-left: 0.7em; }
+.aud-cal  { border-left: 6px solid $rose;  padding-left: 0.7em; }
+
+// A quiet "measured number" emphasis.
+.num { color: $sky; font-weight: 600; font-variant-numeric: tabular-nums; }
+.warn { color: $rose; font-weight: 600; }
+
+.reveal .footer { color: #6b7a8c; font-size: 0.5em; }
+
+// Section-divider slides
+.reveal section.divider h1 { color: $sky; }

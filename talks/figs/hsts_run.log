@@ -1,0 +1,41 @@
+[2026-08-07 13:51:49.617] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:49.618] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+[2026-08-07 13:51:59.551] [info] reset_filter_module() - rset: 0
+========================================================================
+HSTS drive->sensor plant (analytic oracle):
+    f0 =  0.672 Hz   Q =  50.0
+    f0 =  1.005 Hz   Q =  50.0
+    f0 =  1.516 Hz   Q =  50.0
+    f0 =  2.807 Hz   Q =  50.0
+    f0 =  3.781 Hz   Q =  50.0
+    sample_rate = 16384 Hz  ->  fs = 256 Hz (x64 decimation)
+
+[A1] wiring + oracle
+    recorded length        : 24576  (expected 24576)
+    oracle vs realized SOS : max rel = 1.57e-06
+    noise-off P&S recovery : median = 2.22e-04, p90 = 2.32e-03
+
+[A2] open-loop SISO recovery under seismic + readout noise (P&S optimal)
+    pass   drive-peak   median |H| err vs oracle   frac-uncertainty
+      1         9721        2.01e-04                0.194
+      2         9870        1.57e-04                0.038
+      3         9970        1.30e-04                0.029
+    recovered modes (f0, Q) vs truth:
+         0.673 Hz  Q= 50.0    (truth  0.672 Hz  Q= 50.0)
+         1.005 Hz  Q= 48.6    (truth  1.005 Hz  Q= 50.0)
+         1.516 Hz  Q= 50.0    (truth  1.516 Hz  Q= 50.0)
+         2.807 Hz  Q= 50.0    (truth  2.807 Hz  Q= 50.0)
+         3.785 Hz  Q= 50.9    (truth  3.781 Hz  Q= 50.0)
+
+wrote /Users/rana/Desktop/Dropbox/GIT/system_ident/experiments/rtsfreerun/hsts_recovery.svg
