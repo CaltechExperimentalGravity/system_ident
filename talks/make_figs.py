@@ -431,8 +431,335 @@ def group_darm_tv(nums: dict, force: bool) -> None:
     nums["darm_n_snap"] = int(dtv.N_SNAP)
 
 
+# ── group: time domain — what the drive and the optic actually do ──────────
+# All local (no twin). Dynamics go through python-control; the repo forbids
+# hand-rolled state-space / c2d / simulation in numpy.
+TD_FS, TD_NPERSEG, TD_NPER = 32.0, 2048, 6
+TD_MODES = [(0.67, 300.0), (1.00, 250.0), (1.98, 180.0)]   # HSTS-like, undamped
+TD_DAMPED = [(0.67, 6.0), (1.00, 7.0), (1.98, 9.0)]        # dampers engaged
+TD_GAIN = 300.0
+TD_DAC = 30000.0        # coil-driver count limit (the ceiling drive design respects)
+
+
+def _td_plant(modes, gain=TD_GAIN):
+    """Resonant suspension-like plant as a python-control transfer function."""
+    import control
+    G = control.tf([gain], [1.0])
+    for f0, Q in modes:
+        w0 = 2.0 * np.pi * f0
+        G = G * control.tf([w0 ** 2], [1.0, w0 / Q, w0 ** 2])
+    return G
+
+
+def _td_sim(modes, u, fs, gain=TD_GAIN):
+    """ZOH-discretise and drive the plant — python-control end to end."""
+    import control
+    Gd = control.c2d(_td_plant(modes, gain), 1.0 / fs, method="zoh")
+    t = np.arange(len(u)) / fs
+    res = control.forced_response(Gd, T=t, U=u)
+    return t, np.asarray(res.outputs).ravel()
+
+
+def group_td(nums: dict, force: bool) -> None:
+    """Time-domain panels: the drive, the periodicity, the ringdown, headroom."""
+    names = ("td-drive", "td-periods", "td-ringdown", "td-response", "td-headroom")
+    if not force and "td_period_spread_pow" in nums and not any(
+            _need(n, False) for n in names):
+        print("  [cached] time-domain figures + numbers already present")
+        return
+
+    import plotly.graph_objects as go
+    import sysid_plots as sp
+    from plotly.subplots import make_subplots
+
+    from system_ident.excitation import multisine_from_psd
+
+    fa = np.fft.rfftfreq(TD_NPERSEG, 1 / TD_FS)
+    band = (fa >= 0.3) & (fa <= 5.0)
+    freq = fa[band]
+    T = TD_NPERSEG / TD_FS
+    nums.update(td_period_s=float(T), td_df_hz=float(TD_FS / TD_NPERSEG),
+                td_n_periods=int(TD_NPER), td_fs=float(TD_FS),
+                td_dac=float(TD_DAC))
+
+    # A concentrated (near-optimal) drive: power on the modes. NOT flat/broadband.
+    Pxx_opt = np.zeros_like(freq)
+    for f0, _ in TD_MODES:
+        Pxx_opt += np.exp(-0.5 * ((freq - f0) / 0.05) ** 2)
+    Pxx_opt *= 1.0 / np.trapezoid(Pxx_opt, freq)
+    drive = multisine_from_psd(Pxx_opt, TD_FS, TD_NPERSEG, TD_NPER, freq,
+                               seed=np.random.default_rng(0), t_ramp=6.0)
+    drive = drive / np.max(np.abs(drive)) * (0.33 * TD_DAC)   # 1/3 of the DAC range
+
+    # 1 ── the drive itself: full record with ramps, and one period zoomed
+    if _need("td-drive", force):
+        t = np.arange(len(drive)) / TD_FS
+        fig = make_subplots(rows=2, cols=1, vertical_spacing=0.16,
+                            subplot_titles=[
+                                f"<b>Full record</b> — {TD_NPER} periods × {T:.0f} s, "
+                                "Tukey ramp on and off",
+                                "<b>One period</b> — the same waveform repeats exactly"])
+        fig.add_trace(go.Scatter(x=t, y=drive, mode="lines",
+                                 line=dict(color=sp.SKY, width=1.0),
+                                 name="drive"), row=1, col=1)
+        for lim in (TD_DAC, -TD_DAC):
+            fig.add_hline(y=lim, line=dict(color=sp.RED, width=2, dash="dash"),
+                          row=1, col=1)
+        fig.add_annotation(x=t[-1], y=TD_DAC, text="coil-driver limit", showarrow=False,
+                           yshift=12, xanchor="right", font=dict(color=sp.RED,
+                                                                 size=sp.SZ_ANNOT),
+                           row=1, col=1)
+        one = drive[TD_NPERSEG * 2:TD_NPERSEG * 3]
+        fig.add_trace(go.Scatter(x=np.arange(len(one)) / TD_FS, y=one, mode="lines",
+                                 line=dict(color=sp.GOLD, width=1.6),
+                                 name="period 3"), row=2, col=1)
+        fig.update_xaxes(title_text="time [s]", row=2, col=1)
+        fig.update_yaxes(title_text="drive [cts]", row=1, col=1)
+        fig.update_yaxes(title_text="drive [cts]", row=2, col=1)
+        _write(sp.style(fig, height=620), "td-drive")
+
+    # 2 ── periodicity: successive periods lie on top of each other
+    if _need("td-periods", force):
+        _, y = _td_sim(TD_DAMPED, drive, TD_FS)
+        nskip = 2                                  # let the transient die
+        tp = np.arange(TD_NPERSEG) / TD_FS
+        fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.12,
+                            subplot_titles=[
+                                "<b>Steady state</b> — periods overlaid, identical",
+                                "<b>Including the transient</b> — period 1 is not"])
+        for p in range(nskip, TD_NPER):
+            fig.add_trace(go.Scatter(x=tp, y=y[p * TD_NPERSEG:(p + 1) * TD_NPERSEG],
+                                     mode="lines", line=dict(width=1.1),
+                                     opacity=0.85, showlegend=False), row=1, col=1)
+        for p in range(0, 3):
+            fig.add_trace(go.Scatter(x=tp, y=y[p * TD_NPERSEG:(p + 1) * TD_NPERSEG],
+                                     mode="lines", line=dict(width=1.4),
+                                     name=f"period {p + 1}"), row=1, col=2)
+        for c in (1, 2):
+            fig.update_xaxes(title_text="time within period [s]", row=1, col=c)
+        fig.update_yaxes(title_text="response", row=1, col=1)
+        _write(sp.style(fig, height=470), "td-periods")
+        seg = np.array([y[p * TD_NPERSEG:(p + 1) * TD_NPERSEG]
+                        for p in range(nskip, TD_NPER)])
+        frac = float(np.max(np.std(seg, axis=0)) / np.max(np.abs(seg)))
+        nums["td_period_spread_pct"] = frac * 100
+        # "1 part in 10^N of full scale" — readable on a slide, unlike 8.6e-10 %
+        nums["td_period_spread_pow"] = int(np.floor(-np.log10(frac)))
+        nums["td_skip_periods"] = int(nskip)
+
+    # 3 ── ringdown: why record length is set by Q, and what damping buys
+    if _need("td-ringdown", force):
+        import control
+        tt = np.linspace(0, 240.0, int(240.0 * TD_FS))
+        fig = go.Figure()
+        for modes, col, nm in ((TD_MODES, sp.GRAY, "loops open  (Q≈300)"),
+                               (TD_DAMPED, sp.SKY, "dampers engaged  (Q≈6)")):
+            r = control.impulse_response(_td_plant(modes), T=tt)
+            y = np.asarray(r.outputs).ravel()
+            fig.add_trace(go.Scatter(x=tt, y=y / np.max(np.abs(y)), mode="lines",
+                                     line=dict(color=col, width=1.6), name=nm))
+        tau = TD_MODES[0][1] / (np.pi * TD_MODES[0][0])
+        fig.add_vline(x=tau, line=dict(color=sp.RED, width=2, dash="dot"))
+        fig.add_annotation(x=tau, y=1.0, text=f"τ = Q/πf₀ ≈ {tau:.0f} s (undamped)",
+                           showarrow=False, xshift=6, xanchor="left",
+                           font=dict(color=sp.RED, size=sp.SZ_ANNOT))
+        fig.update_xaxes(title_text="time [s]")
+        fig.update_yaxes(title_text="impulse response  (normalised)")
+        _write(sp.style(fig, height=460), "td-ringdown")
+        nums.update(td_tau_open_s=float(tau),
+                    td_tau_damped_s=float(TD_DAMPED[0][1] / (np.pi * TD_DAMPED[0][0])))
+
+    # 4 ── drive and motion together: coaxing, not slamming
+    if _need("td-response", force):
+        t, y = _td_sim(TD_DAMPED, drive, TD_FS)
+        fig = sp.timeseries(
+            t, [("optimal multisine", drive, sp.GOLD)],
+            [("optic motion", y, sp.SKY)],
+            titles=["<b>Drive</b> — concentrated multisine, ramped on and off",
+                    "<b>Optic motion</b> — steady periodic response after the transient"],
+            height=470, drive_unit="drive [cts]", motion_unit="motion [a.u.]")
+        _write(fig, "td-response")
+
+    # 5 ── headroom: the concentrated drive vs a flat one at equal Fisher weight
+    if _need("td-headroom", force) or "td_peak_frac" not in nums:
+        flat = multisine_from_psd(np.ones_like(freq) / (freq[-1] - freq[0]),
+                                  TD_FS, TD_NPERSEG, TD_NPER, freq,
+                                  seed=np.random.default_rng(0), t_ramp=6.0)
+        flat = flat / np.std(flat) * np.std(drive)     # same RMS, same power budget
+        t = np.arange(len(drive)) / TD_FS
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=t, y=flat, mode="lines", name="flat-spectrum drive",
+                                 line=dict(color=sp.GRAY, width=1.0)))
+        fig.add_trace(go.Scatter(x=t, y=drive, mode="lines", name="optimal drive",
+                                 line=dict(color=sp.GOLD, width=1.2)))
+        for lim in (TD_DAC, -TD_DAC):
+            fig.add_hline(y=lim, line=dict(color=sp.RED, width=2, dash="dash"))
+        fig.update_xaxes(title_text="time [s]")
+        fig.update_yaxes(title_text="drive [cts]")
+        _write(sp.style(fig, height=440), "td-headroom")
+        nums.update(
+            td_peak_opt=float(np.max(np.abs(drive))),
+            td_peak_flat=float(np.max(np.abs(flat))),
+            td_peak_frac=float(np.max(np.abs(drive)) / TD_DAC * 100),
+            td_crest_opt=float(np.max(np.abs(drive)) / np.std(drive)),
+            td_crest_flat=float(np.max(np.abs(flat)) / np.std(flat)),
+        )
+
+
+# ── group: A3/A4 closed-loop tensor recovery, measured here ─────────────────
+# Same knobs as tests/test_rtsfreerun_6dof.py so the deck's numbers and the
+# test's assertions are the *same* measurement, not two similar ones.
+L_FS, L_NPERSEG, L_NPERIODS, L_NPASSES = 256.0, 4096, 6, 2
+L_COUPLINGS = [("L", "P"), ("P", "L"), ("R", "Y"), ("Y", "R")]
+
+
+def _loop_grid():
+    fa = np.fft.rfftfreq(L_NPERSEG, 1 / L_FS)
+    band = (fa >= 0.3) & (fa <= 8.0)
+    return band, fa[band]
+
+
+def group_loops(nums: dict, force: bool) -> None:
+    """Track A3/A4 measured live on the compiled ``x1hsts6dof``.
+
+    Replaces the recorded "< 0.1 %" bullets: the open- and closed-loop 6×6
+    tensors are measured here, scored against the analytic state-space oracle,
+    and every quoted percentage comes out of this run. ~6 min once, then cached.
+    """
+    if not force and "loops_diag_closed_max_pct" in nums and not any(
+            _need(n, False) for n in ("loops-tensor", "td-junction", "td-cancellation")):
+        print("  [cached] A3/A4 tensor numbers + figures already present")
+        return
+
+    sys.path.insert(0, str(_ROOT / "experiments" / "rtsfreerun"))
+    import hsts6dof_loop as h6
+
+    if not h6.deps_available():
+        print("  [skip] x1hsts6dof / twin archives not present on this machine")
+        return
+
+    import plotly.graph_objects as go
+    import sysid_plots as sp
+    from plotly.subplots import make_subplots
+
+    band, freq = _loop_grid()
+    model = h6.HSTS6DOF()
+    kw = dict(fs=L_FS, nperseg=L_NPERSEG, n_periods=L_NPERIODS, band=band,
+              freq=freq, n_passes=L_NPASSES, warmup_s=32.0, seed=0)
+    print("  measuring open-loop tensor …", flush=True)
+    H_open = model.measure_tensor(closed=False, **kw)
+    print("  measuring closed-loop tensor (all six dampers engaged) …", flush=True)
+    H_closed = model.measure_tensor(closed=True, **kw)
+
+    M_open = model.rel_err_tensor(H_open, freq)
+    M_closed = model.rel_err_tensor(H_closed, freq)
+    d_open, d_closed = np.diag(M_open), np.diag(M_closed)
+    G = model.oracle_tensor(freq)
+    coup = {f"{o}<-{i}": float(np.median(
+                np.abs(H_open[model.dofs.index(o), model.dofs.index(i)]
+                       - G[:, model.dofs.index(o), model.dofs.index(i)])
+                / np.abs(G[:, model.dofs.index(o), model.dofs.index(i)])))
+            for o, i in L_COUPLINGS}
+
+    nums.update(
+        loops_dofs=list(model.dofs),
+        loops_diag_open_pct=[float(v * 100) for v in d_open],
+        loops_diag_closed_pct=[float(v * 100) for v in d_closed],
+        loops_diag_open_max_pct=float(d_open.max() * 100),
+        loops_diag_open_med_pct=float(np.median(d_open) * 100),
+        loops_diag_closed_max_pct=float(d_closed.max() * 100),
+        loops_diag_closed_med_pct=float(np.median(d_closed) * 100),
+        loops_coupling_pct={k: v * 100 for k, v in coup.items()},
+        loops_coupling_max_pct=float(max(coup.values()) * 100),
+        loops_coupling_min_pct=float(min(coup.values()) * 100),
+        loops_fs=L_FS, loops_nperseg=L_NPERSEG, loops_n_periods=L_NPERIODS,
+        loops_n_passes=L_NPASSES,
+        loops_df_hz=float(L_FS / L_NPERSEG),
+    )
+
+    if _need("loops-tensor", force):
+        fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.14,
+                            subplot_titles=["<b>Loops open</b> — 6×6 recovery",
+                                            "<b>Loops closed</b> — 6×6 recovery"])
+        for c, M in ((1, M_open), (2, M_closed)):
+            fig.add_trace(go.Heatmap(
+                z=np.log10(M * 100), x=model.dofs, y=model.dofs,
+                colorscale="Blues_r", zmin=-2, zmax=1, showscale=(c == 2),
+                colorbar=dict(title="log₁₀ %err", len=0.9),
+                hovertemplate="out %{y} ← in %{x}<br>%{customdata:.3f} %<extra></extra>",
+                customdata=M * 100), row=1, col=c)
+        fig.update_yaxes(title_text="sensor DOF", autorange="reversed", row=1, col=1)
+        fig.update_yaxes(autorange="reversed", row=1, col=2)
+        for c in (1, 2):
+            fig.update_xaxes(title_text="drive DOF", row=1, col=c)
+        _write(sp.style(fig, height=470), "loops-tensor")
+
+    # -- time domain: the "+−" junction that the sign error lived in ---------
+    if _need("td-junction", force):
+        from system_ident.excitation import multisine_from_psd
+        model.set_loops(True)
+        model.reset()
+        be = model.backend("L", fs=L_FS, warmup_s=32.0, seed=0, closed=True)
+        Pxx = np.full(len(freq), 1.0e7 / (freq[-1] - freq[0]))
+        drive = multisine_from_psd(Pxx, L_FS, L_NPERSEG, 2, freq,
+                                   seed=np.random.default_rng(0))
+        be.inject(model.exc("L"), drive, L_FS)
+        chans = [model.exc("L"), model.damp_out("L"), model.plant_in("L"),
+                 model.readout("L")]
+        seg = be.read(chans, L_NPERSEG * 2 / L_FS)
+        be.inject(model.exc("L"), np.zeros_like(drive), L_FS)
+
+        n = int(12.0 * L_FS)                       # 12 s window, mid-record
+        s0 = (len(seg[chans[0]]) - n) // 2
+        t = np.arange(n) / L_FS
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.07,
+                            subplot_titles=[
+                                "<b>Injected drive</b> — DRIVE_EXC_L (what we command)",
+                                "<b>Damper feedback</b> — MC2_M1_DAMP_L_OUT (what the loop adds)",
+                                "<b>True plant input</b> — PLANT_IN_L = drive − feedback"])
+        for r, (ch, col, nm) in enumerate(
+                [(chans[0], sp.SKY, "DRIVE_EXC_L"),
+                 (chans[1], sp.ROSE, "DAMP_L_OUT"),
+                 (chans[2], sp.GOLD, "PLANT_IN_L")], start=1):
+            fig.add_trace(go.Scatter(x=t, y=seg[ch][s0:s0 + n], mode="lines",
+                                     line=dict(color=col, width=1.6), name=nm),
+                          row=r, col=1)
+        fig.update_xaxes(title_text="time [s]", row=3, col=1)
+        fig.update_yaxes(title_text="counts", row=2, col=1)
+        _write(sp.style(fig, height=620, legend="h"), "td-junction")
+        nums["loops_fb_to_drive_rms"] = float(
+            np.std(seg[chans[1]]) / np.std(seg[chans[0]]))
+
+    # -- the cancellation proof: reference FRF vs naive drive→sense ----------
+    if _need("td-cancellation", force) or "loops_naive_bias_pct" not in nums:
+        Hr, Hn, Gd = model.measure_cancellation(
+            "L", fs=L_FS, nperseg=L_NPERSEG, n_periods=L_NPERIODS, band=band,
+            freq=freq, n_passes=L_NPASSES, warmup_s=32.0, seed=0)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=freq, y=np.abs(Gd), mode="lines",
+                                 line=dict(color=sp.INK, width=3),
+                                 name="open-loop plant (oracle)"))
+        fig.add_trace(go.Scatter(x=freq, y=np.abs(Hr), mode="markers",
+                                 marker=dict(color=sp.SKY, size=sp.MK_DATA),
+                                 name="reference FRF  READOUT / PLANT_IN"))
+        fig.add_trace(go.Scatter(x=freq, y=np.abs(Hn), mode="markers",
+                                 marker=dict(color=sp.GRAY, size=sp.MK_DATA,
+                                             symbol="x"),
+                                 name="naive FRF  READOUT / DRIVE_EXC"))
+        fig.update_xaxes(type="log", title_text="frequency [Hz]")
+        fig.update_yaxes(type="log", title_text="|G(f)|")
+        _write(sp.style(fig, height=520), "td-cancellation")
+        nums.update(
+            loops_ref_bias_pct=float(np.median(np.abs(Hr - Gd) / np.abs(Gd)) * 100),
+            loops_naive_bias_pct=float(np.median(np.abs(Hn - Gd) / np.abs(Gd)) * 100),
+            loops_naive_peak_supp=float(
+                np.abs(Gd).max() / np.abs(Hn)[np.argmax(np.abs(Gd))]),
+        )
+
+
 GROUPS = {"method": group_method, "twin": group_twin, "sos": group_sos,
-          "srm": group_srm, "darm": group_darm}
+          "srm": group_srm, "darm": group_darm, "loops": group_loops,
+          "td": group_td}
 
 
 # ── _variables.yml — every number the deck quotes, pre-formatted ────────────
@@ -506,6 +833,29 @@ def _fmt(n: dict) -> dict:
                  "track_sigma": g("darm_track_sigma_pct", ".2f"),
                  "resolve": g("darm_resolve_ratio", ".0f"),
                  "local_stat": g("darm_local_stat_pct", ".2f")},
+        "loops": {"open_max": g("loops_diag_open_max_pct", ".2f"),
+                  "open_med": g("loops_diag_open_med_pct", ".2f"),
+                  "closed_max": g("loops_diag_closed_max_pct", ".2f"),
+                  "closed_med": g("loops_diag_closed_med_pct", ".2f"),
+                  "coup_min": g("loops_coupling_min_pct", ".2f"),
+                  "coup_max": g("loops_coupling_max_pct", ".2f"),
+                  "ref_bias": g("loops_ref_bias_pct", ".2f"),
+                  "naive_bias": g("loops_naive_bias_pct", ".1f"),
+                  "naive_supp": g("loops_naive_peak_supp", ".1f"),
+                  "fb_rms": g("loops_fb_to_drive_rms", ".2f"),
+                  "df_hz": g("loops_df_hz", ".4f"),
+                  "n_periods": g("loops_n_periods", "d"),
+                  "n_passes": g("loops_n_passes", "d")},
+        "td": {"period": g("td_period_s", ".0f"), "df": g("td_df_hz", ".4f"),
+               "n_periods": g("td_n_periods", "d"),
+               "spread_pow": g("td_period_spread_pow", "d"),
+               "skip": g("td_skip_periods", "d"),
+               "tau_open": g("td_tau_open_s", ".0f"),
+               "tau_damped": g("td_tau_damped_s", ".1f"),
+               "peak_frac": g("td_peak_frac", ".0f"),
+               "crest_opt": g("td_crest_opt", ".1f"),
+               "crest_flat": g("td_crest_flat", ".1f"),
+               "dac": g("td_dac", ".0f")},
     }
     # per-stage actuation rows, flattened for the shortcodes
     for row in n.get("darm_actuation", []):

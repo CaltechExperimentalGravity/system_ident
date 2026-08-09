@@ -101,6 +101,83 @@ chain, which this simulation does not model, so no peak/crest advantage is being
 claimed for any phasing choice.
 :::
 
+# What this looks like in the time domain {.divider}
+
+## The drive we actually send {.smaller}
+
+![](figs/td-drive.svg){.r-stretch}
+
+{{< var td.n_periods >}} identical periods of **{{< var td.period >}} s**
+(`df = {{< var td.df >}} Hz`), ramped on and off with a Tukey window so nothing
+is stepped into the suspension. Peak sits at **{{< var td.peak_frac >}}%** of the
+{{< var td.dac >}}-count coil-driver limit.
+
+::: {.notes}
+The ramp is not cosmetic — a hard start excites everything and then you wait for
+it to ring down. The ramp is excluded from the analysis window; only whole
+periods in steady state are transformed.
+:::
+
+## Every period is the same period {.smaller}
+
+![](figs/td-periods.svg){.r-stretch}
+
+Overlaying the steady-state periods, they agree to better than **1 part in
+10^{{< var td.spread_pow >}}^** of full scale — identical to machine precision.
+That is the whole basis for the leakage-free DFT: an integer number of periods in
+the window means every excited tone lands exactly on a bin.
+
+The first {{< var td.skip >}} periods are discarded — the transient is visible on
+the right panel and is exactly what a non-periodic estimator would smear into
+the spectrum.
+
+::: {.notes}
+This is the time-domain twin of the leakage slide. If someone doubts the
+"leakage-free" claim, this is the picture: the record repeats, so the DFT of one
+period and the DFT of the whole record agree bin for bin.
+:::
+
+## Ringdown sets the record length {.smaller}
+
+![](figs/td-ringdown.svg){.r-stretch}
+
+Undamped, the {{< var td.tau_open >}} s decay is what forces
+`T ≳ Q/f₀`. With the local dampers engaged the same mode decays in
+**{{< var td.tau_damped >}} s** — you reach steady state in seconds instead of
+minutes.
+
+::: {.callout-note appearance="simple"}
+Damping is usually treated as something to fight. For this measurement it is a
+**help**: it shortens the record you need, and the reference-based FRF cancels
+the controller anyway — so there is no reason to undamp the optic to measure it.
+:::
+
+## Headroom is spent on the spectrum, not on phasing {.smaller}
+
+![](figs/td-headroom.svg){.r-stretch}
+
+Both drives carry the same power. Crest factor is
+**{{< var td.crest_opt >}}** for the optimal drive and
+**{{< var td.crest_flat >}}** for the flat one — the same. The peak is set by the
+power budget, not the phase choice.
+
+The optimal drive wins by putting that identical power **where the parameters
+live**, not by being peakier or flatter.
+
+::: {.notes}
+Say this explicitly if crest factor comes up: there is no phase trick here. A
+low-crest phasing buys nothing in this pipeline — the drive is a few tones, and
+the binding limit is at the DAC after the whitening chain, where synthesis-time
+phasing does not survive anyway.
+:::
+
+## Drive in, motion out {.smaller}
+
+![](figs/td-response.svg){.r-stretch}
+
+Coaxing, not slamming: a bounded, periodic, ramped drive and a clean periodic
+response. Nothing about this measurement looks violent to the suspension.
+
 ## Periodic ⇒ leakage-free (and the noise model is measured) {.smaller}
 
 ![](figs/leakage.svg){.r-stretch}
@@ -248,13 +325,20 @@ Fisher information goes as drive². Nothing here is noise-limited.
 
 ## Through the real damping loops {.smaller}
 
-With all six production L1-MC2 top-mass dampers **closed** on `x1hsts6dof`:
+With all six production L1-MC2 top-mass dampers **closed** on `x1hsts6dof`
+(`df = {{< var loops.df_hz >}} Hz`, {{< var loops.n_periods >}} periods,
+{{< var loops.n_passes >}} passes — measured for this talk):
 
-- the reference-based FRF recovers the **open-loop** plant diagonal to **< 0.1 %**
-  on all six DOF, pitch included
-- the open-loop 6×6 cross-coupling tensor matches the state-space oracle:
-  diagonal anti-resonances **< 0.1 %**, the physical `L↔P` and `R↔Y` couplings
-  **0.1–0.2 %**
+- reference-based FRF recovers the **open-loop** diagonal on all six DOF, worst
+  **{{< var loops.closed_max >}}%**, median **{{< var loops.closed_med >}}%** —
+  pitch and yaw included
+- loops **open**, the same tensor scores worst **{{< var loops.open_max >}}%**,
+  median **{{< var loops.open_med >}}%**
+- the physical `L↔P` and `R↔Y` cross-couplings come back at
+  **{{< var loops.coup_min >}}–{{< var loops.coup_max >}}%**
+
+The damper output carries **{{< var loops.fb_rms >}}×** the injected drive in RMS —
+the loop is genuinely doing work, not idling.
 
 ::: {.callout-warning appearance="simple"}
 The dead end we nearly wrote up as a limit: closed-loop peaks came out 50–110 %
@@ -267,9 +351,56 @@ bug before you blame the method.
 :::
 
 ::: {.notes}
-These two bullets are recorded results from the twin-box campaign (Track A3/A4),
-reproduced in the frozen example-07 page of the docs site. The figure on the
-previous slide was regenerated for this talk.
+Every number on this slide was measured by `talks/make_figs.py loops` against the
+compiled model, with the same knobs as `tests/test_rtsfreerun_6dof.py` — so the
+talk and the test assert on the same measurement. An earlier draft quoted
+"< 0.1 %" from a recorded campaign; re-measuring gives 0.15 % closed and 0.34 %
+open, and couplings up to 1.5 %. The tests only ever asserted < 1 % and < 2 %, so
+quote these numbers, not the old ones.
+:::
+
+## The whole 6×6 tensor, open and closed {.smaller}
+
+![](figs/loops-tensor.svg){.r-stretch}
+
+Median relative error per element against the analytic state-space oracle. The
+diagonal is the plant; the bright off-diagonal cells are the *real* `L↔P` and
+`R↔Y` couplings, recovered rather than assumed away.
+
+::: {.notes}
+Colour is log₁₀ of percent error. Off-diagonals that are structurally near zero
+score poorly in *relative* terms — that is expected and is why the claim is made
+on the diagonal and on the two physically dominant couplings, not on all 36.
+:::
+
+## Where the sign error lived {.smaller}
+
+![](figs/td-junction.svg){.r-stretch}
+
+The composite's `COIL_DRV_SUM` is a `"+−"` junction. The true plant input is
+drive **minus** damper feedback — and with the loops closed that feedback is not
+small.
+
+::: {.notes}
+This is the time-domain picture of the bug. Off resonance the middle trace is
+tiny and the sign cannot matter. At the damped modes it is comparable to the
+drive, so the wrong sign corrupts exactly the modes being identified — which is
+why the failure looked like an ill-conditioning wall at the resonances.
+:::
+
+## Proof the controller is actually cancelled {.smaller}
+
+![](figs/td-cancellation.svg){.r-stretch}
+
+Same closed-loop data, two ways of forming the FRF. Dividing by the injected
+drive returns the **suppressed** closed-loop response — down
+**{{< var loops.naive_supp >}}×** at the peak, **{{< var loops.naive_bias >}}%**
+median error. Dividing by the reconstructed plant input returns the **open-loop**
+plant to **{{< var loops.ref_bias >}}%**.
+
+::: {.callout-note appearance="simple"}
+This is the slide to show anyone who thinks the loops have to come off. They do
+not — you just have to divide by the right thing.
 :::
 
 ## SRM: a joint modal fit through production dampers {.smaller}
@@ -505,6 +636,51 @@ the actuation/DAC chain.
 
 Known gaps at Stage 0/1: the OSEM basis reaches only `L,T,P,Y` (rank 4) — `V` and
 `R` have no OSEM actuation, and are undamped by design in the nominal bank.
+
+## Future work — what we want this to become {.smaller}
+
+::: {.columns}
+::: {.column width="50%"}
+**Suspensions**
+
+- **Foton drop-in.** Hand back the fit as a ZPK/SOS foton bank plus a provenance
+  manifest — drive used, record length, per-parameter σ, date — so a damping
+  redesign starts from a measured plant, not a model.
+- **Q and f₀ trending.** The same campaign run monthly turns into a health
+  monitor: a rubbing magnet, a drifting blade spring or a changed cross-coupling
+  shows up as a parameter moving outside its own CRB.
+- **Per-OSEM identification.** Identify in the OSEM basis instead of Euler to
+  catch a single weak or stuck coil. Today `V` and `R` have no OSEM actuation
+  at all — rank 4 of 6.
+- **Track B joint MIMO fit.** Shared poles across all 36 elements rather than
+  per-element fits, so cross-couplings and modes are estimated together.
+:::
+::: {.column width="50%"}
+**Calibration**
+
+- **κ(t) between full sweeps.** Track the slow parameters continuously from the
+  permanent lines and reserve the full campaign for when the tracker says the
+  model has actually moved — less calibration downtime.
+- **A-optimal line allocation.** Choose calibration-line frequencies and
+  amplitudes from the Fisher matrix for the parameters you report, under the
+  actuator budget you actually have.
+- **Hierarchical hand-off with honest error bars.** Propagate the CRB through
+  the TST/PUM/UIM crossovers instead of stitching separately-fit stages.
+:::
+:::
+
+**Both:** an ISI / seismic-platform demonstration (sensor correction, blend
+filters) and coupled ASC — neither is exercised yet — and making the twin
+validation reproducible by a third party, which today needs the compiled model
+built locally.
+
+::: {.notes}
+Frame this as a menu, not a promise. The two items most likely to be immediately
+useful to a working group are the foton drop-in with a manifest, and Q/f₀
+trending — both are small additions on top of what already runs, and both answer
+a question people actually ask. Everything on this slide is Phase 1 work on the
+twin; nothing here assumes hardware access.
+:::
 
 ## What we need from the control room {.smaller}
 
