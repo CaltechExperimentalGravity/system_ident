@@ -96,6 +96,16 @@ jobs:
         # --profile ci merges docs/_quarto-ci.yml (freeze: auto). A plain local
         # `quarto render docs` is unaffected and still executes every page.
         run: quarto render docs --profile ci
+      - name: Render the talks and fold them into the site
+        # ~3 s: the deck has NO executable cells (every number reaches it through the
+        # generated talks/_variables.yml), so this is pandoc plus a file copy — measured
+        # 2.7 s cold against the 55 s docs render. talks/ stays its own Quarto project so
+        # that _variables.yml keeps working; we just graft its output in under /talks/.
+        # Needs the LFS checkout above — the deck's 28 figures are SVGs stored in LFS.
+        run: |
+          quarto render talks
+          mkdir -p docs/_site/talks
+          cp -R talks/_site/. docs/_site/talks/
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
