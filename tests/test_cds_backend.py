@@ -82,10 +82,15 @@ class _MockRTSModel:
             self._pending = None
 
 
+def _approve(prompt):
+    return True
+
+
 def _backend(exc_mode="stream", warmup_s=0.0, t_ramp=3.0, **kw):
     from system_ident.model import TFModel
     plant = TFModel.from_resonances([(1.0, 20.0)], 100.0)
     transport = TwinTransport(_MockRTSModel(plant, fs=FS))
+    kw.setdefault("authorizer", _approve)
     be = CDSBackend(
         transport,
         exc_channels={EXC: "POS"}, readback_channels={SENSOR: "POS"},
@@ -226,7 +231,8 @@ def test_multi_channel_stage_then_assemble():
                     readback_channels={SENSOR: "POS", "X1:SENSOR2_DQ": "PIT"},
                     drive_channels={"POS": DRIVE, "PIT": "X1:COIL2_MON_DQ"},
                     fs=FS, exc_mode="stream", warmup_s=1.0,
-                    segment_duration=NPERSEG / FS, n_segments=N_PERIODS)
+                    segment_duration=NPERSEG / FS, n_segments=N_PERIODS,
+                    authorizer=_approve)
     drive = np.tile(np.sin(2 * np.pi * 1.0 * np.arange(NPERSEG) / FS), N_PERIODS)
     be.inject(EXC, drive, FS)
     be.inject("X1:COIL2_EXC", drive, FS)
@@ -253,6 +259,7 @@ def _world_with_plant():
 
 
 def _awg_backend(world, **kw):
+    kw.setdefault("authorizer", _approve)
     t = AWGNDSTransport()
     be = CDSBackend(t, exc_channels={EXC: "POS"}, readback_channels={SENSOR: "POS"},
                     drive_channels={"POS": DRIVE}, fs=FS, exc_mode="loop",
@@ -311,7 +318,8 @@ def test_stream_mode_stages_a_tapered_array_outside_the_analysed_window():
         be = CDSBackend(t, exc_channels={EXC: "POS"}, readback_channels={SENSOR: "POS"},
                         drive_channels={"POS": DRIVE}, fs=FS, exc_mode="stream",
                         t_ramp=3.0, warmup_s=2.0,
-                        segment_duration=NPERSEG / FS, n_segments=N_PERIODS)
+                        segment_duration=NPERSEG / FS, n_segments=N_PERIODS,
+                        authorizer=_approve)
         drive_one_period = np.sin(2 * np.pi * 1.0 * np.arange(NPERSEG) / FS)
         be.inject(EXC, drive_one_period, FS)
         be.read([SENSOR], NPERSEG * N_PERIODS / FS)
@@ -355,7 +363,8 @@ with install(world):
     be = CDSBackend(t, exc_channels={"X1:COIL_EXC": "POS"},
                     readback_channels={"X1:SENSOR_DQ": "POS"},
                     drive_channels={"POS": "X1:SENSOR_DQ"}, fs=256.0, exc_mode="loop",
-                    segment_duration=4.0, n_segments=1, warmup_s=0.0)
+                    segment_duration=4.0, n_segments=1, warmup_s=0.0,
+                    authorizer=lambda prompt: True)
     be.inject("X1:COIL_EXC", np.ones(1024), 256.0)
     be.read(["X1:SENSOR_DQ"], 4.0)
     assert FakeArbitraryLoop.n_started == 1

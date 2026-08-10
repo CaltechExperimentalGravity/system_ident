@@ -8,9 +8,15 @@ truly interchangeable.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scipy.signal as sig
+
+from ..safety import SafetyAbort
+
+if TYPE_CHECKING:
+    from ..safety import SafetyLimits
 
 
 class ChannelBackend(ABC):
@@ -50,6 +56,40 @@ class ChannelBackend(ABC):
             return ts
         alpha = min(1.0, 2.0 * float(self.ramp_s) * float(fs) / n)   # ramp_s tapered at each end
         return ts * sig.windows.tukey(n, alpha)
+
+    def _check_drive_limits(self, ts: np.ndarray, limits: "SafetyLimits") -> np.ndarray:
+        """Pre-injection peak/RMS check against ``limits.max_exc_peak``/
+        ``max_exc_rms`` (issue #4). Opt-in, default-off: a backend must call
+        this itself (``CDSBackend.inject`` does; twin/rtsfreerun do not, so
+        their behaviour stays bit-identical) and a limit of ``None`` disables
+        that half of the check.
+
+        Scales the whole series to preserve its spectrum shape, reporting the
+        factor -- but raises :class:`~..safety.SafetyAbort` if the required
+        scale-down exceeds ~2x: a shrink that large means the *design* is
+        wrong, not something to quietly scale past. Prints the actual peak
+        and RMS before injecting either way -- the other repo's cheapest,
+        highest-value lesson.
+        """
+        ts = np.asarray(ts, dtype=float)
+        peak = float(np.max(np.abs(ts))) if ts.size else 0.0
+        rms = float(np.sqrt(np.mean(ts ** 2))) if ts.size else 0.0
+        print(f"drive limits check: peak={peak:.6g}, rms={rms:.6g}")
+        scale = 1.0
+        if limits.max_exc_peak is not None and peak > 0:
+            scale = min(scale, limits.max_exc_peak / peak)
+        if limits.max_exc_rms is not None and rms > 0:
+            scale = min(scale, limits.max_exc_rms / rms)
+        if scale < 1.0:
+            if scale < 0.5:
+                raise SafetyAbort(
+                    f"drive limits require a {1.0 / scale:.2f}x scale-down "
+                    f"(peak={peak:.6g}, rms={rms:.6g}) -- the design is wrong, "
+                    "not something to scale past"
+                )
+            print(f"scaling drive by {scale:.4f} to respect safety.max_exc_peak/max_exc_rms")
+            ts = ts * scale
+        return ts
 
     @abstractmethod
     def inject(self, channel: str, timeseries: np.ndarray, fs: float) -> None:

@@ -43,12 +43,14 @@ from __future__ import annotations
 
 import atexit
 import signal
+import sys
 import warnings
 from fractions import Fraction
 
 import numpy as np
 import scipy.signal as sig
 
+from ..safety import SafetyAbort, SafetyLimits
 from .base import ChannelBackend
 from .cds_transport import (
     CDSTransport,
@@ -62,6 +64,19 @@ from .cds_transport import (
 
 _ABORT_TIER = (TestpointLost, TransportUnavailable, TestpointTimeout)
 _REJECT_TIER = (DataIntegrityError, TimingFault)
+
+
+def _default_authorizer(prompt: str) -> bool:
+    """Rule 1/Rule 2 (spec S1): only a human may approve a hardware
+    injection, and never by accident. Defaults to DENY on EOFError or a
+    non-TTY stdin -- never proceed in batch."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        reply = input(prompt)
+    except EOFError:
+        return False
+    return reply.strip().lower() == "yes"
 
 
 class HardwareStateFault(CDSTransportError):
@@ -125,6 +140,8 @@ class CDSBackend(ChannelBackend):
         n_segments: int = 1,
         read_chunk_s: float = 1.0,
         passive_read_retries: int = 3,
+        safety_limits: SafetyLimits | None = None,
+        authorizer=_default_authorizer,
     ) -> None:
         if exc_mode not in ("stream", "loop"):
             raise ValueError(f"cds.exc_mode must be 'stream' or 'loop', got {exc_mode!r}")
@@ -154,10 +171,13 @@ class CDSBackend(ChannelBackend):
         self.n_segments = int(n_segments)
         self.read_chunk_s = float(read_chunk_s)
         self.passive_read_retries = int(passive_read_retries)
+        self.safety_limits = safety_limits
+        self.authorizer = authorizer
 
         self._rates: dict[str, float] = {}                   # per-channel fs_hw (S4.3.1)
         self._generation = 0
         self._staged: dict[str, dict] = {}                    # channel -> {"array", "rate"}
+        self._approval: dict[str, bool] = {}                  # channel -> single-use approval token
         self._live: dict[str, object] = {}                    # channel -> transport handle
         self._cache: dict[tuple[int, float], dict[str, np.ndarray]] = {}
         self._snapshot: dict | None = None
@@ -261,13 +281,38 @@ class CDSBackend(ChannelBackend):
         if self.exc_mode == "loop":
             # [loop]: do NOT call _soft_start_stop (S2.2) -- the ramp is the
             # transport's own linear gain ramp, applied at start() time.
-            self._staged[channel] = {"array": resampled, "rate": rate}
+            staged_array = resampled
         else:
             # [stream]: the one-shot four-segment envelope (S2.3) -- this
             # taper IS _soft_start_stop's job done a different way, so that
             # method is equally never called here, not merely skipped.
-            self._staged[channel] = {"array": self._segmented_envelope(resampled, rate),
-                                     "rate": rate}
+            staged_array = self._segmented_envelope(resampled, rate)
+
+        # Pre-injection amplitude check (#4), on the EXACT samples about to be
+        # handed to the transport -- opt-in (twin/rtsfreerun never call this).
+        # #32 item 5 folds in here too: a non-finite drive is rejected before
+        # it can reach append()/ArbitraryLoop, not after.
+        if not np.all(np.isfinite(staged_array)):
+            raise SafetyAbort(f"{channel!r}: non-finite samples in the drive, refusing to inject")
+        if self.safety_limits is not None:
+            staged_array = self._check_drive_limits(staged_array, self.safety_limits)
+        self._staged[channel] = {"array": staged_array, "rate": rate}
+
+        # The single-use approval token (#17, spec S5): prompts HERE, on the
+        # exact samples staged above; read()'s first call of this generation
+        # is what CONSUMES it (Rule 2 -- ask again, every time a NEW inject()
+        # actually stages something new). Re-reads of an already-running
+        # injection never re-prompt: nothing new is actuated then.
+        peak = float(np.max(np.abs(staged_array))) if staged_array.size else 0.0
+        rms = float(np.sqrt(np.mean(staged_array ** 2))) if staged_array.size else 0.0
+        crest = peak / rms if rms > 0 else float("inf")
+        prompt = (
+            f"about to inject on {channel!r}: rate={rate:.6g} Hz, "
+            f"duration={staged_array.size / rate:.3f} s, peak={peak:.6g}, rms={rms:.6g}, "
+            f"crest={crest:.3f}, start_gps~={self.transport.now_gps():.3f}. "
+            "type 'yes' to approve this injection: "
+        )
+        self._approval[channel] = bool(self.authorizer(prompt))
 
     def _segmented_envelope(self, main_period: np.ndarray, rate: float) -> np.ndarray:
         """ramp-on(t_ramp, cosine) / settle(warmup_s, flat) / main(segment_duration
@@ -325,6 +370,15 @@ class CDSBackend(ChannelBackend):
         started: list[str] = []
         try:
             for ch in channels:
+                # Refuse to start any staged injection whose token is missing
+                # or already consumed (#17). A gate that constructs the AWG
+                # object and then declines is still a gate that reached the
+                # AWG API -- check BEFORE transport.start()/open(), not after.
+                if not self._approval.pop(ch, False):
+                    raise SafetyAbort(
+                        f"{ch!r}: injection not approved (denied, or inject() was never "
+                        "called with an approving authorizer) -- refusing to start"
+                    )
                 staged = self._staged.pop(ch)
                 if self.exc_mode == "loop":
                     handle = self.transport.start(
@@ -425,6 +479,13 @@ class CDSBackend(ChannelBackend):
         self._staged.clear()
 
     def _register_lifecycle(self) -> None:
+        # #19: a mandatory out-of-band STOP -- printed prominently at startup
+        # rather than left implicit, since this is the operator's actual
+        # stop path whenever the dashboard is not running (--no-dashboard,
+        # or headless because the extra is not installed).
+        print("CDS backend ready. Out-of-band STOP: Ctrl-C (SIGINT) immediately hard-stops "
+              "every live excitation (or the dashboard's STOP button, which ramps down "
+              "gracefully via ramp_down/Watchdog.abort, if running).")
         atexit.register(self._stop_all)
         for sig_num in (signal.SIGINT, signal.SIGTERM):
             try:

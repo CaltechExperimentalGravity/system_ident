@@ -29,6 +29,12 @@ class SafetyLimits:
     actuator_sat: float  # max |drive| before saturation
     rms_ceiling: dict  # per-DOF output-RMS ceiling, e.g. {"POS": ..., "PIT": ...}
     ramp_down_secs: float = 2.0
+    # Pre-injection drive-sample limits (issue #4, amended 2026-08-06). Optional
+    # and None-default so twin/rtsfreerun behaviour is bit-identical when unset --
+    # only a backend that opts into ChannelBackend._check_drive_limits (CDSBackend)
+    # ever looks at these.
+    max_exc_peak: float | None = None
+    max_exc_rms: float | None = None
 
     @classmethod
     def from_config(cls, config: dict) -> "SafetyLimits":
@@ -40,6 +46,8 @@ class SafetyLimits:
             # unsigned-exponent "1.0e3" form PyYAML does not treat as a number)
             rms_ceiling={k: float(v) for k, v in s["rms_ceiling"].items()},
             ramp_down_secs=float(s.get("ramp_down_secs", 2.0)),
+            max_exc_peak=float(s["max_exc_peak"]) if "max_exc_peak" in s else None,
+            max_exc_rms=float(s["max_exc_rms"]) if "max_exc_rms" in s else None,
         )
 
 
