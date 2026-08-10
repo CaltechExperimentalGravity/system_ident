@@ -156,19 +156,28 @@ the controller anyway — so there is no reason to undamp the optic to measure i
 
 ![](figs/td-headroom.svg){.r-stretch}
 
-Both drives carry the same power. Crest factor is
-**{{< var td.crest_opt >}}** for the optimal drive and
-**{{< var td.crest_flat >}}** for the flat one — the same. The peak is set by the
-power budget, not the phase choice.
+Both drives carry the same power, at the same (Schroeder) phasing. Crest factor
+is **{{< var td.crest_opt >}}** for the optimal drive and
+**{{< var td.crest_flat >}}** for the flat one — concentrating the power onto the
+modes costs you nothing in peak.
 
 The optimal drive wins by putting that identical power **where the parameters
 live**, not by being peakier or flatter.
 
+::: {.callout-note appearance="simple"}
+Peak here is **plant-referred**. The limit that actually binds is at the DAC,
+downstream of the whitening chain — see the future-work slide.
+:::
+
 ::: {.notes}
-Say this explicitly if crest factor comes up: there is no phase trick here. A
-low-crest phasing buys nothing in this pipeline — the drive is a few tones, and
-the binding limit is at the DAC after the whitening chain, where synthesis-time
-phasing does not survive anyway.
+Be precise about what this figure shows: both drives use the same Schroeder
+phasing, so this is a *spectrum-shape* comparison, not a phase comparison — it
+says concentrating power costs no peak. It matches the tutorial's Schroeder row
+(1.84 flat / 1.93 concentrated) independently.
+
+The separate question — does phase choice buy headroom — is answered in the
+tutorial and on the future-work slide: not here, because crest is not invariant
+under filtering and the binding limit sits at the DAC after the whitening chain.
 :::
 
 ## Drive in, motion out {.smaller}
@@ -669,10 +678,18 @@ Known gaps at Stage 0/1: the OSEM basis reaches only `L,T,P,Y` (rank 4) — `V` 
 :::
 :::
 
-**Both:** an ISI / seismic-platform demonstration (sensor correction, blend
-filters) and coupled ASC — neither is exercised yet — and making the twin
-validation reproducible by a third party, which today needs the compiled model
-built locally.
+**Both — the one we most want to do:** a **DAC-frame, filter-aware drive
+optimisation.** Today we design the drive in plant/force units, but the hard
+limit is at the **DAC**, with whitening and actuation filters in between. Crest
+factor is not invariant under filtering, so the phases we arrange at synthesis
+are scrambled by the time the waveform reaches the limit that actually binds —
+which is why this pipeline claims **no** peak-drive advantage from phasing at
+all. Pushing the optimisation *through the modelled whitening chain* would let us
+make that claim honestly, and buy real headroom.
+
+Also: an ISI / seismic-platform demonstration (sensor correction, blend filters)
+and coupled ASC — neither is exercised yet — and making the twin validation
+reproducible by a third party, which today needs the compiled model built locally.
 
 ::: {.notes}
 Frame this as a menu, not a promise. The two items most likely to be immediately
@@ -680,6 +697,25 @@ useful to a working group are the foton drop-in with a manifest, and Q/f₀
 trending — both are small additions on top of what already runs, and both answer
 a question people actually ask. Everything on this slide is Phase 1 work on the
 twin; nothing here assumes hardware access.
+
+If someone pushes back with "but Schroeder phasing minimises the crest factor,
+so you get more power under a saturation limit" — that is measured, published,
+and answered in the tutorial (§2.1 of "Why optimal excitation"):
+
+- Schroeder IS lower-crest in plant-referred units: 1.84 vs 3.63 ± 0.31 on a flat
+  628-bin drive (1.97×). But on the concentrated ~26-line optimal ASD we actually
+  use, it is 1.93 vs 2.65 ± 0.27 — only 1.37×, not an order of magnitude.
+- Phase does not change the measurement at all. Same plant, same PSD, same seeds:
+  FRF error 14.37 % vs 14.49 %, per-bin σ identical to three figures, and the same
+  CRB — the CRB does not take phase as an argument, only the line PSD.
+- The crest gap is plant-referred, and crest is not invariant under filtering. The
+  binding limit is at the DAC, downstream of the whitening chain, and our sim does
+  not model that chain — so it cannot even represent the frame where the
+  constraint lives.
+
+So the honest position is: phase is not load-bearing here, random is as good as
+Schroeder, and a real peak-drive claim requires doing the optimisation in the DAC
+frame. That is exactly the future-work item on this slide.
 :::
 
 ## What we need from the control room {.smaller}
