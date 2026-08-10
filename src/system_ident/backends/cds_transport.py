@@ -367,7 +367,7 @@ class AWGNDSTransport:
 # ---------------------------------------------------------------------------
 
 class _TwinLoopHandle:
-    __slots__ = ("channel", "array", "rate", "started", "gain", "aborted")
+    __slots__ = ("channel", "array", "rate", "started", "gain", "aborted", "cursor")
 
     def __init__(self, channel, array, rate):
         self.channel = channel
@@ -376,10 +376,11 @@ class _TwinLoopHandle:
         self.started = False
         self.gain = 1.0
         self.aborted = False
+        self.cursor = 0                 # samples consumed so far, mod array.size
 
 
 class _TwinStreamHandle:
-    __slots__ = ("channel", "rate", "chunks", "gain", "closed", "aborted")
+    __slots__ = ("channel", "rate", "chunks", "gain", "closed", "aborted", "cursor")
 
     def __init__(self, channel, rate):
         self.channel = channel
@@ -388,6 +389,7 @@ class _TwinStreamHandle:
         self.gain = 1.0
         self.closed = False
         self.aborted = False
+        self.cursor = 0                 # samples consumed so far (linear, not modulo)
 
     @property
     def array(self) -> np.ndarray:
@@ -500,8 +502,24 @@ class TwinTransport:
                 arr = h.array
                 if arr.size == 0:
                     continue
+                # Continue this handle's own phase from where the LAST chunk
+                # left off -- across chunks of one stream() call, AND across
+                # separate calls (e.g. the settle read in _start_staged
+                # followed by the analysed read): resetting to arr[0] every
+                # call would inject a phase discontinuity right at the
+                # settle/analysed boundary, corrupting exactly the periods
+                # the settle exists to protect.
+                if isinstance(h, _TwinLoopHandle):
+                    idx = (h.cursor + np.arange(n)) % arr.size
+                    col = arr[idx]
+                else:
+                    end = min(h.cursor + n, arr.size)
+                    col = np.zeros(n)
+                    if end > h.cursor:
+                        col[: end - h.cursor] = arr[h.cursor: end]
+                h.cursor += n
                 names.append(ch)
-                cols.append(np.resize(arr, n) * h.gain)
+                cols.append(col * h.gain)
             exc_data = np.column_stack(cols) if cols else None
 
             probe_names = [c for c in channels if c not in names]

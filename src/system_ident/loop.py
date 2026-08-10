@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import scipy.signal as sig
 
+from .backends.cds_transport import CDSTransportError
 from .excitation import multisine_from_psd
 from .fisher import fisher_matrix, safe_inverse
 from .model import TFModel
@@ -178,9 +179,19 @@ class SysIDLoop:
                 if uncertainties and all(u <= target for u in uncertainties.values()):
                     result.done = True
                     break
-        except SafetyAbort as exc_err:
+        except (SafetyAbort, CDSTransportError, KeyboardInterrupt) as exc_err:
+            # SafetyAbort: a physical-limit breach. CDSTransportError: a
+            # transport/hardware-state fault (spec S4.3.6) -- reused here
+            # rather than inventing a second abort mechanism; a reject-tier
+            # fault (DataIntegrityError/TimingFault) on an excited record also
+            # lands here today (a full-campaign abort), not yet the narrower
+            # per-pass zero-weight reject-and-continue S4.3.6 describes --
+            # that per-pass routing is Stage E's job, not implemented here.
+            # KeyboardInterrupt: belt-and-braces (#16) -- an interrupt during
+            # a multi-hour read must still run the safe-state handoff below.
             result.aborted = True
-            result.abort_reason = str(exc_err)
+            result.abort_reason = str(exc_err) or type(exc_err).__name__
+            self.watchdog.abort(result.abort_reason)
             return result
 
         # normal teardown also runs the shared handoff
