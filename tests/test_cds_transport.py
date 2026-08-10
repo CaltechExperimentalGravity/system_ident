@@ -302,14 +302,19 @@ def test_twintransport_stream_mode_matches_loop_mode():
     np.testing.assert_allclose(loop_caps[SENSOR].data, stream_caps[SENSOR].data)
 
 
-def test_twintransport_gap_within_a_record_is_representable():
+def test_twintransport_gap_within_a_record_is_detected():
+    # inject_gap must produce a gap that stream() itself DETECTS (the same
+    # _verify_block gate as AWGNDSTransport), not merely a start_time jump
+    # that flows silently through fetch()/_concat_stream -- a representable-
+    # but-undetectable gap would mean a cds.transport: twin run exercises
+    # none of the S4.3.2 fault path the twin exit gate exists to validate.
     t, _ = _twin_transport()
     t.start(EXC, np.ones(256), FS, t.now_gps(), ramptime=0.0)
     it = t.stream([EXC, SENSOR], 3.0, chunk_s=1.0)
-    c1 = next(it)
+    next(it)
     t.inject_gap(2.0)
-    c2 = next(it)
-    assert c2[EXC].start_time == c1[EXC].start_time + 1 + 2
+    with pytest.raises(DataIntegrityError, match="gap between blocks"):
+        next(it)
 
 
 def test_twintransport_abort_zeroes_gain_and_drops_handle():

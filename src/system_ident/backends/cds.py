@@ -44,6 +44,7 @@ from __future__ import annotations
 import atexit
 import signal
 import sys
+import time
 import warnings
 from fractions import Fraction
 
@@ -82,9 +83,12 @@ def _default_authorizer(prompt: str) -> bool:
 
 
 class HardwareStateFault(CDSTransportError):
-    """The plant changed under the measurement (S4.3.3 item 4) -- inferential
-    only here (drive present while response RMS collapses against the
-    quiet-time baseline); authoritative detection needs EPICS (Component 2)."""
+    """The plant changed under the measurement (S4.3.3 item 4). Reserved in
+    the taxonomy; **nothing raises it yet** -- the inferential detector the
+    spec sketches (drive present while response RMS collapses against the
+    quiet-time baseline) is NOT implemented here, and authoritative detection
+    needs EPICS (Component 2). Kept so operator docs and callers have a
+    stable name to catch when a detector lands."""
 
 
 class CDSBackend(ChannelBackend):
@@ -183,6 +187,13 @@ class CDSBackend(ChannelBackend):
         self._staged: dict[str, dict] = {}                    # channel -> {"array", "rate"}
         self._approval: dict[str, bool] = {}                  # channel -> single-use approval token
         self._live: dict[str, object] = {}                    # channel -> transport handle
+        # Stream handles ramped to zero but not yet close()d: channel ->
+        # (handle, GPS time the ramp completes). ramp_down cannot close
+        # immediately (set_gain returns while the front end is still ramping;
+        # closing then would cut the ramp -- the hard stop ramp_down exists to
+        # avoid), and dropping the handle instead leaks the AWG stream slot
+        # forever. Reaped at the next inject()/read()/_stop_all.
+        self._parked: dict[str, tuple[object, float]] = {}
         self._cache: dict[tuple[int, float], dict[str, np.ndarray]] = {}
         self._snapshot: dict | None = None
 
@@ -283,8 +294,24 @@ class CDSBackend(ChannelBackend):
 
     # -- inject: stage, never start (#13/#31) ---------------------------------
     def inject(self, channel: str, timeseries: np.ndarray, fs: float) -> None:
+        self._reap_parked()
         if channel in self._live:
+            # Last-resort defence, not the normal path: callers must
+            # ramp_down() a live channel before re-injecting on it (loop.py
+            # does, in both excitation modes). abort() here is an instant,
+            # un-ramped kill of a running drive -- exactly what the ramp
+            # contract exists to avoid -- so shout about it.
+            warnings.warn(
+                f"inject() on {channel!r} while its previous excitation is still "
+                "live: hard-aborting it (un-ramped). Call ramp_down() first.",
+                stacklevel=2,
+            )
             self.transport.abort(self._live.pop(channel))
+        if channel in self._parked:
+            # A still-ramping parked handle holds the AWG slot this new
+            # injection needs; its commanded gain is (near) zero, so a hard
+            # abort here cuts at most the residual tail of the down-ramp.
+            self.transport.abort(self._parked.pop(channel)[0])
         self._generation += 1
         self._cache.clear()
 
@@ -360,6 +387,7 @@ class CDSBackend(ChannelBackend):
         if abs(duration - round(duration)) > 1e-9:
             raise TransportUnavailable(f"duration {duration} does not round to an integer second")
         duration = float(round(duration))
+        self._reap_parked()
 
         newly_staged = [ch for ch in self._staged if ch not in self._live]
         if newly_staged:
@@ -427,7 +455,7 @@ class CDSBackend(ChannelBackend):
         lead_s = self.t_ramp + self.warmup_s
         if lead_s > 0:
             try:
-                self._fetch_verdict(sorted(self._all_channels), lead_s, excited=True, cache=False)
+                self._fetch_verdict(sorted(self._all_channels), lead_s, excited=True)
             except Exception:
                 # A fault here means channels are LIVE (just started, above)
                 # but the settle never completed -- _fetch_verdict's own
@@ -441,8 +469,8 @@ class CDSBackend(ChannelBackend):
                 raise
 
     # -- the read path (#14, record verdict S4.3.6) ---------------------------
-    def _fetch_verdict(self, channels: list[str], duration: float, *, excited: bool,
-                       cache: bool = True) -> dict[str, np.ndarray]:
+    def _fetch_verdict(self, channels: list[str], duration: float, *,
+                       excited: bool) -> dict[str, np.ndarray]:
         attempts = 1 if excited else 1 + self.passive_read_retries
         last_exc: Exception | None = None
         for attempt in range(attempts):
@@ -480,11 +508,15 @@ class CDSBackend(ChannelBackend):
                     # token (S4.3.7/S1 Rule 2). Reject at zero weight, never
                     # a small one -- that is #6's lesson, restated here.
                     raise
-                # Passive (no excitation): bounded, logged retry (S4.3.2/S4.3.7).
-                # "Logged" means an operator can actually see it happened --
-                # print the attempt count, don't just silently loop.
+                # Passive (no excitation): bounded, logged retry with the
+                # spec S9.4 backoff (0.5 s / 1 s / 2 s) -- retrying in the
+                # same instant hammers NDS at the exact moment it just
+                # faulted. "Logged" means an operator can actually see it
+                # happened -- print the attempt count, don't silently loop.
+                delay = 0.5 * (2 ** attempt)
                 print(f"passive read on {channels} failed ({exc}); "
-                      f"retry {attempt + 1}/{self.passive_read_retries}")
+                      f"retry {attempt + 1}/{self.passive_read_retries} in {delay:g} s")
+                time.sleep(delay)
                 continue
         raise last_exc
 
@@ -508,13 +540,40 @@ class CDSBackend(ChannelBackend):
         if self.exc_mode == "loop":
             self.transport.stop(handle, ramptime=secs)
         else:
+            # set_gain returns while the front end is still executing the
+            # ramp, so the handle cannot be close()d here (that would cut the
+            # ramp -- the hard stop this method exists to avoid) -- but
+            # dropping it un-closed leaks the AWG stream slot forever, and
+            # whether awg grants a second stream on a channel whose first was
+            # never released is an OPEN hardware question (spec S6) this code
+            # must not bet on. Park it with the ramp's completion time;
+            # reaped (closed) at the next inject()/read()/_stop_all.
             self.transport.set_gain(handle, 0.0, ramptime=secs)
+            self._parked[channel] = (handle, self.transport.now_gps() + secs)
         del self._live[channel]
+
+    def _reap_parked(self) -> None:
+        """close() every parked stream handle whose down-ramp has completed.
+        Handles still mid-ramp stay parked -- they are already commanded to
+        zero, and closing early is the hard cut ramp_down avoided."""
+        now = self.transport.now_gps()
+        for channel in [ch for ch, (_, deadline) in self._parked.items() if now >= deadline]:
+            handle, _ = self._parked.pop(channel)
+            try:
+                self.transport.close(handle)
+            except Exception as exc:                       # noqa: BLE001
+                print(f"\n*** WARNING: could not close the ramped-down stream on "
+                      f"{channel!r}: {exc!r}\n")
 
     def _stop_all(self) -> None:
         """Idempotent hard stop: every transport fault, KeyboardInterrupt,
         atexit and SIGINT/SIGTERM tear down through this ONE routine (#16) --
-        not just the historical KeyboardInterrupt-only case."""
+        not just the historical KeyboardInterrupt-only case. Parked handles
+        (already commanded to zero by ramp_down) are only close()d once their
+        ramp has completed -- hard-aborting those would cut the graceful ramp
+        this is called right after on the normal watchdog.abort path; a
+        still-ramping handle heading to zero is already safe, and its slot is
+        released at the next reap or at process exit."""
         while self._live:
             channel, handle = self._live.popitem()
             try:
@@ -522,6 +581,7 @@ class CDSBackend(ChannelBackend):
             except Exception as exc:                       # noqa: BLE001
                 print(f"\n*** WARNING: could not abort the excitation on {channel!r}: "
                       f"{exc!r}\n*** Check for a running excitation before doing anything else.\n")
+        self._reap_parked()
         self._staged.clear()
 
     def _register_lifecycle(self) -> None:
@@ -542,7 +602,15 @@ class CDSBackend(ChannelBackend):
             def _handler(signum, frame, _prev=prev):
                 self._stop_all()
                 if callable(_prev):
-                    _prev(signum, frame)
+                    _prev(signum, frame)          # SIGINT default: raises KeyboardInterrupt
+                elif _prev is not signal.SIG_IGN:
+                    # SIG_DFL is an int, not callable -- without this branch a
+                    # SIGTERM stops the excitations but the process survives
+                    # and keeps running the campaign against a silent plant.
+                    # Restore the default disposition and re-raise so the
+                    # signal actually terminates.
+                    signal.signal(signum, signal.SIG_DFL)
+                    signal.raise_signal(signum)
 
             try:
                 signal.signal(sig_num, _handler)

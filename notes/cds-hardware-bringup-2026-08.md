@@ -428,3 +428,105 @@ dedicated exit-gate suite, plus the real `x1hsts` run — needs the twin box) or
    - What **type** are the front-end `_DQ` decimation filters (plausibly IIR, unconfirmed), and how
      big is the `D_Y/D_X` residual under an X/Y rate mismatch?
    - **Root cause of the observed long-stretch failures** (finding 10) — never investigated.
+
+## 2026-08-10 — first full suite run on the real deployment machine (`nodus`, `sysid_deploy`)
+
+First time `pytest tests/ -q` ran in an env with real `awg`/`cdsutils`/`gpstime` importable (not
+skipped). 384 passed, 17 skipped, 2 failed. Both failures were test-quality bugs, not code
+regressions — neither one is reachable from the twin/CI path, which is why they surfaced only now:
+
+1. **`test_real_transport_readonly_smoke` always failed on a machine with `awg` installed.** It called
+   `transport.probe_rate(["_DQ"])` — `"_DQ"` was a literal placeholder (its own inline comment said so),
+   never a real channel name, so `probe_rate` correctly got `RuntimeError: ... Invalid channel name`
+   from NDS2 and the transport correctly classified it as `TransportUnavailable`. Not a bug in
+   `cds_transport.py`'s classifier — the test itself was unrunnable as shipped. Fixed by gating it on a
+   new env var, `CDS_SMOKE_TEST_CHANNEL` (skip with a clear reason if unset, same pattern as the
+   existing `CDS_SITE_IFO_ENV`), so it now skips cleanly instead of hard-failing until a human supplies
+   a real, live, site-specific channel name.
+2. **`test_install_stubs_and_restores_sys_modules` failed on its own precondition** (`assert name not
+   in sys.modules` for `awg`/`cdsutils`/`gpstime`, *before* `install()` is even called). Root cause:
+   pytest runs all test files in one process, and `test_cds_faults.py` (alphabetically before
+   `test_fake_cds_harness.py`) contains the real-transport smoke test above, which does a real `import
+   awg` — that module then stays cached in `sys.modules` for the rest of the session. In CI/dev, `awg`
+   isn't installed, that test is always skipped, and this never happens — so the bug was invisible until
+   a real `awg` install and a full non-filtered suite run existed at the same time, which is exactly
+   what changed today. Not a bug in `install()`'s stash/restore logic — it's a test-isolation gap: the
+   test assumed it always runs from a clean interpreter. Fixed by stashing out any pre-existing real
+   `awg`/`cdsutils`/`gpstime` entries before the test body and restoring them in a `finally`, making the
+   test's own precondition/postcondition order-independent regardless of what else ran earlier in the
+   process.
+
+Both fixes verified locally on the dev twin env (`conda run -n sysid`): the smoke test now skips with a
+clear reason instead of failing, and the stubbing test passes standalone. Neither fix touches
+production code (`src/`), only `tests/test_cds_faults.py` and `tests/test_fake_cds_harness.py`. Not yet
+re-run on `nodus` to confirm 386/386-ish green there — that's the next step before treating this
+deployment-machine pass as closed.
+
+## 2026-08-10 — post-implementation fresh-eyes review: 11 findings, all fixed
+
+A full re-read of the Stage C/D/E/F code (transport, backend, loop, safety, config, CLI, base class)
+found 11 bugs the original build and its verification pass missed. All fixed the same day; full suite
+385 passed / 18 skipped after. Ranked as found:
+
+**High (hardware-safety relevant):**
+
+1. **A failed excitation stop could never raise.** `AWGNDSTransport.stop` gated its re-raise on
+   `sys.exc_info()[0] is None` *inside* the `except` block — where `sys.exc_info()` reports the stop
+   failure itself, never `None` — so the `TransportUnavailable` re-raise was unreachable and a failed
+   `ArbitraryLoop.stop()` printed a warning, then returned as if it had succeeded. Fixed by capturing
+   "already propagating" *before* the `try` (the intent inherited from `backend_rtcds.py`).
+2. **Simultaneous mode hard-aborted live excitations between iterations.** `loop.py`'s sequential
+   branch ramps down after each DoF; the simultaneous branch never ramped down at all, so iteration
+   N+1's `_inject_all` found every channel still live and `CDSBackend.inject()` fell through to
+   `transport.abort()` — an instant un-ramped kill of a running drive, per channel, per iteration
+   (invisible on the twin backends, whose `inject` just swaps arrays). Fixed by ramping down every
+   drive at the end of each simultaneous iteration, mirroring the sequential branch; `inject()`'s
+   abort-if-live remains as a loudly-warning last-resort defence, no longer a reachable-by-design path.
+3. **Stream-mode `ramp_down` leaked the AWG stream handle forever.** It called
+   `set_gain(0, ramptime)` then dropped the handle without `close()` — unreachable thereafter even to
+   `_stop_all`/atexit. Since "does awg release the slot for a second injection on the same channel"
+   is itself an open hardware question (spec S6), never releasing it guaranteed the bad case, once per
+   DoF per sequential iteration. Fixed with a parked-handle lifecycle: ramped-down handles are parked
+   with their ramp-completion GPS time and `close()`d at the next `inject()`/`read()`/`_stop_all` once
+   the ramp has completed — never earlier, because closing mid-ramp is the hard cut `ramp_down`
+   exists to avoid. `_stop_all` deliberately leaves still-ramping parked handles alone (they are
+   already commanded to zero; the slot is released at the next reap or process exit).
+
+**Medium:**
+
+4. **Real NDS "Invalid channel name" misclassified as `TransportUnavailable`.** Proven by the
+   2026-08-10 nodus run: the real nds2 SWIG binding raises a bare
+   `RuntimeError("Low level daq error occured [4]: Invalid channel name")`, and `_classify` keyed on
+   exception *class name* only — the fake-based item-7 test passed only because
+   `FakeChannelNotFound` has the right name. Fixed by also matching message text
+   ("invalid channel name" / "channel not found" / "no such channel" → `ChannelNotFound`;
+   "timed out" → `TestpointTimeout`).
+5. **SIGTERM was swallowed after teardown.** The lifecycle handler chained to the previous handler
+   only `if callable(_prev)`; SIGTERM's default is `SIG_DFL` (an int), so a SIGTERM stopped the
+   excitations and then the process *kept running the campaign* against a silent plant. Fixed: on a
+   non-callable, non-`SIG_IGN` previous disposition, restore `SIG_DFL` and `raise_signal` so the
+   signal actually terminates.
+6. **TwinTransport gaps were undetectable.** Block-adjacency verification lived only inside
+   `AWGNDSTransport.stream`; `_concat_stream`'s "already verified by stream()" premise was false for
+   the twin, so `inject_gap` produced the S4.3.2 gap signature that nothing ever detected — a
+   `cds.transport: twin` run exercised none of the gap-detection path the twin exit gate exists to
+   validate (the only test asserted the timestamp jump, not a raise). Fixed by extracting the
+   verification into a shared `_verify_block` used by both transports; the test now asserts
+   `DataIntegrityError` on the post-gap block.
+7. **Passive-read retries had no backoff.** Spec §9.4 fixed 3 retries at 0.5/1/2 s; `_fetch_verdict`
+   retried in a tight loop, hammering NDS at the exact moment it faulted. Fixed with the
+   `0.5 * 2**attempt` backoff (and the log line now states the delay).
+
+**Low:** 8. `_fetch_verdict`'s dead `cache:` parameter removed (never read; caching lives in
+`read()`). 9. `HardwareStateFault`'s docstring now states plainly that nothing raises it yet (the
+S4.3.3-item-4 inferential detector is unimplemented; authoritative detection needs EPICS/Component 2).
+10. `probe_rate` on a mixed-rate channel list now raises instead of silently returning whichever
+channel came last. 11. `build_cds_backend` validates `segment_duration * n_segments` is a whole
+number of seconds at config time, instead of failing as a confusing `TransportUnavailable` at the
+first quiet read.
+
+Checked and found sound during the same review (for the record): the generation-keyed read cache
+(load-bearing for simultaneous mode — one shared record per generation, including the shared
+quiet-time record), the Tukey-alpha segmented-envelope math, the `Fraction`-based decimation, the
+single-use approval-token lifecycle including partial-denial cleanup, and the settle-fault teardown
+wrapping.

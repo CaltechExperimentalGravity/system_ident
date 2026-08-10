@@ -175,6 +175,15 @@ class SysIDLoop:
                             result, accum[d], info[d], reuse_injection=True,
                             prior_u=prior_u,
                         )
+                    # stop every drive before the next iteration re-injects --
+                    # same contract as the sequential branch above. Without
+                    # this, the next _inject_all finds the channels still live
+                    # and the backend's only recourse is a hard, un-ramped
+                    # abort of a running drive (the emergency path as the
+                    # routine path -- exactly the slam ramp_down exists to
+                    # avoid on real hardware).
+                    for d in dofs:
+                        self.backend.ramp_down(exc[d], self.watchdog.limits.ramp_down_secs)
 
                 if uncertainties and all(u <= target for u in uncertainties.values()):
                     result.done = True

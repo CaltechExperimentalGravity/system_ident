@@ -221,15 +221,27 @@ def test_construction_counts_are_class_level_and_resettable():
 # ---------------------------------------------------------------------------
 
 def test_install_stubs_and_restores_sys_modules():
-    for name in ("awg", "cdsutils", "gpstime"):
-        assert name not in sys.modules
-    with install() as world:
-        import awg
-        import cdsutils
-        import gpstime as gpstime_mod
-        h = awg.ArbitraryLoop(EXC, np.ones(4), rate=FS, start=world.gpstime.now().gps())
-        assert isinstance(h, FakeArbitraryLoop)
-        assert cdsutils.getdata is world.getdata
-        assert gpstime_mod.gpstime is world.gpstime
-    for name in ("awg", "cdsutils", "gpstime"):
-        assert name not in sys.modules
+    # On a machine where awg/cdsutils/gpstime are really installed, an earlier
+    # test in the same pytest process (e.g. the real-transport smoke test) may
+    # have already imported them for real, which would poison the "clean
+    # slate" precondition below through no fault of `install()` itself. Stash
+    # and restore any pre-existing real modules so this test's own pass/fail
+    # is independent of what ran before it in the session.
+    stashed = {name: sys.modules.pop(name, None) for name in ("awg", "cdsutils", "gpstime")}
+    try:
+        for name in ("awg", "cdsutils", "gpstime"):
+            assert name not in sys.modules
+        with install() as world:
+            import awg
+            import cdsutils
+            import gpstime as gpstime_mod
+            h = awg.ArbitraryLoop(EXC, np.ones(4), rate=FS, start=world.gpstime.now().gps())
+            assert isinstance(h, FakeArbitraryLoop)
+            assert cdsutils.getdata is world.getdata
+            assert gpstime_mod.gpstime is world.gpstime
+        for name in ("awg", "cdsutils", "gpstime"):
+            assert name not in sys.modules
+    finally:
+        for name, mod in stashed.items():
+            if mod is not None:
+                sys.modules[name] = mod

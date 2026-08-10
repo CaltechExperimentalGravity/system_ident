@@ -127,6 +127,33 @@ class CDSTransport(Protocol):
              chunk_s: float | None = None) -> dict[str, Capture]: ...
 
 
+def _verify_block(ch: str, start_time: int, data: np.ndarray, rate: float,
+                  prev: dict[str, tuple[int, int, float]]) -> None:
+    """S4.3.2's per-block verification, shared by EVERY transport's
+    ``stream()`` -- each block must begin exactly where the previous one
+    ended, at the same rate, finite and non-empty. Kept out of the individual
+    transports so the twin cannot silently skip it: a ``TwinTransport`` that
+    yields but never verifies makes ``inject_gap`` produce the S4.3.2 gap
+    signature that nothing ever detects, and ``_concat_stream``'s
+    already-verified premise false. Updates ``prev`` in place on success."""
+    if ch in prev:
+        prev_start, prev_n, prev_rate = prev[ch]
+        if rate != prev_rate:
+            raise TimingFault(
+                f"{ch}: rate changed mid-campaign ({prev_rate} -> {rate})")
+        expected_start = prev_start + int(round(prev_n / prev_rate))
+        if start_time < expected_start:
+            raise TimingFault(
+                f"{ch}: GPS stepped backwards ({expected_start} -> {start_time})")
+        if start_time != expected_start:
+            raise DataIntegrityError(
+                f"{ch}: gap between blocks (expected {expected_start}, "
+                f"got {start_time})")
+    if data.size == 0 or not np.all(np.isfinite(data)):
+        raise DataIntegrityError(f"{ch}: short or non-finite block")
+    prev[ch] = (start_time, data.size, rate)
+
+
 def _concat_stream(chunks: Iterator[dict[str, Capture]]) -> dict[str, Capture]:
     """``fetch``'s shared implementation: consume ``stream()``, concatenate.
     Adjacency is already verified block-by-block inside ``stream()`` itself
@@ -199,7 +226,16 @@ class AWGNDSTransport:
         # Probe, never configure: a Foton-derived seed model assumes a
         # front-end rate, and a mismatch silently invalidates the run.
         bufs = self._read_once(list(channels), 1)
-        rate = float(bufs[-1].sample_rate)
+        rates = {float(buf.sample_rate) for buf in bufs}
+        if len(rates) > 1:
+            # A single "the" rate does not exist for a mixed-rate channel
+            # list; silently returning one of them (previously: whichever
+            # channel happened to come last) hands the caller an arbitrary
+            # answer. Per-channel rates come from classify() instead.
+            raise TransportUnavailable(
+                f"probe_rate on mixed-rate channels {list(channels)}: {sorted(rates)} Hz; "
+                "use classify() for per-channel rates")
+        rate = rates.pop()
         print(f"probed rate {rate} Hz from {list(channels)}")
         return rate
 
@@ -246,16 +282,20 @@ class AWGNDSTransport:
         # raises "cannot join thread before it is started" if start() failed,
         # masking the real error); shout loudly on a failed stop -- it may
         # mean an excitation is still running; re-raise only when nothing
-        # else is already propagating.
+        # else is already propagating. That check MUST run before the try:
+        # inside the except block sys.exc_info() reports the stop failure
+        # itself (never None), so checking there makes the re-raise
+        # unreachable and a failed stop silently reports success.
         if not self._started.get(handle, False):
             return
+        already_propagating = sys.exc_info()[0] is not None
         try:
             handle.stop(ramptime=ramptime)
         except Exception as exc:
             print(f"\n*** WARNING: could not stop the excitation on "
                   f"{getattr(handle, 'channel', handle)}: {exc!r}\n*** Check for a "
                   f"running excitation before doing anything else.\n")
-            if sys.exc_info()[0] is None:
+            if not already_propagating:
                 raise TransportUnavailable(f"failed to stop injection: {exc}") from exc
         finally:
             self._started[handle] = False
@@ -316,23 +356,8 @@ class AWGNDSTransport:
                 data = np.asarray(buf.data, dtype=float)
                 start_time = int(buf.start_time)
                 rate = float(buf.sample_rate)
-                if ch in prev:
-                    prev_start, prev_n, prev_rate = prev[ch]
-                    if rate != prev_rate:
-                        raise TimingFault(
-                            f"{ch}: rate changed mid-campaign ({prev_rate} -> {rate})")
-                    expected_start = prev_start + int(round(prev_n / prev_rate))
-                    if start_time < expected_start:
-                        raise TimingFault(
-                            f"{ch}: GPS stepped backwards ({expected_start} -> {start_time})")
-                    if start_time != expected_start:
-                        raise DataIntegrityError(
-                            f"{ch}: gap between blocks (expected {expected_start}, "
-                            f"got {start_time})")
-                if data.size == 0 or not np.all(np.isfinite(data)):
-                    raise DataIntegrityError(f"{ch}: short or non-finite block")
+                _verify_block(ch, start_time, data, rate, prev)
                 caps[ch] = Capture(data=data, start_time=start_time, sample_rate=rate)
-                prev[ch] = (start_time, data.size, rate)
             yield caps
             remaining -= this_chunk
 
@@ -354,13 +379,21 @@ class AWGNDSTransport:
     @staticmethod
     def _classify(exc: Exception) -> CDSTransportError:
         """Best-effort classification of whatever ``cdsutils``/``nds2``
-        raised, by exception class name -- an unrecognised fault still hits
-        the ``CDSTransportError`` base, so teardown is always safe even when
-        the specific class is a guess (S4.3.4's standing rule)."""
+        raised, by exception class name AND message text -- an unrecognised
+        fault still hits the ``CDSTransportError`` base, so teardown is
+        always safe even when the specific class is a guess (S4.3.4's
+        standing rule). Message matching is load-bearing, not cosmetic: the
+        real nds2 SWIG binding raises a bare ``RuntimeError("Low level daq
+        error occured [4]: Invalid channel name")`` for a bad channel
+        (observed on the deployment machine, 2026-08-10), which no class-name
+        pattern can ever catch."""
         name = type(exc).__name__.lower()
-        if "notfound" in name or "nosuch" in name:
+        msg = str(exc).lower()
+        if ("notfound" in name or "nosuch" in name
+                or "invalid channel name" in msg or "channel not found" in msg
+                or "no such channel" in msg):
             return ChannelNotFound(str(exc))
-        if "timeout" in name:
+        if "timeout" in name or "timed out" in msg:
             return TestpointTimeout(str(exc))
         if "lost" in name:
             return TestpointLost(str(exc))
@@ -489,6 +522,11 @@ class TwinTransport:
         channels = list(channels)
         fs = float(self._mdl.sample_rate)
         remaining = float(duration)
+        # The same _verify_block gate AWGNDSTransport runs (S4.3.2): without
+        # it, inject_gap produces the gap signature that nothing detects, and
+        # a cds.transport: twin run exercises none of the fault path the twin
+        # exit gate exists to validate.
+        prev: dict[str, tuple[int, int, float]] = {}
         while remaining > 1e-9:
             if self._gap_next_s:
                 n_gap = int(round(self._gap_next_s * fs))
@@ -544,6 +582,7 @@ class TwinTransport:
                     data = cols[names.index(ch)]
                 else:
                     data = fetched.get(ch, np.zeros(n))
+                _verify_block(ch, start_time, data, fs, prev)
                 caps[ch] = Capture(data=data, start_time=start_time, sample_rate=fs)
             yield caps
             remaining -= this_chunk

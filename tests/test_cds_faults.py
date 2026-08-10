@@ -298,10 +298,13 @@ import importlib.util  # noqa: E402
 
 @pytest.mark.skipif(importlib.util.find_spec("awg") is None,
                     reason="awg not installed (real-transport smoke test; deployment machine only)")
+@pytest.mark.skipif(os.environ.get("CDS_SMOKE_TEST_CHANNEL") is None,
+                    reason="set CDS_SMOKE_TEST_CHANNEL to a real, live NDS channel name to run this smoke test")
 def test_real_transport_readonly_smoke():  # pragma: no cover - runs only on the deployment machine
     site_ifo_env = os.environ.get("CDS_SITE_IFO_ENV", "IFO")
+    channel = os.environ["CDS_SMOKE_TEST_CHANNEL"]
     transport = AWGNDSTransport(site_ifo_env=site_ifo_env)
-    rate = transport.probe_rate(["_DQ"])  # placeholder: a real readback channel name
+    rate = transport.probe_rate([channel])
     assert rate > 0
-    caps = transport.fetch(["_DQ"], 1.0)
+    caps = transport.fetch([channel], 1.0)
     assert next(iter(caps.values())).data.size > 0

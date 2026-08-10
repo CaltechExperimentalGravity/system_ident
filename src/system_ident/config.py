@@ -224,6 +224,18 @@ class RunConfig:
             )
 
         m = self.raw["measurement"]
+        # CDSBackend.read() requires integer-second record durations (NDS
+        # fetches are second-granular); catch a fractional total here, at
+        # config time, instead of as a confusing TransportUnavailable at the
+        # first quiet read. CDS-specific -- the twin backends accept any
+        # duration, so this does not belong in _validate.
+        total_dur = float(m["segment_duration"]) * int(m.get("n_segments", 8))
+        if abs(total_dur - round(total_dur)) > 1e-9:
+            raise ConfigError(
+                f"the cds backend needs segment_duration * n_segments to be a whole "
+                f"number of seconds, got {m['segment_duration']} * "
+                f"{m.get('n_segments', 8)} = {total_dur}"
+            )
         freq_max = float(m["freq_max"])
         fs = self.fs
         if freq_max > 0.8 * (fs / 2):
