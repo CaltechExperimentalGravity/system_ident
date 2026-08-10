@@ -18,6 +18,7 @@ Run: conda run -n sysid python experiments/realistic/prior_robust_demo.py
 from __future__ import annotations
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 from system_ident.resonator import ResonatorModel
 from system_ident.resonator_design import (
@@ -44,7 +45,7 @@ usable = (freq >= 0.1) & (freq <= 20.0)
 
 def to_budget(u, X2):
     u = np.where(usable, np.clip(u, 1e-300, None), 0.0)
-    return u * (X2 / np.trapezoid(u, freq))
+    return u * (X2 / trapezoid(u, freq))
 
 
 def crlb_at_truth(u):

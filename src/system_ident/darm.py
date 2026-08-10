@@ -500,12 +500,15 @@ def recover_actuation(freq, H_stage, H_pcal, N_stage, comb_err) -> tuple:
 
 # ---------------------------------------------------------------------------
 # Swept-sine vs multisine comparison harness
-# Imports at the bottom: darm_adapter imports DARMLoop (defined above), so the
-# cycle is safe — Python's module system resolves DARMLoop before these lines run.
 # ---------------------------------------------------------------------------
-from .backends.darm_adapter import DARMBackend   # noqa: E402 — cycle-safe bottom import
 from .excitation import multisine_from_psd
 from .loop import SysIDLoop
+# DARMBackend is NOT imported here: darm_adapter.py imports DARMLoop from this
+# module at ITS top level, so a module-level import here (even at the bottom)
+# is order-dependent -- `import system_ident.backends.darm_adapter` before
+# `system_ident.darm` finishes loading raises ImportError (reproduced on
+# 3.12, not just the py3.9 baseline; #23). Imported locally, below, in the
+# two functions that actually construct one.
 
 
 def _band_grid(loop, nperseg):
@@ -521,6 +524,8 @@ def multisine_response_sigma(loop, *, nperseg=4096, n_periods=16, px_total=1.0, 
     (P_eff≈9), so the per-bin variance is genuinely estimated — not the floored,
     fabricated uncertainty that n_periods=8 (only 2 full periods → P_eff=1) produces.
     """
+    from .backends.darm_adapter import DARMBackend
+
     fa, band, freq = _band_grid(loop, nperseg)
     Pxx = np.full_like(freq, px_total / (freq[-1] - freq[0]))
     be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=seed)
@@ -545,6 +550,8 @@ def swept_sine_response_sigma(loop, freq_points, *, nperseg=4096, dwell_periods=
     Returns ``(freq_points, R_sigma, T_used)`` — absolute σ(R) per point and the honest
     wall-clock ``T_used = len·dwell_periods·nperseg/fs`` the sweep spends.
     """
+    from .backends.darm_adapter import DARMBackend
+
     freq_points = np.asarray(freq_points, dtype=float)
     nperseg = int(nperseg)
     n_per = max(2, int(dwell_periods))

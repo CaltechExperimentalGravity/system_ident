@@ -24,6 +24,7 @@ Keep this file and the JS numerically in lock-step: edit both, or neither.
 from __future__ import annotations
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 import arcade_reference as ar  # same locked constants + Fisher/CRB kernel
 
@@ -67,7 +68,7 @@ def _rand_phases(n, seed=SEED):
 # ── excitation power spectra Pxx(f) on the FREQ grid (each normalized to PX_TOT) ────
 def _normalize(P):
     P = np.clip(np.asarray(P, float), 0, None)
-    area = np.trapezoid(P, FREQ)
+    area = trapezoid(P, FREQ)
     return P / area * PX_TOT if area > 0 else P
 
 

@@ -17,6 +17,7 @@ Run: conda run -n sysid python experiments/realistic/suspension_crlb.py
 from __future__ import annotations
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 from system_ident.resonator import ResonatorModel
 from system_ident.resonator_design import fisher_information, optimal_excitation
@@ -49,7 +50,7 @@ def crlb(u_cmd):
 
 def to_budget(shape, X2):
     s = np.where(usable, np.clip(shape, 1e-300, None), 0.0)
-    return s * (X2 / np.trapezoid(s, freq))
+    return s * (X2 / trapezoid(s, freq))
 
 
 def resp_snr(u):

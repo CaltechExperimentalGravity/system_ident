@@ -18,6 +18,7 @@ optimal drive to a pleasant ~45 s (Fisher is linear in time, so ``frac ~ 1/sqrt(
 from __future__ import annotations
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 # ── locked constants (MUST equal the JS ENGINE constants) ───────────────────────────
 N_BINS = 120
@@ -93,5 +94,5 @@ def optimal_drive(n_iter=16):
         Iinv = np.linalg.inv(fisher(P))
         nu = PX_TOT * np.einsum("ij,bji->b", Iinv, 2 * T_REF * _R)
         P = P * np.clip(nu, 0, None)
-        P = P / (np.trapezoid(P, FREQ)) * PX_TOT
+        P = P / (trapezoid(P, FREQ)) * PX_TOT
     return P

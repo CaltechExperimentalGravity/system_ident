@@ -140,8 +140,32 @@ fault table (one row per #32 item: what you'll see, reject-vs-abort, what to che
 pages, and no `quarto render` was actually run (only a YAML-validity + symbol-import sanity check) --
 quarto/quartodoc weren't invoked.
 
-**Not started:** the real full-stack run against the compiled `x1hsts` model (needs the twin box).
-Stage H (environment/py3.9 compat) is independent and deliberately last per the plan's own ordering.
+**Update (same day, later still): Stage H's remaining compat work (#23) is also done.** Per spec S8a,
+control 0.10.2 (this env's version) already accepts `frdata`/`tf2ss` directly, so those two compat
+items were already moot — confirmed by grep, no code needed touching. What was left, both fixed and
+verified in THIS environment (not just claimed for py3.9):
+- **5 `np.trapezoid` sites** (numpy >= 2 only) → `scipy.integrate.trapezoid`, matching the existing
+  `src/` convention (`design/pintelon.py`) — works on both old and new numpy.
+- **The order-dependent circular import**, `backends/darm_adapter.py` ← `darm.py`. Reproduced first:
+  `import system_ident.backends.darm_adapter` before `system_ident.darm` finishes loading raised
+  `ImportError: cannot import name 'DARMBackend' from partially initialized module` — on python 3.12,
+  confirming spec's "present on 3.12 too" note is not a py3.9-only concern. Fixed by moving the
+  `DARMBackend` import from `darm.py`'s bottom (module scope) to a local import inside the two
+  functions that actually construct one. Verified both import orders succeed, and that
+  `multisine_response_sigma` still runs correctly.
+- **A new CI leg**, `.github/workflows/py311-compat` in `.github/workflows/ci.yml`: python 3.11
+  (matching `sysid_deploy`, not 3.9 — S8a's own correction), running the CDS-relevant deployment-gate
+  subset (the original named 10 files plus the CDS backend's own test files, which didn't exist when
+  that subset was fixed). Only triggers on push to `main`/`workflow_dispatch`, so it does not fire on
+  this branch. Validated locally: the exact file list passes (148 passed / 2 skipped, matching the
+  x1hsts/awg skips expected off the deployment machine) and the YAML parses; the 3.11 interpreter
+  itself was not available to test against directly on this machine.
+
+That closes every stage the plan scopes as reachable without the twin box or real hardware (A–I, H).
+Full suite: **385 passed / 18 skipped.**
+
+**Not started, and not reachable from this machine:** the real full-stack run against the compiled
+`x1hsts` model (needs the twin box) and anything involving actual `awg`/`cdsutils` hardware access.
 
 ## What this campaign is
 

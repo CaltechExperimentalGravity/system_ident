@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from scipy.integrate import trapezoid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docs"))
@@ -47,7 +48,7 @@ def test_optimal_is_the_floor_and_starving_a_mode_is_punished():
     on one mode is worse than flat (it starves the other mode's Q) — the game's core lesson."""
     def gauss(fc, wdec=0.12):
         P = np.exp(-0.5 * ((np.log10(ar.FREQ) - np.log10(fc)) / wdec) ** 2) + 1e-3
-        return P / np.trapezoid(P, ar.FREQ) * ar.PX_TOT
+        return P / trapezoid(P, ar.FREQ) * ar.PX_TOT
 
     opt_eta, _ = ar.eta_seconds(ar.optimal_drive())
     flat_eta, _ = ar.eta_seconds(ar.flat_drive())

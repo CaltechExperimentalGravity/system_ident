@@ -47,6 +47,39 @@ jobs:
         with:
           path: docs/_site
 
+  # #23 (Stage H): this repo's only other CI leg runs python 3.12 and exactly
+  # one fast test file (above) -- a regression on the actual deployment
+  # interpreter is otherwise invisible until it fails on the deployment
+  # machine. py3.11 matches sysid_deploy (spec S8a: python 3.11.15, CDS
+  # 4.1.4); the file list below is the CDS-relevant half of the suite (the
+  # original named subset, plus the CDS backend's own tests, which did not
+  # exist when that subset was fixed) -- not the full suite, which also
+  # covers the DARM/MIMO/SOS/arcade/playground half this deployment target
+  # was never gated on.
+  py311-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install slycot (Fortran-backed; needed by python-control MIMO)
+        run: pip install slycot
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: CDS-relevant deployment-gate subset (python 3.11)
+        run: |
+          python -m pytest -q \
+            tests/test_step5_safety.py tests/test_step7_loop.py tests/test_step8_cli.py \
+            tests/test_periodic_measurement.py tests/test_rtsfreerun_backend.py \
+            tests/test_excitation.py tests/test_step4_twin.py tests/test_step6_estimator.py \
+            tests/test_step12_ml_estimator.py tests/test_resolution.py \
+            tests/test_fake_cds_harness.py tests/test_cds_lazy_import.py \
+            tests/test_cds_transport.py tests/test_cds_backend.py tests/test_cds_safety.py \
+            tests/test_cds_wiring.py tests/test_cds_faults.py
+
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'
