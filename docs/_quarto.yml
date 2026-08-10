@@ -148,6 +148,9 @@ quartodoc:
         - plant.coupled_suspension
         - backends.base.ChannelBackend
         - backends.twin.TwinBackend
+        - backends.rtsfreerun_adapter.RTSfreerunBackend
+        - backends.cds.CDSBackend
+        - backends.cds_transport.CDSTransport
     - title: Safety & configuration
       desc: "Watchdog, limits, and run configuration."
       contents:

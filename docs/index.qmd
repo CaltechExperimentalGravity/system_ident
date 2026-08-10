@@ -125,11 +125,13 @@ display(HTML(f"""
       <h3>Same API — twin today, hardware next</h3>
       <p>The loop code never sees actuator channels or frame data directly — it speaks
          the <code>ChannelBackend</code> abstraction. <code>TwinBackend</code> runs the
-         full campaign on a digital plant model today; a CDS hardware backend
-         (<code>awg</code> inject + <code>nds2</code> readback) drops in behind the same
-         interface, selected by one config line. That <code>CDSBackend</code> is
-         currently a <strong>stub</strong> — the interface exists, the control-room
-         implementation is in progress.</p>
+         full campaign on a digital plant model; <code>CDSBackend</code>
+         (<code>awg</code> inject + <code>nds2</code> readback, behind a pluggable
+         transport) drops in behind the same interface, selected by one config line
+         (<code>--cds</code>). It is implemented and validated against a compiled-model
+         twin transport — <strong>not yet run against real hardware</strong>: a
+         twin-green suite does not validate hardware behaviour (see the hardware-safety
+         rules in <a href="tutorial/safety-and-ops.qmd">Safety &amp; ops</a>).</p>
     </div>
 
   </div>

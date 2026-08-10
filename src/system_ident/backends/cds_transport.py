@@ -123,7 +123,8 @@ class CDSTransport(Protocol):
     # the read path (S4.3.2)
     def stream(self, channels: list[str], duration: float,
               chunk_s: float) -> Iterator[dict[str, Capture]]: ...
-    def fetch(self, channels: list[str], duration: float) -> dict[str, Capture]: ...
+    def fetch(self, channels: list[str], duration: float,
+             chunk_s: float | None = None) -> dict[str, Capture]: ...
 
 
 def _concat_stream(chunks: Iterator[dict[str, Capture]]) -> dict[str, Capture]:
@@ -335,9 +336,13 @@ class AWGNDSTransport:
             yield caps
             remaining -= this_chunk
 
-    def fetch(self, channels: list[str], duration: float) -> dict[str, Capture]:
-        """Convenience: consume :meth:`stream`, already-verified, and concat."""
-        return _concat_stream(self.stream(list(channels), duration, duration))
+    def fetch(self, channels: list[str], duration: float,
+             chunk_s: float | None = None) -> dict[str, Capture]:
+        """Convenience: consume :meth:`stream`, already-verified, and concat.
+        ``chunk_s`` defaults to ``duration`` (one block) -- callers that want
+        S4.3.2's actual fault-detection-during-the-record benefit must pass
+        their own (``CDSBackend`` does, via ``cds.read_chunk_s``)."""
+        return _concat_stream(self.stream(list(channels), duration, chunk_s or duration))
 
     # -- internals ------------------------------------------------------
     def _read_once(self, channels: list[str], duration: float):
@@ -543,5 +548,6 @@ class TwinTransport:
             yield caps
             remaining -= this_chunk
 
-    def fetch(self, channels: list[str], duration: float) -> dict[str, Capture]:
-        return _concat_stream(self.stream(list(channels), duration, duration))
+    def fetch(self, channels: list[str], duration: float,
+             chunk_s: float | None = None) -> dict[str, Capture]:
+        return _concat_stream(self.stream(list(channels), duration, chunk_s or duration))

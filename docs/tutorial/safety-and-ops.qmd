@@ -31,11 +31,23 @@ Two consequences for how the software behaves:
   drive does.
 
 Simulation, twin runs, `--help`, imports and smoke tests need no approval: they cannot actuate
-anything.
+anything. This includes `--cds` against `cds.transport: twin` — a compiled-model transport, not real
+hardware — which auto-approves; only `cds.transport: awg_nds` prompts.
 
 Finally: a green test suite on the digital twin is **not** hardware validation. The twin idealises real
 CDS effects (AWG/NDS clocking, actuator nonlinearity beyond a hard clip, the true digital servo), and
 those gaps close only by running on a real suspension, under the rules above.
+
+::: {.callout-note}
+## What `CDSBackend.inject()` actually prints
+
+Real hardware, per injection: the channel, the probed hardware rate, the duration, the drive's peak,
+RMS and crest factor, and the scheduled `start_gps` — then a `yes`-to-approve prompt. Denying (or a
+non-interactive/non-TTY session, which defaults to **deny**) means the object that would drive the
+actuator is never even constructed. A mandatory out-of-band **STOP** is printed at backend
+construction: **Ctrl-C (SIGINT)** immediately hard-stops every live excitation, independent of the
+dashboard.
+:::
 
 ## Hardware safety design principles
 
@@ -79,6 +91,31 @@ changes on timescales long compared to the suspension's lowest resonance period,
 keeping the force spectral density within bounds.
 :::
 
+## CDS transport faults — what happened, and what to check
+
+`CDSBackend` classifies every transport-level fault into one of two outcomes: **reject** (this one
+record is discarded, zero weight, the campaign continues) or **abort** (the safe-handoff routine runs
+and the campaign stops). An excited record never auto-retries either way — re-taking one means
+re-injecting, which needs its own fresh approval.
+
+| What you'll see | Outcome | What to check |
+|---|---|---|
+| A live test point was released/cleared mid-record | **Abort** | Another user/process may have taken the test point; confirm before re-running |
+| A readback test point cleared | **Abort** | Same as above, on the response channel |
+| Framebuilder unreachable / connection error | **Abort** | Framebuilder/network health; retry once it's back |
+| Drive present but response collapses vs the quiet baseline | **Abort** (inferential only) | A suspension watchdog may have tripped — authoritative check needs EPICS, not yet wired |
+| Non-finite or over-ceiling excitation | Rejected **before** injection | A config/design bug — the drive itself, not the hardware |
+| `_EXC` readback diverges from what was commanded | **Reject** | A stream underrun (GC pause, NFS, network) — check for a dropped `append` |
+| Excitation channel not structurally injectable | Rejected at **pre-flight** (no injection spent) | A slow read-only EPICS record wired in by mistake, not a fast test point |
+| Requested channel doesn't exist | Rejected at **pre-flight** | A channel-name typo |
+| Test-point allocation timed out | **Abort** | The test point may be busy; check what else is using it |
+| A block's rate or GPS timestamp is inconsistent with the last one | **Reject** (or **abort** if GPS stepped backwards) | An NTP-disciplined clock can step back; a probed rate should never change mid-campaign |
+
+Every fault above still shows up on the dashboard and in the run's history — never silently, and never
+routed through `Watchdog`'s auto-abort breach list (that list is physical-limits only: actuator
+saturation and RMS, by design, so a data-quality fault can never accidentally trigger the same code
+path as a real hardware overdrive).
+
 ## Configuration
 
 Safety limits live in the `safety:` section of the run config:
@@ -91,7 +128,14 @@ safety:
     PIT: 1.0e-7
     YAW: 1.0e-7
   ramp_down_secs: 2.0           # cosine ramp duration at abort
+  # max_exc_peak: 30000.0       # optional: pre-injection drive-sample peak limit (CDS only)
+  # max_exc_rms: 10000.0        # optional: pre-injection drive-sample RMS limit (CDS only)
 ```
+
+`max_exc_peak`/`max_exc_rms` are optional and unset by default (twin/`rtsfreerun` behaviour is
+bit-identical either way — only `CDSBackend` ever checks them). When set, `inject()` scales the drive
+down to respect them, reporting the factor — but raises rather than silently scaling past roughly a 2x
+shrink, since a shrink that large means the design is wrong, not something to paper over.
 
 The `watchdog` checks these limits after each measurement segment.  On a breach it
 logs the offending metric and its value alongside the abort record.
@@ -102,10 +146,16 @@ logs the offending metric and its value alongside the abort record.
 # --twin: use the digital twin backend (no hardware)
 # --yes:  skip the confirm-before-inject prompt
 system_ident run path/to/config.yml --twin --yes
+
+# --cds: the CDS backend -- cds.transport in the config picks awg_nds (real
+# hardware) or twin (a compiled-model transport, still no live injection)
+system_ident run path/to/config.yml --cds --no-dashboard
 ```
 
-For a hardware run, omit `--yes`: the CLI prints the designed excitation and
-the drive budget, waits for operator confirmation, then starts the campaign.
+For a hardware run (`--cds` with `cds.transport: awg_nds`), `--yes` is rejected outright at the CLI
+level — a campaign-wide skip cannot express the separate, per-injection approval `CDSBackend.inject()`
+requires (Rule 2). Omit it: the CLI still prints a pre-flight confirmation, and `inject()` prompts
+again for every individual injection.
 
 If the `[dashboard]` extra is installed, the CLI also serves a live dashboard:
 

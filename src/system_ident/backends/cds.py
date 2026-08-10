@@ -55,6 +55,8 @@ from .base import ChannelBackend
 from .cds_transport import (
     CDSTransport,
     CDSTransportError,
+    ChannelNotFound,
+    ChannelNotInjectable,
     DataIntegrityError,
     TestpointTimeout,
     TestpointLost,
@@ -235,7 +237,13 @@ class CDSBackend(ChannelBackend):
         info = self.transport.classify(channels)
         for ch in channels:
             if ch not in info or not info[ch].exists:
-                raise TransportUnavailable(f"channel not found during pre-flight: {ch!r}")
+                # #32 item 7: invalid readback/excitation channel -> ChannelNotFound,
+                # not the generic transport-unavailable base. (A transport that
+                # instead raises ChannelNotFound directly out of classify() --
+                # AWGNDSTransport does, via its exception-name classifier --
+                # never reaches this fallback at all; this covers one that
+                # returns a partial dict instead.)
+                raise ChannelNotFound(f"channel not found during pre-flight: {ch!r}")
             ci = info[ch]
             self._rates[ch] = ci.rate
             if ci.rate % self.fs != 0:
@@ -256,7 +264,8 @@ class CDSBackend(ChannelBackend):
                 warnings.warn(f"{ch!r}: not live at pre-flight (non-finite, or zero variance)",
                               stacklevel=3)
             if ch in self.exc_channels and not ci.injectable:
-                raise TransportUnavailable(
+                # #32 item 6.
+                raise ChannelNotInjectable(
                     f"{ch!r} is not structurally injectable (a slow read-only EPICS "
                     "record, not a fast test point)"
                 )
@@ -417,7 +426,19 @@ class CDSBackend(ChannelBackend):
         # analysed record.
         lead_s = self.t_ramp + self.warmup_s
         if lead_s > 0:
-            self._fetch_verdict(sorted(self._all_channels), lead_s, excited=True, cache=False)
+            try:
+                self._fetch_verdict(sorted(self._all_channels), lead_s, excited=True, cache=False)
+            except Exception:
+                # A fault here means channels are LIVE (just started, above)
+                # but the settle never completed -- _fetch_verdict's own
+                # reject-tier handling deliberately does not hard-stop
+                # (a fault mid-CAMPAIGN rejects one record, not everything),
+                # but a fault before the campaign has even started analysing
+                # anything must not leave an actuator running with no
+                # teardown. Conservative on purpose: stop everything just
+                # started, whichever tier the fault was.
+                self._stop_all()
+                raise
 
     # -- the read path (#14, record verdict S4.3.6) ---------------------------
     def _fetch_verdict(self, channels: list[str], duration: float, *, excited: bool,
@@ -426,7 +447,11 @@ class CDSBackend(ChannelBackend):
         last_exc: Exception | None = None
         for attempt in range(attempts):
             try:
-                caps = self.transport.fetch(channels, duration)
+                # read_chunk_s here is what actually gives S4.3.2's chunked
+                # read its point: faults surface during the record instead of
+                # only after a multi-hour blocking fetch, and the transport's
+                # own block-adjacency verification runs on every boundary.
+                caps = self.transport.fetch(channels, duration, chunk_s=self.read_chunk_s)
                 verdict: dict[str, np.ndarray] = {}
                 for ch in channels:
                     cap = caps[ch]
@@ -456,6 +481,10 @@ class CDSBackend(ChannelBackend):
                     # a small one -- that is #6's lesson, restated here.
                     raise
                 # Passive (no excitation): bounded, logged retry (S4.3.2/S4.3.7).
+                # "Logged" means an operator can actually see it happened --
+                # print the attempt count, don't just silently loop.
+                print(f"passive read on {channels} failed ({exc}); "
+                      f"retry {attempt + 1}/{self.passive_read_retries}")
                 continue
         raise last_exc
 

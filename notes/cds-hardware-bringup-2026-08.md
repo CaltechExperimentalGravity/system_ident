@@ -11,6 +11,138 @@ this note plus the spec and plan are the durable record. Same reason
   `main` @ `f13c293`) and `cds-backend/01-plan` (this documentation commit).
 - **Tracking:** GitHub issues #5–#29 on this repo (plus #4), `[deferred]`-prefixed for Component 2.
 
+## Implementation status (2026-08-10)
+
+Stages A–F are implemented and tested — against the Stage A fakes and
+`TwinTransport` only, exactly as scoped; **no real hardware has been touched,
+no `awg`/`cdsutils` import has ever succeeded on this machine.** Full suite
+**372 passed / 17 skipped** (up from the 254/17 baseline cited above, which
+was itself stale from ordinary `main` drift — see the branch-drift note in
+the plan's history, not from anything this campaign changed).
+
+New/changed files, by stage:
+- **A** (#5): `tests/_fake_cds.py` (`FakeArbitraryLoop`/`Stream`, `FakeGetdata`,
+  `FakeGpstime`, `sys.modules` `install()`), `tests/test_fake_cds_harness.py`.
+- **B** (#6–#10): `loop.py` (`_longest_contiguous_run`, `P_eff<2 → inf`),
+  `config.py` (`n_segments ≥ n_transient+3`), `backends/base.py` (ramp
+  contract rewrite), `backends/rtsfreerun_adapter.py` (`sig.resample`, not
+  `resample_poly`, on the tiled drive), regression tests in
+  `test_periodic_measurement.py`.
+- **C** (#11/#12, #31/#32): `backends/cds_transport.py` — `CDSTransportError`
+  hierarchy, `CDSTransport` protocol, `AWGNDSTransport`, `TwinTransport`;
+  `test_cds_lazy_import.py`, `test_cds_transport.py`.
+- **D** (#13–#16): `backends/cds.py` filled in — pre-flight probe, dual-mode
+  `inject`/`read`, the generation-keyed read cache, chunked fetch + record
+  verdict, lifecycle (`atexit`/`SIGINT`/`SIGTERM`, snapshot/restore);
+  `loop.py` now catches `CDSTransportError`/`KeyboardInterrupt` alongside
+  `SafetyAbort` in its abort path. `test_cds_backend.py`.
+- **E** (#4, #17–#19): `safety.py` (`max_exc_peak`/`max_exc_rms`),
+  `backends/base.py` (`_check_drive_limits`), `backends/cds.py` (the
+  single-use per-injection approval token). `test_cds_safety.py`.
+- **F** (#20): `config.py` (`BACKENDS` registry, `build_cds_backend`),
+  `cli.py` (`--cds`, `--yes` rejected for real hardware), the site-agnostic
+  `configs/cds_twin_transport.yml`. `test_cds_wiring.py`.
+
+**Bugs found and fixed along the way** (recorded because each would have
+been a real problem on the eventual hardware/twin run, not just a test
+failure):
+- The Stage A fake's test-point retrievability required an explicit
+  `open_stream()` bracket around even a single bare `getdata`-style call —
+  stricter than the real API (`backend_rtcds.py`'s own usage is bare calls,
+  no separate open step). Fixed to only gate re-fetching a channel that was
+  already streamed and closed.
+- Fixing #6 (`P_eff<2 → inf`, never a near-infinite weight) correctly
+  converted two previously-silent failures into hard exclusions: `test_darm.py`'s
+  PCal test and the shipped `twin_demo.yml` were *both* structurally down to
+  `P_eff=1` on every pass, always — the old bug was the only reason they
+  "worked." Both fixed with real headroom, not by loosening the new check.
+- `TwinTransport.stream()` reset every handle's read phase to array-index-0
+  on every chunk — no persistent cursor. The throwaway settle read and the
+  analysed read that follows it started from different phases, injecting a
+  discontinuity exactly at the settle/analysed boundary. Would have silently
+  corrupted the eventual `x1hsts` exit-gate run. Fixed with a per-handle
+  cursor.
+- `CDSBackend`'s `exc_channels`/`readback_channels` were first built
+  `{dof: channel}`; `Watchdog` (and every other backend) needs
+  `{channel: dof}` or auto-abort is silently dead. Caught immediately by the
+  first test run.
+- The per-injection approval gate initially prompted identically regardless
+  of transport. Spec S1 is explicit that "simulation / twin / smoke tests
+  need no such approval" — `config.py::build_cds_backend` now auto-approves
+  for `cds.transport: twin` and uses the real interactive deny-by-default
+  prompt only for `awg_nds`. `CDSBackend` itself stays transport-agnostic
+  (whatever `authorizer` it's given); direct construction (bypassing
+  `config.py`) still defaults to the real prompt, the safe direction to fail.
+
+**Deferred, with reasons** (not oversights — each was investigated first):
+- **#8, the independent misalignment check.** Built and numerically verified
+  the literal spec mechanism ("compare `Xbar` phase to the known injected
+  phase") — it does NOT catch the stashed-X failure it's meant to: a stashed
+  X is bit-identical to the design at zero delay, indistinguishable from a
+  legitimate real readback with zero delay, by construction. Catching it
+  needs either Y/prior-model coupling (architecturally heavier, and this
+  static method has no business holding a model) or a period-variance floor
+  on X (false-positives on every twin/rtsfreerun test, whose X is
+  legitimately noise-free by construction). The real fix already ships:
+  Stage D's "never synthesise X" structural invariant. Documented in
+  `loop.py` next to `_estimate_tf_periodic`.
+- **#4 idea (b), `power_mult`.** Designed in spec S5 but not implemented —
+  touches `config.py` validation (`px_total`/`power_mult` mutual exclusion)
+  and `loop.py`'s design call site, not just `cds.py`.
+- **#4 idea (a), the pre-flight test excitation.** Spec itself flags this
+  "for collaborator review rather than settled" — not implemented.
+- **Spec S9.3's loop-mode simultaneous-start skew minimisation** (start all
+  channels unramped, then gain-ramp separately). Used the simpler, proven
+  per-channel `ramptime` from `backend_rtcds.py` instead; the nuanced
+  version is explicitly still an open, partly hardware-only question.
+- **Per-pass reject-and-continue.** A reject-tier fault
+  (`DataIntegrityError`/`TimingFault`) on an excited record currently aborts
+  the whole campaign through the same path as `SafetyAbort`, not the
+  narrower per-pass zero-weight skip spec S4.3.6 describes. Safe, but more
+  conservative than the ideal; needs `_measure_dof`-level plumbing.
+
+**Update (same day, later): Stage G's fault coverage and a first pass of Stage I are also done.**
+`tests/test_cds_faults.py` — one case per #32 taxonomy item plus the three structural checks
+(chunking invisible, excited gap rejects at zero weight, passive read retries bounded/reported) — 385
+passed / 18 skipped overall now (13 new tests, 1 new skip for the real-transport smoke test, which
+only runs where `awg` is installed).
+
+Writing that suite surfaced three more real bugs, fixed the same way as everything above — caught by
+building the consumer, not by inspection:
+- **`_preflight()` misclassified two fault types.** A non-injectable channel (#32 item 6) and a
+  not-found channel (item 7) were both raising the generic `TransportUnavailable` instead of
+  `ChannelNotInjectable`/`ChannelNotFound`. Cosmetic for the abort path (both are still
+  `CDSTransportError`), but wrong for anything downstream that branches on the specific type.
+- **`read_chunk_s` was stored but never used.** `CDSBackend._fetch_verdict` called
+  `transport.fetch(channels, duration)` with no chunk size, which both transports default to "one
+  block spanning the whole duration" — meaning chunked reading, and the S4.3.2 fault-detection-during-
+  the-record it exists for, was never actually exercised by a real `read()` call. Fixed by threading
+  `self.read_chunk_s` through; `CDSTransport.fetch()`'s signature gained an optional `chunk_s` param.
+- **A fault during the post-start settle read could leave a live, actuating channel with no teardown.**
+  `_fetch_verdict`'s reject-tier handling deliberately does NOT hard-stop (a fault mid-campaign
+  rejects one record, not everything) — correct in general, but wrong for the settle read specifically,
+  which runs immediately after channels go live and before the campaign has analysed anything. Fixed:
+  `_start_staged` now hard-stops on ANY exception from the settle read, not just what
+  `_fetch_verdict` already handles.
+
+Also found, while writing the tests rather than being a code bug: several one-shot fake fault
+injections (`insert_gap`, `change_rate`) are only observable WITHIN one continuous multi-chunk
+`stream()` call — a fresh `fetch()`/`stream()` call always starts with no prior block to compare its
+first chunk against, so the same fault armed immediately before a fresh call is silently absorbed.
+Real, if narrow: an inter-record GPS-backwards-step or rate-change cannot currently be detected by
+this backend, only an intra-record one. Not fixed this round; noted here rather than left implicit.
+
+Docs (Stage I, partial): `docs/index.qmd`'s "currently a stub" line corrected; `docs/_quarto.yml`
+registers `CDSBackend`, `CDSTransport` and the previously-missing `RTSfreerunBackend`;
+`docs/tutorial/safety-and-ops.qmd` gained the concrete `inject()` prompt contents, an operator-facing
+fault table (one row per #32 item: what you'll see, reject-vs-abort, what to check), the
+`max_exc_peak`/`max_exc_rms` config keys, and a `--cds` CLI example. Not done: `docs/tutorial/`'s other
+pages, and no `quarto render` was actually run (only a YAML-validity + symbol-import sanity check) --
+quarto/quartodoc weren't invoked.
+
+**Not started:** the real full-stack run against the compiled `x1hsts` model (needs the twin box).
+Stage H (environment/py3.9 compat) is independent and deliberately last per the plan's own ordering.
+
 ## What this campaign is
 
 Graft the **real-RTCDS transport** from the sibling project `automatic-frf-measurement` (branch
@@ -199,16 +331,20 @@ Two environment traps carried over from the sibling repo's first hardware run, n
 
 ## Resume checklist
 
+**Superseded 2026-08-10 — Stages A–F are done; see "Implementation status" above.** Steps 3–5 below
+are the ORIGINAL start-of-campaign checklist, kept for history. Resuming now means: Stage G (the
+dedicated exit-gate suite, plus the real `x1hsts` run — needs the twin box) or Stage I (docs).
+
 1. `git pull`; check out `feat/cds-hardware-backend`.
 2. Read `CLAUDE.md`, then the spec, then the plan. Note that `CLAUDE.md`'s `.llm/` pointers
    (`engineering-practices.md`, `ps-book/`, `pintelon-schoukens-mimo-fit.md`) are **gitignored and
    absent** — `CLAUDE.md` + `notes/` are the binding rules.
-3. Record the baseline: `conda run -n sysid python -m pytest tests/ -q` → expect 254 passed / 17
-   skipped.
-4. Start at plan **Stage A** (the fake transport harness). It unblocks everything, and both hard physics
-   problems can then be settled with numbers before any hardware time is requested.
-5. Do **not** start with the hardware code, and do not skip Stage B — the port's correctness rests on
-   those five loop fixes.
+3. ~~Record the baseline: `conda run -n sysid python -m pytest tests/ -q` → expect 254 passed / 17
+   skipped.~~ That baseline is stale (ordinary `main` drift); current branch baseline is **372 passed
+   / 17 skipped** as of 2026-08-10 (see above).
+4. ~~Start at plan **Stage A**~~ Done. Both hard physics problems were settled with numbers before any
+   hardware time was requested, per the ordering principle.
+5. ~~Do **not** start with the hardware code, and do not skip Stage B~~ Done — Stage B landed before C/D.
 
 ## Open questions
 

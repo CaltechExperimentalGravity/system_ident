@@ -48,6 +48,11 @@ class FakeTestpointTimeout(FakeNDSError):
     """Stands in for a test-point-allocation timeout (S4.3.3 item 8)."""
 
 
+class FakeTestpointLost(FakeNDSError):
+    """Stands in for a live test point released/cleared by another
+    user/process mid-record (S4.3.3 items 1-2)."""
+
+
 class FakeChannelNotFound(FakeNDSError):
     """Stands in for ``getdata`` naming a channel NDS doesn't know, *and*
     for a test-point re-fetch after its stream has closed (S4.3.1: a test
