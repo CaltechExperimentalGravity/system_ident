@@ -1,0 +1,93 @@
+# Identify a LIGO digital-twin suspension through the CDS backend, driven by
+# TwinTransport (the compiled model, NOT real hardware) -- the exit gate for
+# the CDS hardware-backend campaign (plan Stage G): full stack through
+# CDSBackend -> CDSTransport -> the existing compiled x1hsts model, scored
+# against the rtsfreerun oracle within the CRB.
+#
+# Deliberately SITE-AGNOSTIC: no site channel names, no site IFO value. The
+# channel names below are the compiled x1hsts model's own generic port names
+# (the same ones configs/rtsfreerun_hsts.yml drives directly) -- not a real
+# 40m or any other site's channel table.
+#
+# Run on a box where BOTH `system_ident` and the built `x1hsts` model import
+# (build the model into the sysid env -- see README).
+#
+#   system_ident run src/system_ident/configs/cds_twin_transport.yml --cds --no-dashboard
+#
+# To point this at REAL hardware instead, change cds.transport to awg_nds and
+# supply real site channel names + the site IFO env var name -- that mapping
+# is site-profile data (Component 2), never hardcoded here.
+
+run:
+  name: cds_twin_transport
+  excitation_mode: sequential
+
+channels:
+  excitation:
+    POS: COIL_DRIVER_EXC        # inject the multisine at the actuator (coil driver)
+  drive:
+    POS: COIL_DRIVER_OUT        # after-actuator drive monitor u  ->  FRF input X (mandatory for cds)
+  readback:
+    POS: READOUT_NOISE_OUT      # sensor displacement  ->  Y
+
+measurement:
+  fs: 256                       # analysis rate; CDSBackend decimates the 16384 Hz model (x64)
+  freq_min: 0.3
+  freq_max: 8.0
+  segment_duration: 16.0        # T_fft = 16 s (> 3/f_min); nperseg = 16*256 = 4096
+  n_segments: 6                 # periods averaged in the leakage-free FRF
+  px_total: 1.0e6               # drive power budget (counts^2)
+  t_ramp: 3.0                   # ramp-on/ramp-off duration [s] -- cosine (stream) or linear (loop)
+
+strategy:
+  estimator: gml
+  input_designer: pintelon_schoukens
+  n_design_iter: 3
+  prior_uncertainty: 0.5
+
+# cds.transport: twin routes CDSBackend through TwinTransport (rtsfreerun.model
+# below), so this is a full-stack CDSBackend run with NO live injection --
+# rtsfreerun.model/scenario is what TwinTransport actually drives.
+cds:
+  transport: twin                # awg_nds (real hardware) | twin (this config)
+  exc_mode: stream                # stream (default, cosine envelope) | loop (linear ramp)
+  warmup_s: 24.0                  # settle the high-Q low-frequency modes before recording
+  read_chunk_s: 1.0                # provisional (spec S9.4), no framebuilder measurement yet
+  passive_read_retries: 3
+  start_buffer: 1.0
+  # site_ifo_env: IFO             # awg_nds only -- names the env var holding the site's
+                                   # IFO value; the value itself is site-profile data
+                                   # (Component 2) and never belongs in this repo.
+
+rtsfreerun:
+  model: x1hsts                   # the built rtsfreerun module TwinTransport wraps
+  scenario: ${DIGITAL_TWIN_DIR}/twin/scenarios/hsts.yaml   # $DIGITAL_TWIN_DIR = the twin checkout
+
+# Prior = the suspension design model (5 pole pairs + 4 zero pairs). The
+# measurement refines it to the as-built plant.
+priors:
+  POS:
+    resonances: [[0.6725, 50], [1.0051, 50], [1.5156, 50], [2.8067, 50], [3.7814, 50]]
+    zeros:
+      - "-0.0499517+5.40717j"
+      - "-0.0499517-5.40717j"
+      - "-0.0633203+6.35904j"
+      - "-0.0633203-6.35904j"
+      - "-0.126093+13.3273j"
+      - "-0.126093-13.3273j"
+      - "-0.237456+23.747j"
+      - "-0.237456-23.747j"
+    gain: 0.32101
+
+safety:
+  actuator_sat: 30000.0           # matches the model's COIL_DRIVER_LIMIT
+  rms_ceiling:
+    POS: 1.0e9
+  ramp_down_secs: 2.0
+  # max_exc_peak / max_exc_rms: optional pre-injection drive-sample limits
+  # (issue #4) -- unset here; CDSBackend's amplitude check stays off until a
+  # real coil-driver limit is supplied.
+
+stop_criteria:
+  uncertainty_target: 0.05
+  max_iter: 3

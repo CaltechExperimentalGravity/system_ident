@@ -140,6 +140,7 @@ class CDSBackend(ChannelBackend):
         n_segments: int = 1,
         read_chunk_s: float = 1.0,
         passive_read_retries: int = 3,
+        start_buffer: float = 1.0,
         safety_limits: SafetyLimits | None = None,
         authorizer=_default_authorizer,
     ) -> None:
@@ -171,6 +172,7 @@ class CDSBackend(ChannelBackend):
         self.n_segments = int(n_segments)
         self.read_chunk_s = float(read_chunk_s)
         self.passive_read_retries = int(passive_read_retries)
+        self.start_buffer = float(start_buffer)
         self.safety_limits = safety_limits
         self.authorizer = authorizer
 
@@ -193,13 +195,20 @@ class CDSBackend(ChannelBackend):
 
     # -- construction / pre-flight (#13, amended S4.3.5) ---------------------
     @classmethod
-    def from_config(cls, config: dict, transport: CDSTransport) -> "CDSBackend":
+    def from_config(cls, config: dict, transport: CDSTransport, authorizer=None) -> "CDSBackend":
+        """``authorizer`` defaults to :func:`_default_authorizer` (a real,
+        interactive, deny-by-default prompt) when not given -- pass an
+        explicit override for a simulated transport, where spec S1 says
+        "simulation / twin / smoke tests need no such approval" (the caller,
+        e.g. ``config.py::build_cds_backend``, knows which transport this
+        is; this classmethod does not, so it never assumes)."""
         ch = config["channels"]
         exc = {dof: chan for dof, chan in ch["excitation"].items()}
         rb = {dof: chan for dof, chan in ch["readback"].items()}
         drive = {dof: chan for dof, chan in ch.get("drive", {}).items()}
         m = config["measurement"]
         cds_cfg = config.get("cds", {})
+        kwargs = {"authorizer": authorizer} if authorizer is not None else {}
         return cls(
             transport,
             exc_channels={c: d for d, c in exc.items()},
@@ -213,6 +222,9 @@ class CDSBackend(ChannelBackend):
             n_segments=int(m.get("n_segments", 8)),
             read_chunk_s=float(cds_cfg.get("read_chunk_s", 1.0)),
             passive_read_retries=int(cds_cfg.get("passive_read_retries", 3)),
+            start_buffer=float(cds_cfg.get("start_buffer", 1.0)),
+            safety_limits=SafetyLimits.from_config(config),
+            **kwargs,
         )
 
     def _preflight(self) -> None:
@@ -381,8 +393,13 @@ class CDSBackend(ChannelBackend):
                     )
                 staged = self._staged.pop(ch)
                 if self.exc_mode == "loop":
+                    # Schedule a fixed buffer into the future (backend_rtcds.py's
+                    # own pattern), so the AWG has time to prepare the injection
+                    # before start_gps arrives -- ramptime is a SEPARATE knob (the
+                    # gain-ramp duration once it starts, not when it starts).
                     handle = self.transport.start(
-                        ch, staged["array"], staged["rate"], self.transport.now_gps(),
+                        ch, staged["array"], staged["rate"],
+                        self.transport.now_gps() + self.start_buffer,
                         ramptime=self.t_ramp)
                 else:
                     handle = self.transport.open(ch, staged["rate"])

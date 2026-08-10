@@ -2,8 +2,11 @@
 
 The CLI is a first-class product (not a thin wrapper over the library API): a
 YAML config is the base, flags override it, and hardware runs require a guided
-confirm-before-inject step. Today the digital-twin path runs end-to-end; the
-CDS-hardware path and the live dashboard are wired in later build steps.
+confirm-before-inject step. The digital-twin, RTSfreerun and CDS-hardware
+paths all run end-to-end; CDS additionally requires a SEPARATE, per-injection
+approval inside CDSBackend.inject() itself (spec S1 Rule 2) -- this CLI-level
+confirm is a pre-flight "are you sure you want to run this campaign at all",
+not a substitute for that.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import sys
 import threading
 
 from . import __version__
-from .config import ConfigError, RunConfig
+from .config import BACKENDS, ConfigError, RunConfig
 from .loop import SysIDLoop
 
 
@@ -32,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Use the (in-process) digital-twin backend.")
     run.add_argument("--rtsfreerun", action="store_true",
                      help="Use the RTSfreerun backend (drive a compiled LIGO digital-twin model).")
+    run.add_argument("--cds", action="store_true",
+                     help="Use the CDS backend (cds.transport: awg_nds for real hardware, "
+                          "twin for a compiled-model transport). Real hardware needs its own "
+                          "per-injection approval inside CDSBackend.inject(), separate from "
+                          "--yes below, which can never satisfy that (spec S1 Rule 2).")
     run.add_argument("--estimator", help="Override the estimator strategy.")
     run.add_argument("--duration", type=float, help="Override per-segment duration [s].")
     run.add_argument("--px-total", type=float, dest="px_total",
@@ -47,6 +55,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _selected_backend_kind(args) -> str | None:
+    if args.cds:
+        return "cds"
+    if args.rtsfreerun:
+        return "rtsfreerun"
+    if args.twin:
+        return "twin"
+    return None
+
+
 def _run(args) -> int:
     try:
         config = RunConfig.load(args.config)
@@ -59,34 +77,45 @@ def _run(args) -> int:
         print(f"config error: {err}", file=sys.stderr)
         return 2
 
-    if not (args.twin or args.rtsfreerun):
+    kind = _selected_backend_kind(args)
+    if kind is None:
         print(
-            "the CDS-hardware backend is not available yet; run with --twin (in-process "
-            "twin) or --rtsfreerun (compiled digital-twin model).",
+            "choose a backend: --twin (in-process twin), --rtsfreerun (compiled "
+            "digital-twin model), or --cds (real hardware or a compiled-model transport).",
+            file=sys.stderr,
+        )
+        return 2
+
+    # --yes is a campaign-wide carry-over approval, which Rule 2 forbids for
+    # real hardware: a single skip cannot express the SEPARATE, per-injection
+    # approval CDSBackend.inject() requires (spec S1). Reject before ever
+    # building the backend, not after.
+    if args.yes and kind == "cds" and config.raw.get("cds", {}).get("transport") == "awg_nds":
+        print(
+            "--yes cannot be used with --cds against real hardware (cds.transport: "
+            "awg_nds): a campaign-wide skip cannot express the per-injection approval "
+            "spec S1 Rule 2 requires. Omit --yes; CDSBackend.inject() prompts for each "
+            "injection regardless.",
             file=sys.stderr,
         )
         return 2
 
     try:
-        if args.rtsfreerun:
-            backend = config.build_rtsfreerun_backend(seed=args.seed)
-        else:
-            backend = config.build_twin_backend(seed=args.seed)
+        backend = getattr(config, BACKENDS[kind])(seed=args.seed)
         priors = config.build_priors()
         watchdog = config.build_watchdog(backend)
     except ConfigError as err:
         print(f"config error: {err}", file=sys.stderr)
         return 2
     except (ImportError, ModuleNotFoundError) as err:
-        print(f"rtsfreerun model not importable: {err}\n"
+        print(f"{kind} model not importable: {err}\n"
               "Run in an env with both system_ident and the built twin model.",
               file=sys.stderr)
         return 2
 
-    kind = "rtsfreerun" if args.rtsfreerun else "twin"
     dofs = list(priors)
     print(f"running {kind} campaign: {len(dofs)} DoF(s) {dofs}")
-    if not args.yes and not _confirm(twin=True):
+    if not args.yes and not _confirm(twin=(kind != "cds")):
         print("aborted before injection.")
         return 1
 

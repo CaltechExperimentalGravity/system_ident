@@ -59,9 +59,10 @@ def test_cli_twin_run_succeeds(capsys):
     assert "POS" in out and "PIT" in out
 
 
-def test_cli_requires_twin(capsys):
+def test_cli_requires_a_backend_choice(capsys):
+    # --cds now exists (Stage F), so this is "choose one", not "CDS isn't available".
     assert main(["run", str(DEMO)]) == 2
-    assert "CDS-hardware backend is not available" in capsys.readouterr().err
+    assert "choose a backend" in capsys.readouterr().err
 
 
 def test_cli_missing_file(capsys):

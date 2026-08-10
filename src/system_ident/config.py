@@ -13,6 +13,7 @@ strategy-name registries) in one place.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,17 @@ ESTIMATORS = {
     "ml": GMLEstimator,
 }
 DESIGNERS = {"pintelon_schoukens": PintelonSchoukensDesigner}
+
+# backend-flag name -> the RunConfig.build_*_backend method that constructs
+# it. Mirrors ESTIMATORS/DESIGNERS; kept as method NAMES (not classes/no-arg
+# callables) because backend construction needs real per-backend wiring
+# (transport selection, model lazy-import, seed) that a bare registry can't
+# express uniformly -- see each build_*_backend for that wiring.
+BACKENDS = {
+    "twin": "build_twin_backend",
+    "rtsfreerun": "build_rtsfreerun_backend",
+    "cds": "build_cds_backend",
+}
 
 REQUIRED = {
     "run": [],
@@ -184,6 +196,83 @@ class RunConfig:
         if "rtsfreerun" not in self.raw or "model" not in self.raw["rtsfreerun"]:
             raise ConfigError("rtsfreerun runs need a 'rtsfreerun.model' name")
         return RTSfreerunBackend.from_config(self.raw, fs=self.fs, seed=seed)
+
+    def build_cds_backend(self, seed: int | None = None):
+        """Build ``CDSBackend`` from the ``cds`` section: ``transport: awg_nds
+        | twin`` selects real hardware or a compiled-model twin transport,
+        both behind the identical backend/channel API (spec S4).
+
+        ``seed`` is accepted for symmetry with the other ``build_*_backend``
+        methods (the CLI calls whichever one uniformly via ``BACKENDS``) but
+        unused here -- a hardware/twin-transport run has no RNG of its own.
+        """
+        from .backends.cds import CDSBackend
+        from .backends.cds_transport import AWGNDSTransport, TwinTransport
+
+        ch = self.raw["channels"]
+        # channels.drive mandatory (spec S2.1 item 3): the fallback to the
+        # excitation channel itself (what loop.py:90 does for every OTHER
+        # backend) returns the stashed drive on hardware, not a real
+        # readback -- the exact 200%-error configuration S2.1 exists to rule
+        # out. A ConfigError here, not a warning, is deliberate.
+        if not ch.get("drive"):
+            raise ConfigError(
+                "the cds backend requires channels.drive for every DoF -- falling back "
+                "to the excitation channel returns the stashed drive, not a real "
+                "readback (spec S2.1); this is the one backend where that fallback is "
+                "not just imprecise but a 200%-error configuration"
+            )
+
+        m = self.raw["measurement"]
+        freq_max = float(m["freq_max"])
+        fs = self.fs
+        if freq_max > 0.8 * (fs / 2):
+            warnings.warn(
+                f"measurement.freq_max ({freq_max} Hz) is above 0.8x Nyquist "
+                f"({0.8 * fs / 2:.3g} Hz of {fs} Hz fs): the decimation anti-alias "
+                "filter's rolloff there costs SNR, not bias -- it is LTI and applied "
+                "to both X and Y, so it cancels exactly in Ybar/Xbar, but ONLY "
+                "because X is a real readback (spec S2.1, S7); it does not cancel if "
+                "X were ever synthesised.",
+                stacklevel=2,
+            )
+
+        cds_cfg = self.raw.get("cds", {})
+        transport_kind = cds_cfg.get("transport", "twin")
+        # Spec S1: "simulation / twin / smoke tests need no such approval."
+        # CDSBackend.inject()'s approval gate defaults to a real, interactive,
+        # deny-by-default prompt (correct for awg_nds); a twin transport has
+        # no live hardware behind it, so auto-approve instead of prompting
+        # for something that can never actuate anything real.
+        authorizer = (lambda prompt: True) if transport_kind == "twin" else None
+        if transport_kind == "awg_nds":
+            transport = AWGNDSTransport(site_ifo_env=cds_cfg.get("site_ifo_env", "IFO"))
+        elif transport_kind == "twin":
+            if "rtsfreerun" not in self.raw or "model" not in self.raw["rtsfreerun"]:
+                raise ConfigError(
+                    "cds.transport: twin needs a 'rtsfreerun.model' name (it drives the "
+                    "same compiled model TwinTransport wraps)"
+                )
+            import importlib
+            rts = self.raw["rtsfreerun"]
+            model_name = rts["model"]
+            pkg = importlib.import_module(model_name)
+            mdl = getattr(pkg, model_name)()
+            if "scenario" in rts:
+                # Same plant-loading step RTSfreerunBackend does (foton ZPK ->
+                # cdsFilt modules) -- without it the bare model runs whatever
+                # default dynamics are baked into the class, not the scenario
+                # this config's priors were written against.
+                from .backends.rtsfreerun_oracle import apply_scenario_init, load_scenario
+                scen = rts["scenario"]
+                apply_scenario_init(mdl, scen if isinstance(scen, dict) else load_scenario(scen))
+            transport = TwinTransport(mdl)
+        else:
+            raise ConfigError(
+                f"cds.transport must be 'awg_nds' or 'twin', got {transport_kind!r}"
+            )
+
+        return CDSBackend.from_config(self.raw, transport=transport, authorizer=authorizer)
 
     def build_priors(self) -> dict:
         """Return per-DoF prior :class:`TFModel` models (one per DoF)."""
