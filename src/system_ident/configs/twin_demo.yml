@@ -23,7 +23,13 @@ measurement:
   freq_min: 0.1
   freq_max: 5.0
   segment_duration: 64.0
-  n_segments: 4
+  # 4 previously: even the mild t_ramp=3.0s taper (~2-3% of the record) shaves
+  # a fraction of a period off periods 0 and 3, dropping "full-energy" periods
+  # to 2 -- which _choose_transient's early-return branch then reduces to
+  # P_eff=1 on every single pass, always. #6 now correctly excludes that (zero
+  # weight, not a near-infinite one), so the campaign needs real headroom, not
+  # just n_segments >= n_transient + 3 in the abstract.
+  n_segments: 8
   px_total: 1.0
   t_ramp: 3.0                  # backend actuator-safe Tukey on/off ramp [s]
 

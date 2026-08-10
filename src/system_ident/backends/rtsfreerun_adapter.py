@@ -151,8 +151,18 @@ class RTSfreerunBackend(ChannelBackend):
             raise KeyError(f"unknown excitation channel {channel!r}")
         ts = np.asarray(timeseries, dtype=float)
         if not np.isclose(fs, self.fs_model):
-            frac = Fraction(self.fs_model / fs).limit_denominator(1000)
-            ts = sig.resample_poly(ts, frac.numerator, frac.denominator)
+            # ``resample_poly`` is a FIR filter and sees ``ts`` as a finite,
+            # zero-padded-at-the-ends array -- but ``ts`` is an exactly periodic
+            # multisine tiling, and the FIR's edge transient corrupts precisely the
+            # periods nearest each end (measured: 6.9% on the first period, 53% on
+            # the last, at the shipped 256/16384 ratio). ``sig.resample`` is
+            # FFT-based and needs no such padding assumption: an exactly-periodic
+            # array's DFT is already sparse on the harmonics its own period repeats
+            # at, so resampling the FULL tiled array in the frequency domain is
+            # exactly equivalent to resampling one period and re-tiling it -- no
+            # period-boundary bookkeeping required -- and measured deviation from
+            # the interior period drops from 5.3e-1 to ~1e-16 (#10).
+            ts = sig.resample(ts, int(round(len(ts) * self.fs_model / fs)))
         if self.saturate is not None:
             ts = np.clip(ts, -self.saturate, self.saturate)
         self._drives[channel] = ts

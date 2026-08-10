@@ -92,7 +92,12 @@ from system_ident.backends.darm_adapter import DARMBackend
 
 def test_backend_recovers_pcal_frf():
     loop = DARMLoop.default(); loop.sensor_asd = 1e-3
-    nperseg, nper = 4096, 8
+    # nper=8 leaves only 2 full-energy periods after the default ramp_s=3.0 s
+    # taper (alpha=0.75 over nperseg*nper=32768 samples) and just 1 after the
+    # n_transient=1 drop -- P_eff=1, which #6 now correctly excludes (H_err=inf)
+    # rather than quietly averaging in a near-zero-weight garbage point. More
+    # periods gives real settled headroom instead of living on that edge.
+    nperseg, nper = 4096, 16
     fa, band, freq = _band_grid(loop, nperseg)
     be = DARMBackend(loop, {"PCAL_EXC": "PCAL"}, "DARM_ERR", seed=2)
     Pxx = np.full_like(freq, 1.0 / (freq[-1] - freq[0]))

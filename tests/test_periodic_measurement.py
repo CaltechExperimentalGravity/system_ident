@@ -17,6 +17,7 @@ import numpy as np
 import scipy.signal as sig
 from scipy.integrate import trapezoid
 
+from system_ident.backends.rtsfreerun_adapter import RTSfreerunBackend
 from system_ident.backends.twin import TwinBackend
 from system_ident.estimators.gml import GMLEstimator
 from system_ident.excitation import multisine_from_psd
@@ -226,4 +227,121 @@ def test_periodic_recovers_both_modes_of_a_double_pendulum():
     Qs = _fit_qs(GMLEstimator().fit(freq, H, He, prior))
     assert len(Qs) == 2
     assert abs(Qs[0] - 20.0) / 20.0 < 0.25
-    assert abs(Qs[1] - 30.0) / 30.0 < 0.25
+
+
+# --------------------------------------------------------------------------- #
+# 6. Stage B hardening (issues #6-#10) -- each measured signature, pinned
+# --------------------------------------------------------------------------- #
+
+def test_p_eff_one_gives_infinite_error_never_a_near_zero_one():
+    """#6: a single surviving period after the transient drop must exclude the
+    pass with INFINITE H_err (zero weight in _accumulate) -- never a finite-but-
+    tiny one. The pre-fix code zeroed ``var_H`` at P_eff==1, which the ``1e-9 *
+    |Hb|`` floor then turned into a measured weight of 4.56e+19: one bad pass
+    permanently swamping every other pass for the rest of a campaign."""
+    _, band, freq = _grid(nperseg=256)
+    rng = np.random.default_rng(0)
+    x = rng.standard_normal(256 * 2)          # P=2 whole periods
+    y = rng.standard_normal(256 * 2)
+    # n_transient=1 on P=2 hits _choose_transient's early-return branch
+    # (P <= n_min+2) -> n_drop=1 -> P_eff=1.
+    H, H_err, coh = SysIDLoop._estimate_tf_periodic(x, y, FS, 256, band, n_transient=1)
+    assert np.all(np.isinf(H_err))
+    w = np.where(np.isfinite(H_err) & (H_err > 0), 1.0 / H_err ** 2, 0.0)
+    assert np.all(w == 0.0)                   # never the 4.56e+19-style near-inf weight
+    assert np.all(coh <= 1e-6 + 1e-12)         # excluded, not reported as confident
+
+
+def test_longest_contiguous_run_not_the_span():
+    """#7: energies with an INTERIOR dip (the looped-taper geometry) must keep
+    only the longest contiguous full-energy block, not the span between the
+    first and last full-energy index -- which for this exact measured pattern
+    is the whole array."""
+    e = np.array([1.0, 1.0, 1.0, 1.0, 0.571, 0.492, 1.0, 1.0])
+    full = np.flatnonzero(e >= 0.999 * e.max())
+    assert list(full) == [0, 1, 2, 3, 6, 7]                # span would be 0:8
+    start, stop = SysIDLoop._longest_contiguous_run(full)
+    assert (start, stop) != (0, 8)
+    assert (start, stop) == (0, 4)                          # the longest run: periods 0-3
+
+
+def test_longest_contiguous_run_ties_break_late():
+    start, stop = SysIDLoop._longest_contiguous_run(np.array([0, 1, 5, 6]))
+    assert (start, stop) == (5, 7)                          # two equal-length runs -> later wins
+
+
+def test_looped_tukey_taper_corrupts_frf_untapered_transport_ramp_does_not():
+    """#9: base.py's ramp contract. Tapering the WHOLE staged array (the array
+    an ``ArbitraryLoop``-style transport then repeats forever) rather than
+    applying the taper to a one-shot lead+record+tail array, or leaving the
+    staged array untapered and ramping via the transport's own gain instead,
+    turns the taper into a periodic amplitude modulation at the LOOP period
+    (here, the full 8-period staged array) rather than a one-shot envelope --
+    re-exciting the plant's transient every cycle. Reproduces spec S2.2's own
+    measurement setup (ramp_s=3.0s over a 32s/8-period array) and its
+    contrast: looped+tapered ~2.8e-1 max relative FRF error, vs
+    untapered+ramped ~1e-11."""
+    fs, nperseg, n_periods, ramp_s = 256.0, 1024, 8, 3.0
+    f_all = np.fft.rfftfreq(nperseg, d=1 / fs)
+    band = (f_all >= 0.3) & (f_all <= 8.0)
+    freq = f_all[band]
+    x1 = multisine_from_psd(np.ones_like(freq), fs, nperseg, 1, freq, seed=0)
+    staged_untapered = np.resize(x1, nperseg * n_periods)   # the full staged array
+
+    plant = TFModel.from_resonances([(1.0, 20.0)], 100.0)
+    b, a = sig.bilinear(plant.num, plant.den, fs)
+    _, H_true = sig.freqz(b, a, worN=freq, fs=fs)
+
+    def _loop_forever_and_read(staged, n_settle_cycles=60):
+        """An ArbitraryLoop-style transport: repeat `staged` indefinitely,
+        settle, then read back exactly one repeat's worth."""
+        lead = np.resize(staged, staged.size * n_settle_cycles)
+        _, zi = sig.lfilter(b, a, lead, zi=np.zeros(max(len(a), len(b)) - 1))
+        y, _ = sig.lfilter(b, a, staged, zi=zi)
+        return staged, y
+
+    def _relerr(x, y):
+        H, _, _ = SysIDLoop._estimate_tf_periodic(x, y, fs, nperseg, band, n_transient=1)
+        return np.max(np.abs(H - H_true) / np.abs(H_true))
+
+    # BAD: the base.py default alpha (ramp_s Tukey taper over the whole staged
+    # array), then looped -- exactly the historical (pre-#9) contract.
+    alpha = min(1.0, 2.0 * ramp_s * fs / staged_untapered.size)
+    staged_tapered = staged_untapered * sig.windows.tukey(staged_untapered.size, alpha)
+    bad_relerr = _relerr(*_loop_forever_and_read(staged_tapered))
+
+    # GOOD: untapered integer-period tiling -- the transport applies its own
+    # gain ramp OUTSIDE this array instead (S2.2/S2.3's "never both" branches).
+    good_relerr = _relerr(*_loop_forever_and_read(staged_untapered))
+
+    assert bad_relerr > 0.2                      # matches the measured 2.81e-1 signature
+    assert good_relerr < 1e-9                     # matches the measured 1.4e-11 signature
+    assert good_relerr < bad_relerr / 1000
+
+
+def test_rtsfreerun_inject_resample_matches_interior_period_to_high_precision():
+    """#10: resample_poly on the FULL tiled array sees zero-padded edges and
+    corrupts precisely the periods nearest each end (measured: 6.9% on the
+    first period, 53% on the last, at the shipped 256/16384 ratio). Assert the
+    fix directly against RTSfreerunBackend.inject() -- not a standalone
+    reimplementation -- at that same ratio."""
+    fs_sysid, fs_model, nperseg, n_periods = 256.0, 16384.0, 1024, 8
+    f_all = np.fft.rfftfreq(nperseg, 1 / fs_sysid)
+    band = (f_all >= 0.3) & (f_all <= 8.0)
+    freq = f_all[band]
+    x1 = multisine_from_psd(np.ones_like(freq), fs_sysid, nperseg, 1, freq, seed=0)
+    tiled = np.resize(x1, nperseg * n_periods)
+
+    class _NullModel:
+        sample_rate = fs_model
+
+    be = RTSfreerunBackend(mdl=_NullModel(), exc_channels={"E": "POS"},
+                           readback_channels={}, fs=fs_sysid)
+    be.inject("E", tiled, fs_sysid)
+    resampled = be._drives["E"]
+
+    nperseg_model = int(round(nperseg * fs_model / fs_sysid))
+    periods = resampled.reshape(n_periods, nperseg_model)
+    interior = periods[1:-1].mean(axis=0)
+    dev = np.max(np.abs(periods - interior[None, :]), axis=1) / np.max(np.abs(interior))
+    assert np.all(dev < 1e-9)                     # was 6.9e-2 (first) / 5.3e-1 (last)

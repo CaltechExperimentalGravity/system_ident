@@ -345,6 +345,22 @@ class SysIDLoop:
         return P[band]
 
     @staticmethod
+    def _longest_contiguous_run(idx: np.ndarray) -> tuple[int, int]:
+        """The longest run of consecutive integers in a sorted, unique array
+        ``idx``, as ``(start, stop)`` (``stop`` exclusive). Ties are broken in
+        favour of the LATER run: later periods are more likely to be past any
+        settling transient (#7)."""
+        best_start, best_stop = int(idx[0]), int(idx[0]) + 1
+        run_start = idx[0]
+        for i in range(1, idx.size):
+            if idx[i] != idx[i - 1] + 1:
+                run_start = idx[i]
+            run_stop = idx[i] + 1
+            if run_stop - run_start >= best_stop - best_start:
+                best_start, best_stop = int(run_start), int(run_stop)
+        return best_start, best_stop
+
+    @staticmethod
     def _choose_transient(X, Y, n_min, P):
         """Number of leading periods to drop before the response is periodic.
 
@@ -401,6 +417,27 @@ class SysIDLoop:
         the complex FRF (from the period-to-period residual scatter) so the
         downstream estimators are unchanged.  Unexcited bins (tiny drive) get
         ``H_err = inf`` -> zero weight.
+
+        NOT implemented here: #8's independent misalignment check ("a stashed
+        drive array read back in place of X reports coherence 1.00000 on a
+        200%-wrong FRF, because ``var_H`` is period-to-period scatter and a
+        constant time offset is common-mode"). Investigated and deliberately
+        deferred, not overlooked -- comparing ``Xbar``'s phase against the
+        known injected design's phase does NOT catch it: a stashed X is
+        bit-identical to the design (zero delay, zero residual) while a
+        legitimate real readback can differ by hundreds of samples and is
+        fine (S2.1), so that comparison alone cannot tell them apart --
+        verified numerically, not assumed. Distinguishing them needs either
+        (a) cross-referencing against Y/H against a trusted prior model,
+        which this backend-agnostic static method has no business holding,
+        or (b) a period-to-period variance floor on X itself, which
+        false-positives on every twin/rtsfreerun test (their X is
+        legitimately noise-free by construction). Both routes are
+        hardware/noise-context-dependent, so the real fix is the structural
+        invariant Stage D's ``CDSBackend`` already commits to (spec S2.1
+        design consequence #1): never synthesise X, always a genuine
+        ``getdata`` readback. Revisit here only if that invariant turns out
+        to need a second, independent line of defense.
         """
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -413,14 +450,18 @@ class SysIDLoop:
         # Keep only the full-amplitude periods. Drives are injected through a soft
         # Tukey on/off ramp (the backends' default actuator-safe start/stop), so the
         # first/last period(s) are tapered and carry less energy; averaging them would
-        # bias the leakage-free FRF. Restrict to the contiguous block of full-energy
-        # periods first. A clean (un-ramped) drive has equal-energy periods, so this is
-        # a no-op there.
+        # bias the leakage-free FRF. Restrict to the LONGEST genuinely CONTIGUOUS run
+        # of full-energy periods -- not the span between the first and last full-energy
+        # index (#7): a looped-taper geometry can leave low-energy periods *interior* to
+        # the array (e.g. energies [1,1,1,1,.571,.492,1,1]), and the span
+        # ``full[0]:full[-1]+1`` then keeps them too, which is the whole array. A clean
+        # (un-ramped) drive has equal-energy periods, so this is a no-op there.
         e = (xr ** 2).sum(axis=1)
         if e.size and e.max() > 0:
             full = np.flatnonzero(e >= 0.999 * e.max())
             if full.size >= 2:
-                xr, yr = xr[full[0]: full[-1] + 1], yr[full[0]: full[-1] + 1]
+                start, stop = SysIDLoop._longest_contiguous_run(full)
+                xr, yr = xr[start:stop], yr[start:stop]
                 P = xr.shape[0]
         X = np.fft.rfft(xr, axis=1)
         Y = np.fft.rfft(yr, axis=1)
@@ -441,7 +482,13 @@ class SysIDLoop:
                     (P_eff - 1) * P_eff * np.abs(Xbar) ** 2
                 )
             else:
-                var_H = np.zeros_like(np.abs(Xbar))
+                # A single surviving period has no residual scatter to measure
+                # from -- exclude it with INFINITE uncertainty (zero weight in
+                # _accumulate), never zero: zeroing var_H here previously fed
+                # the ``1e-9 * |Hb|`` floor below, turning "exclude this pass"
+                # into a measured weight of 4.56e+19 that then permanently
+                # swamped every other pass for the rest of the campaign (#6).
+                var_H = np.full_like(np.abs(Xbar), np.inf)
 
         Hb = H[band]
         var_b = var_H[band]

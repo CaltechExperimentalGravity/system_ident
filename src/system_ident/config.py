@@ -113,6 +113,20 @@ class RunConfig:
             raise ConfigError(
                 f"input_designer {des!r} not available; choose from {sorted(DESIGNERS)}"
             )
+        # loop.py's adaptive transient guard (_choose_transient) needs headroom to
+        # adapt at all -- below this margin it can drop every period but one,
+        # leaving _estimate_tf_periodic with P_eff < 2 (a shipped-config-reachable
+        # case: configs/rtsfreerun_hsts.yml's own n_transient recommendation hits
+        # exactly this). P_eff < 2 is now excluded safely (#6), but a measurement
+        # that silently contributes nothing is still a config mistake worth
+        # catching before any hardware time is spent on it.
+        n_seg = int(raw["measurement"].get("n_segments", 8))
+        n_transient = int(raw["measurement"].get("n_transient", 1))
+        if n_seg < n_transient + 3:
+            raise ConfigError(
+                f"measurement.n_segments ({n_seg}) must be >= "
+                f"measurement.n_transient ({n_transient}) + 3"
+            )
 
     # -- CLI flag overrides --------------------------------------------------
     def apply_overrides(

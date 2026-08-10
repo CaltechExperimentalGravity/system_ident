@@ -259,6 +259,7 @@ class FakeGetdata:
         self._world = world
         self.channels: dict[str, _ChannelConfig] = {}
         self._open: set[str] = set()
+        self._exhausted: set[str] = set()
         self._plant_state: dict[str, np.ndarray] = {}
         self._exc_cursor: dict[str, int] = {}   # samples already consumed, per exc channel
 
@@ -322,15 +323,22 @@ class FakeGetdata:
     # -- retrievability (S4.3.1) ------------------------------------------
     @contextmanager
     def open_stream(self, channels):
-        """A live request that stays open for its duration — while open, a
-        test-point channel is fetchable; once closed, a fresh call for it
-        raises :class:`FakeChannelNotFound` ("no second fetch")."""
+        """A live request that stays open for its duration. A bare call with
+        NO ``open_stream`` involvement at all is a normal, self-contained
+        read (matching real ``cdsutils.getdata`` usage, e.g.
+        ``backend_rtcds.py``'s bare ``getdata(chans, 1)`` probe — there is no
+        separate "open" step in the real API). What ``open_stream`` models is
+        narrower and specific: once a channel HAS been streamed and the
+        block closes, a further call for it raises
+        :class:`FakeChannelNotFound` — "no second fetch" of a test point
+        (S4.3.1), not "every read needs a bracket"."""
         opened = set(channels) - self._open
         self._open |= opened
         try:
             yield self
         finally:
             self._open -= opened
+            self._exhausted |= opened
 
     # -- the call ----------------------------------------------------------
     def __call__(self, channels, duration: float) -> list[_Buf]:
@@ -341,9 +349,9 @@ class FakeGetdata:
             if exc is not None:
                 raise exc
             cfg = self.channels[ch]
-            if cfg.testpoint and ch not in self._open:
+            if cfg.testpoint and ch in self._exhausted and ch not in self._open:
                 raise FakeChannelNotFound(
-                    f"{ch!r} is a test point and no stream is open for it "
+                    f"{ch!r} is a test point already streamed and closed "
                     "(a test point cannot be re-fetched, spec S4.3.1)")
 
         if self._gap_before_next_s:

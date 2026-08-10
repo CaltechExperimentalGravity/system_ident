@@ -144,14 +144,13 @@ def test_insert_gap_breaks_adjacency():
     assert b2.start_time == b1.start_time + 1 + 5
 
 
-def test_testpoint_requires_open_stream():
+def test_testpoint_bare_read_succeeds_but_not_after_it_was_streamed_and_closed():
     world, _ = _world_with_plant(testpoint=True)
-    with pytest.raises(FakeChannelNotFound):
-        world.getdata([EXC], 1.0)
+    world.getdata([EXC], 1.0)              # a bare, self-contained read -> fine (no bracket needed)
     with world.getdata.open_stream([EXC]):
-        world.getdata([EXC], 1.0)          # does not raise while open
+        world.getdata([EXC], 1.0)          # still fine while the stream is open
     with pytest.raises(FakeChannelNotFound):
-        world.getdata([EXC], 1.0)          # closed again -> no second fetch
+        world.getdata([EXC], 1.0)          # closed after streaming -> no second fetch
 
 
 def test_recorded_channel_needs_no_open_stream():
