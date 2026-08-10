@@ -9,7 +9,6 @@ needed); staged-array assertions (untapered loop tiling with
 from __future__ import annotations
 
 import os
-import warnings
 
 import numpy as np
 import pytest
@@ -25,7 +24,6 @@ from system_ident.backends.cds_transport import (
 from system_ident.excitation import multisine_from_psd
 from system_ident.loop import SysIDLoop
 from system_ident.model import TFModel
-from system_ident.safety import SafetyLimits, Watchdog
 
 from _fake_cds import FakeArbitraryLoop, FakeArbitraryStream, FakeCDSWorld, install
 

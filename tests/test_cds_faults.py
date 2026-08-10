@@ -29,7 +29,6 @@ from _fake_cds import (
     FakeArbitraryLoop,
     FakeArbitraryStream,
     FakeCDSWorld,
-    FakeChannelNotFound,
     FakeTestpointLost,
     FakeTestpointTimeout,
     install,
