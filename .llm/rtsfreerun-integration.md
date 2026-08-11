@@ -45,7 +45,7 @@ filtering injected excitations through a known SISO (or closed-loop) plant via `
 Lets the adapter + config + a **plant-recovery** test run in the `sysid` env on macOS. A real-twin
 smoke test is guarded by `importlib.util.find_spec("x1hsts")` → `pytest.skip`.
 
-## Config + CLI (`config.py`, `cli.py`, `configs/rtsfreerun_demo.yml`)
+## Config + CLI (`config.py`, `cli.py`, `configs/rtsfreerun_hsts.yml`)
 - `RunConfig.build_rtsfreerun_backend(seed)` parses a `rtsfreerun:` section (model, `model_rate`,
   channel maps already in `channels`, a `noise:` list reusing twin presets, `warmup_s`).
 - `cli.py`: add `--rtsfreerun`; `_run` selects `build_rtsfreerun_backend`; downstream
@@ -73,7 +73,8 @@ Track status here across sessions (like digital_twin's `.llm/roadmap.md`).
 - [x] Phase 0 wiki · [x] adapter (`backends/rtsfreerun_adapter.py`) · [x] mock + 8 tests
   (`tests/test_rtsfreerun_backend.py`, recovery via FRF + full SysIDLoop + decimation) ·
   [x] config/CLI (`config.build_rtsfreerun_backend`, `cli --rtsfreerun`) ·
-  [x] demo config (`configs/rtsfreerun_demo.yml`, x1hsts).
+  [x] demo config (`configs/rtsfreerun_hsts.yml`, x1hsts — the skeleton
+  `rtsfreerun_demo.yml` was superseded by it and no longer exists).
 - Verified here against the mock (109 passed). Real-twin demo run is **next, on the twin box**.
 - Iteration 1 (wiring smoke on x1hsts) is the immediate next step once run on the twin.
 - Each roadmap demo above is a separate refinement pass; keep this list current.
