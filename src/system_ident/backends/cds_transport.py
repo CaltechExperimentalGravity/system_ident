@@ -327,7 +327,14 @@ class AWGNDSTransport:
             # A starved append (GC pause, NFS, network) is a stream underrun
             # (#31/S4.3.3 item 5's post-injection counterpart is the
             # _EXC-vs-commanded comparison; this is the pre-injection half).
-            raise DataIntegrityError(f"stream underrun on append: {exc}") from exc
+            # 2026-08-11: the scale-type fix above didn't clear a real, live
+            # failure, and the class name below is what will actually tell us
+            # why -- whatever awg raises here isn't Python's built-in
+            # TypeError (confirmed: it fell through to this branch, not the
+            # one above), just something with that text inside its message.
+            raise DataIntegrityError(
+                f"stream underrun on append ({type(exc).__name__}): {exc}"
+            ) from exc
 
     def close(self, handle: object) -> None:
         handle.close()
