@@ -266,8 +266,15 @@ class AWGNDSTransport:
     # -- loop mode --------------------------------------------------------
     def start(self, channel: str, array: np.ndarray, rate: float,
               start_gps: float, ramptime: float) -> object:
+        # awg.ArbitraryLoop.__init__ does range(0, len(data), rate) internally,
+        # which requires rate to be a real int (a float step raises TypeError:
+        # 'float' object cannot be interpreted as an integer -- reproduced on
+        # real hardware 2026-08-11, first real exercise of this constructor).
+        # A sample rate is always a whole number of samples/second in any real
+        # DAQ system, so this is a correctness fix, not a workaround; round()
+        # first as cheap insurance against upstream float imprecision.
         handle = self._awg.ArbitraryLoop(channel, np.asarray(array, dtype=float),
-                                         rate=rate, start=start_gps)
+                                         rate=int(round(rate)), start=start_gps)
         self._started[handle] = False
         try:
             handle.start(ramptime=ramptime, wait=False)
