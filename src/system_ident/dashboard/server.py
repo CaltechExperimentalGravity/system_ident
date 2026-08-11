@@ -104,12 +104,34 @@ def render_html() -> str:
 
 
 def create_app(hub: SnapshotHub, on_stop: Callable[[], None] | None = None):
-    """Build the FastAPI app (lazy import). Raises if the extra is missing."""
+    """Build the FastAPI app (lazy import). Raises if the extra is missing.
+
+    ``WebSocket``/``WebSocketDisconnect``/``HTMLResponse`` are bound with
+    ``global`` (module scope), not left as locals of this function. This
+    file has ``from __future__ import annotations``, so ``ws_endpoint``'s
+    ``socket: WebSocket`` annotation is the *string* ``"WebSocket"``;
+    FastAPI resolves it via ``typing.get_type_hints(ws_endpoint)``, which
+    looks the name up in ``ws_endpoint.__globals__`` -- the globals of THIS
+    MODULE, never the locals of the enclosing ``create_app`` call. A plain
+    local import here leaves that lookup unresolvable (``NameError:
+    name 'WebSocket' is not defined``), which newer fastapi/starlette
+    (observed: fastapi 0.141.1 / starlette 1.4.1) turns into every /ws
+    handshake being silently denied with a bare HTTP 403 instead of a loud
+    import error -- reproduced and root-caused 2026-08-10 after several
+    hours misattributing it to uvicorn/websockets version issues before
+    isolating it to this annotation-resolution gap. Still fully lazy: only
+    bound the first time create_app() actually runs.
+    """
     try:
-        from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-        from fastapi.responses import HTMLResponse
+        import fastapi as _fastapi
+        from fastapi.responses import HTMLResponse as _HTMLResponse
     except ModuleNotFoundError as err:  # pragma: no cover - env without extra
         raise ModuleNotFoundError(_INSTALL_HINT) from err
+    global FastAPI, WebSocket, WebSocketDisconnect, HTMLResponse
+    FastAPI = _fastapi.FastAPI
+    WebSocket = _fastapi.WebSocket
+    WebSocketDisconnect = _fastapi.WebSocketDisconnect
+    HTMLResponse = _HTMLResponse
 
     import asyncio
 
