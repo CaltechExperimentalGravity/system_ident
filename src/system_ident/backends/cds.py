@@ -146,7 +146,15 @@ class CDSBackend(ChannelBackend):
         n_segments: int = 1,
         read_chunk_s: float = 1.0,
         passive_read_retries: int = 3,
-        start_buffer: float = 1.0,
+        # awg's real start-time validation requires the commanded start_gps
+        # to be >= 2s after present time at the moment the C library actually
+        # validates it (reproduced on real hardware 2026-08-11: "-111 Start
+        # time too far in the past. Must be at least 2 later than present
+        # time" with the previous 1.0s default). 3.0 pads that 2s hard
+        # minimum against real network/processing latency between computing
+        # now_gps() here and the request landing at the front end -- exactly
+        # 2.0 would still be right at the edge.
+        start_buffer: float = 3.0,
         safety_limits: SafetyLimits | None = None,
         authorizer=_default_authorizer,
     ) -> None:
@@ -235,7 +243,7 @@ class CDSBackend(ChannelBackend):
             n_segments=int(m.get("n_segments", 8)),
             read_chunk_s=float(cds_cfg.get("read_chunk_s", 1.0)),
             passive_read_retries=int(cds_cfg.get("passive_read_retries", 3)),
-            start_buffer=float(cds_cfg.get("start_buffer", 1.0)),
+            start_buffer=float(cds_cfg.get("start_buffer", 3.0)),
             safety_limits=SafetyLimits.from_config(config),
             **kwargs,
         )
