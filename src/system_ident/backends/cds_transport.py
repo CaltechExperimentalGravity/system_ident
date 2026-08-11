@@ -305,8 +305,24 @@ class AWGNDSTransport:
         return self._awg.ArbitraryStream(channel, rate)
 
     def append(self, handle: object, array: np.ndarray, scale: float = 1.0) -> None:
+        # awg.ArbitraryStream.append(self, data, scale=1) -- the real, compiled
+        # binding's default is an int, and it rejects a Python float for that
+        # argument outright (TypeError: argument 3: wrong type -- reproduced
+        # on real hardware 2026-08-11, never exercised before: #31's own
+        # "never been driven at the site" gap closing). Every call site here
+        # only ever uses the default (never a genuine fractional scale), so
+        # this cast is safe for everything that exists today. Whether the
+        # real API accepts a genuinely fractional scale at all is still open
+        # -- not claimed fixed, only sidestepped for the whole-number case.
+        scale_arg = int(scale) if float(scale).is_integer() else scale
         try:
-            handle.append(np.asarray(array, dtype=float), scale)
+            handle.append(np.asarray(array, dtype=float), scale_arg)
+        except TypeError as exc:
+            # A malformed call (wrong arg type/count) fails identically every
+            # time, independent of network/timing -- never a real underrun.
+            # Kept in the same DataIntegrityError family (so teardown is
+            # still safe) but not mislabelled as one.
+            raise DataIntegrityError(f"append() call malformed: {exc}") from exc
         except Exception as exc:
             # A starved append (GC pause, NFS, network) is a stream underrun
             # (#31/S4.3.3 item 5's post-injection counterpart is the
