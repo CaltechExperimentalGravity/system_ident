@@ -58,15 +58,19 @@ hardware bring-up.
 - **Stage 4 — `CDSBackend` twin-in-the-loop** *(repo: `system_ident`)*. Fill
   `inject`/`read`/`ramp_down`/`snapshot_state`/`restore_state` behind a **pluggable transport**:
   real `awg`+`nds2` (lazy-imported) + a **twin transport** routing to the rtsfree `mdl`. Add the
-  three bridge pieces: (1) timing/decoherence monitor (integer-period synchronous capture; per-period
+  two bridge pieces: (1) timing/decoherence monitor (integer-period synchronous capture; per-period
   drive-line phase walk); (2) DAC-frame, filter-aware **pre-injection** worst-case-peak saturation
-  check hooking `safety.py` (today's watchdog is post-hoc); (3) Foton ZPK/SOS export + provenance
-  manifest. Wire a `--cds` path in `cli.py`/`config.py` (twin-transport mode runs the full stack).
+  check hooking `safety.py` (today's watchdog is post-hoc). Plus the provenance manifest (roadmap
+  Track E). Wire a `--cds` path in `cli.py`/`config.py` (twin-transport mode runs the full stack).
+  ~~(3) Foton ZPK/SOS export~~ — **STRUCK 2026-08-11 (Rana): "the FOTON stuff is left for someone
+  else to do."** Do not build a foton exporter; see memory `no-foton-export`. Reading foton banks
+  (the `OPT_CTRL_SUS*` dampers below) is unaffected.
 - **Stage 5 (GATED — enumerate, no code)** — 40m-specific operator questions before any live
   injection: exact SOS optic + channel names (`C1:SUS-<optic>_..._EXC` / drive monitor / readback);
   OSEM basis matrix + counts↔N calibration + DAC/coil limit; awg/nds2 GPS timing / fractional-sample
   drift; damping-on vs off + stability margin with a comb near UGF; Guardian / lock-state +
-  abort-on-lock-loss; delivered-fit manifest + Foton drop-in. Pull `C1SUS.txt` foton bank from site.
+  abort-on-lock-loss; delivered-fit manifest (**no Foton drop-in — struck, see Stage 4**). Pull the
+  `C1SUS.txt` foton bank from site *to read* the existing damping filters.
 
 ### Recommended defaults (open items — revisit with Rana)
 

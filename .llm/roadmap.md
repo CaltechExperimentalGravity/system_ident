@@ -566,15 +566,18 @@ in-loop operating point is blocked in the generic twin by `twin.py:110-115`.
 > `gen_x1sos6dof.py` + the nominal `OPT_CTRL_SUS*` foton damping banks + the analytic↔rtsfree
 > validation gate) is next** and needs the Linux box. Stage 3 = scored fault/drift test-situation
 > library. Stage 4 = fill `CDSBackend` behind a pluggable transport (real awg+nds2 **or** a twin
-> transport) plus the three bridge pieces: timing/decoherence monitor, the pre-injection DAC check
-> (**that is Track K — build it there, not twice**), and a delivered-fit manifest (**that is Track
-> E**). Stage 5 is 🔴 **gated**: enumerate operator questions only, write no live-injection code.
+> transport) plus **two** bridge pieces: a timing/decoherence monitor, and the pre-injection DAC
+> check (**that is Track K — build it there, not twice**). The delivered-fit manifest is **Track E**.
+> Stage 5 is 🔴 **gated**: enumerate operator questions only, write no live-injection code.
 >
-> **Open question for the user — do not decide unilaterally.** Stage 4 lists "Foton ZPK/SOS export"
-> as a bridge piece, but `.claude/NOTES.md` records Foton export as explicitly **out of scope**
-> ("the user rejected it repeatedly"), and the memory it cites (`no-foton-export`) is not in the
-> committed `.claude/memory/` — it was machine-local and did not survive. **Ask before building any
-> Foton export.**
+> **Foton export is OUT OF SCOPE — resolved 2026-08-11 (user).** "The FOTON stuff is left for
+> someone else to do." The 40m handoff note listed a third Stage-4 bridge piece, "Foton ZPK/SOS
+> export"; that item is **struck**. Do not write a Foton exporter, do not re-propose one, and do not
+> treat a delivered fit as needing to land in a foton bank — this repo's deliverable is the
+> identified model + its manifest (Track E). *Reading* foton banks stays fine and is unaffected:
+> the twin's `apply_foton_bank` / `readFilter` path is how the real L1-MC2 and `OPT_CTRL_SUS*`
+> damping filters get loaded, and Track A/L depend on it. The prohibition is on **export**.
+> See `.claude/memory/no-foton-export.md`.
 
 **Blocker:** 🔵 twin-box for Stage 2–4; 🔴 gated for Stage 5.
 

@@ -91,7 +91,8 @@ the wiring + both injection points.
 Remaining roadmap (see `.llm/roadmap.md`): CDS backend (step 8) [blocked: no
 nds2/awg/cdsutils libs], snapshot/restore for CDS (step 5), MIMO joint/simultaneous
 ID, versioned docs. NOTE: Foton export is **explicitly out of scope** — the user
-rejected it repeatedly; do not re-add it (see memory `no-foton-export`).
+rejected it repeatedly and reconfirmed on 2026-08-11 ("left for someone else to
+do"); do not re-add it. Reading foton banks is fine. Memory: `no-foton-export`.
 
 ## Open / deferred
 - ✅ **Prior-robust first pass — DONE.** The loop's first pass now designs from the

@@ -21,3 +21,4 @@ Each entry is one durable fact in its own file; write new ones here, never to `~
 - [No heavy compute in slide generation](no-heavy-compute-in-slide-generation.md) — HARD RULE: build decks from `docs/_freeze` / existing caches; cache-first generators, never recompute what already ran
 - [CI stays light](ci-stays-light.md) — heavy tests and renders run locally; measure step timings before proposing any CI speedup
 - [Never open the user's browser](never-open-the-users-browser.md) — HARD RULE: never `open`/preview a rendered page or URL; report the path and stop
+- [No Foton export](no-foton-export.md) — HARD RULE: never build a foton ZPK/SOS exporter (left to someone else); *reading* foton banks is fine
