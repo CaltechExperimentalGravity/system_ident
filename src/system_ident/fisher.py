@@ -16,10 +16,21 @@ Validated bit-for-bit against the legacy engine in
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from scipy.integrate import trapezoid
 
 from .model import TFModel
+
+# Never let Pyy hit exactly 0: weight = Pxx / Pyy below goes to inf at a
+# zero bin (a disconnected/dead channel gives Welch a flat, exactly-zero
+# PSD), which poisons the Fisher matrix, its inverse, and the whole
+# excitation-design fixed point downstream -- the "divide by 0" this floor
+# exists to prevent. Absolute, not relative to Pyy's own peak: a genuinely
+# all-zero Pyy has no peak to be relative to, which is exactly the case this
+# needs to survive.
+_PYY_FLOOR = 1e-30
 
 
 def _default_logflag(n_par: int) -> np.ndarray:
@@ -83,7 +94,18 @@ def fisher_matrix(
     # The fixed parameter contributes nothing to the information.
     dH[n_num, :] = 0.0
 
-    weight = Pxx / Pyy
+    Pyy = np.asarray(Pyy, dtype=float)
+    if np.any(Pyy <= 0):
+        warnings.warn(
+            "Pyy (quiet-time noise PSD) has a zero or negative bin -- likely a "
+            "disconnected/dead channel, or a genuinely zero-noise test signal. "
+            "Flooring at a tiny value to keep the Fisher-information weighting "
+            "well-posed; this makes excitation design behave as if there IS an "
+            "extremely small noise floor, not literal zero -- on a REAL channel "
+            "this usually means it isn't actually live, worth checking.",
+            stacklevel=2,
+        )
+    weight = Pxx / np.maximum(Pyy, _PYY_FLOOR)
 
     gamma = np.zeros((n_par, n_par))
     for i in range(n_par):
