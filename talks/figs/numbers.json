@@ -290,5 +290,19 @@
     }
   ],
   "twin_peak_counts": 9970.0,
-  "twin_worst_f0_pct": 0.14880952380952392
+  "twin_worst_f0_pct": 0.14880952380952392,
+  "wh_acf1_bad": 0.8067000218915171,
+  "wh_acf1_good": 0.02433839030735184,
+  "wh_acf_bound": 0.05244722071813262,
+  "wh_costratio_bad": 2650956.7310936498,
+  "wh_costratio_good": 0.973549717390856,
+  "wh_max_lag": 20,
+  "wh_missing_hz": 1.6,
+  "wh_n_bins": 120,
+  "wh_p_bad": 0.0,
+  "wh_p_good": 0.46661189375430034,
+  "wh_powratio_bad": 2650956.7310936465,
+  "wh_powratio_good": 0.9735497173908548,
+  "wh_worst_hi": 1.8428571428571432,
+  "wh_worst_lo": 1.411764705882353
 }

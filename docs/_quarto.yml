@@ -67,11 +67,15 @@ website:
         text: "▶ Run it live"
       - href: reference/index.qmd
         text: API Reference
-      # Rendered by the CI step "Render the talks and fold them into the site" — the deck
-      # is its own Quarto project under talks/, grafted in at /talks/. Plain href (not a
+      # Rendered by the CI step "Render the talks and fold them into the site" — the decks
+      # are their own Quarto project under talks/, grafted in at /talks/. Plain hrefs (not
       # .qmd) because this site's render list never reaches up there.
-      - href: talks/ligo-sysid.html
-        text: "🎤 Talk"
+      - text: "🎤 Talks"
+        menu:
+          - href: talks/ligo-sysid.html
+            text: "Suspensions + Calibration (general)"
+          - href: talks/ligo-cal.html
+            text: "DARM calibration (CAL group)"
     right:
       - icon: github
         href: https://github.com/CaltechExperimentalGravity/system_ident

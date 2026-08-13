@@ -757,9 +757,107 @@ def group_loops(nums: dict, force: bool) -> None:
         )
 
 
+def _whiteness_case(n_modes: int, *, seed: int = 5):
+    """Fit a 2-mode rank-1 plant with ``n_modes`` and return (report, per-bin power, freq).
+
+    The synthetic campaign mirrors ``tests/test_mimo_fit.py::synth_openloop`` so the deck
+    and the unit tests demonstrate the same thing on the same construction. It is local
+    and takes seconds — no twin, no compiled model.
+    """
+    from system_ident.mimo_modal import Rank1ModalModel
+    from system_ident.mimo_fit import (MIMOModalEstimator, initial_theta, validate_fit,
+                                       whitened_residual)
+    modes = [(0.6, 30.0), (1.6, 40.0)]
+    phi = np.array([[1., .3, .2], [.2, 1., .4]])
+    psi = np.array([[1., .2, .1], [.1, 1., .3]])
+    truth, M = Rank1ModalModel(3, 3, 2), 20
+    freq = np.linspace(0.3, 3.0, 120)
+    truth.set_reference(freq)
+    theta_t = truth.pack(truth.ab_from_modes(modes), phi, psi)
+    G = truth.eval(theta_t, freq)
+    s = 2j * np.pi * freq
+    rng = np.random.default_rng(seed)
+    nsa, sigZ, exps = truth.n_sens + truth.n_act, 5e-3, []
+    for l in range(truth.n_act):
+        U = np.zeros((len(freq), truth.n_act), complex)
+        U[:, l] = 1.0 + 0.3 * np.cos(s.imag)
+        Y = np.einsum('fij,fj->fi', G, U)
+        per = []
+        for _ in range(M):
+            nY = (rng.standard_normal((len(freq), truth.n_sens))
+                  + 1j * rng.standard_normal((len(freq), truth.n_sens))) * sigZ / np.sqrt(2)
+            nU = (rng.standard_normal((len(freq), truth.n_act))
+                  + 1j * rng.standard_normal((len(freq), truth.n_act))) * sigZ / np.sqrt(2)
+            per.append(np.concatenate([Y + nY, U + nU], axis=1))
+        per = np.array(per)
+        Zb = per.mean(0)
+        Cz = np.empty((len(freq), nsa, nsa), complex)
+        for k in range(len(freq)):
+            d = per[:, k, :] - Zb[k]
+            Cz[k] = (d.conj().T @ d) / (M - 1) / M
+        exps.append((Zb[:, :truth.n_sens], Zb[:, truth.n_sens:], Cz))
+
+    m = Rank1ModalModel(3, 3, n_modes)
+    theta = MIMOModalEstimator(m).fit(exps, freq, initial_theta(m, exps, freq, G)).theta
+    rep = validate_fit(m, theta, exps, freq, dof=M, modes_hz=[f for f, _ in modes])
+    power = (np.abs(whitened_residual(m, theta, exps, freq)) ** 2).mean(axis=(0, 2))
+    return rep, power, freq
+
+
+def group_whiteness(nums: dict, force: bool) -> None:
+    """P&S validation test 3 — the residual whiteness check, on a deliberately
+    undermodeled fit (2-mode plant fitted with 1 mode) against a correctly ordered one."""
+    if not force and "wh_p_bad" in nums and not _need("whiteness", False):
+        print("  [cached] whiteness figure + numbers already present")
+        return
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    import sysid_plots as sp
+
+    good, p_good, freq = _whiteness_case(2)
+    bad, p_bad, _ = _whiteness_case(1)
+    wg, wb = good["whiteness"], bad["whiteness"]
+    exp_pow = wg["mean_power_expected"]
+
+    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.09,
+                        subplot_titles=("<b>Residual autocorrelation</b> — structure left over",
+                                        "<b>Residual power per bin</b> — where it sits"))
+    for w, name, c in ((wg, "correct order (2 modes)", sp.GREEN),
+                       (wb, "undermodeled (1 mode)", sp.RED)):
+        fig.add_scatter(x=w["lags"], y=w["acf"], mode="lines+markers", name=name,
+                        line=dict(color=c, width=2.4), marker=dict(color=c, size=sp.MK_DATA),
+                        row=1, col=1)
+    fig.add_scatter(x=wg["lags"], y=wg["acf_bound"], mode="lines", name="95% white-noise band",
+                    line=dict(color=sp.GRAY, width=1.8, dash="dash"), row=1, col=1)
+    for y, name, c in ((p_good, "correct order (2 modes)", sp.GREEN),
+                       (p_bad, "undermodeled (1 mode)", sp.RED)):
+        fig.add_scatter(x=freq, y=y, mode="lines", name=name, showlegend=False,
+                        line=dict(color=c, width=2.0), row=1, col=2)
+    fig.add_hline(y=exp_pow, line=dict(color=sp.GRAY, width=1.8, dash="dash"), row=1, col=2)
+    fig.add_vline(x=1.6, line=dict(color=sp.INK, width=1.2, dash="dot"), row=1, col=2)
+    fig.add_annotation(x=np.log10(1.6), y=1.0, xref="x2", yref="y2 domain", yanchor="bottom",
+                       showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.INK),
+                       text="the mode the model omits")
+    fig.update_xaxes(title_text="lag [excited-line index]", row=1, col=1)
+    fig.update_yaxes(type="log", title_text="|autocorrelation|", row=1, col=1)
+    fig.update_xaxes(type="log", title_text="frequency [Hz]", row=1, col=2)
+    fig.update_yaxes(type="log", title_text="mean |whitened residual|²", row=1, col=2)
+    _write(sp.style(fig, height=520), "whiteness", height=520)
+
+    nums.update(
+        wh_p_good=float(wg["p_value"]), wh_p_bad=float(wb["p_value"]),
+        wh_acf1_good=float(wg["acf"][0]), wh_acf1_bad=float(wb["acf"][0]),
+        wh_acf_bound=float(wg["acf_bound"][0]),
+        wh_powratio_good=float(wg["power_ratio"]), wh_powratio_bad=float(wb["power_ratio"]),
+        wh_costratio_good=float(good["cost_ratio"]), wh_costratio_bad=float(bad["cost_ratio"]),
+        wh_worst_lo=float(wb["worst_window_hz"][0]), wh_worst_hi=float(wb["worst_window_hz"][1]),
+        wh_missing_hz=1.6, wh_n_bins=int(len(freq)), wh_max_lag=int(wg["lags"][-1]),
+    )
+
+
 GROUPS = {"method": group_method, "twin": group_twin, "sos": group_sos,
           "srm": group_srm, "darm": group_darm, "loops": group_loops,
-          "td": group_td}
+          "td": group_td, "whiteness": group_whiteness}
 
 
 # ── _variables.yml — every number the deck quotes, pre-formatted ────────────
@@ -856,6 +954,17 @@ def _fmt(n: dict) -> dict:
                "crest_opt": g("td_crest_opt", ".1f"),
                "crest_flat": g("td_crest_flat", ".1f"),
                "dac": g("td_dac", ".0f")},
+        "wh": {"p_good": g("wh_p_good", ".2f"),
+               "acf1_good": g("wh_acf1_good", ".3f"),
+               "acf1_bad": g("wh_acf1_bad", ".2f"),
+               "bound": g("wh_acf_bound", ".3f"),
+               "powratio_good": g("wh_powratio_good", ".2f"),
+               "costratio_good": g("wh_costratio_good", ".2f"),
+               "worst_lo": g("wh_worst_lo", ".2f"),
+               "worst_hi": g("wh_worst_hi", ".2f"),
+               "missing": g("wh_missing_hz", ".1f"),
+               "bins": g("wh_n_bins", "d"),
+               "max_lag": g("wh_max_lag", "d")},
     }
     # per-stage actuation rows, flattened for the shortcodes
     for row in n.get("darm_actuation", []):
