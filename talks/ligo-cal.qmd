@@ -16,6 +16,24 @@ format:
     footer: "system_ident · Phase 1 (digital twin) · caltechexperimentalgravity.github.io/system_ident"
 ---
 
+## Outline
+
+1. **The proposal** — what a designed periodic multisine would change, and what it would leave untouched.
+2. **The record** — notation, the O1–O3b uncertainty budgets, and the cost of the present measurement.
+3. **The estimator** — periodicity and leakage, Fisher-based drive allocation, and the calibration of the quoted uncertainty.
+4. **DARM** — `R(f)` with a Cramér–Rao envelope, the per-stage `κᵢ`, drift tracking, and line placement.
+5. **Limitations** — where the method offers no improvement, and the comparison on the calibration figures of merit.
+6. **The proposed test** — one non-observing window, the existing Pcal, a same-day swept sine.
+
+::: {.notes}
+The second column of the next slide is the one this audience cares about first.
+Signposting it here means the question does not have to wait.
+
+All results shown are Phase 1: a closed-loop DARM twin evaluated against the O4
+noise floor (aligo_O4high, LIGO-T2000012, scaled by the 4 km arm length). No
+hardware injections appear anywhere in this deck.
+:::
+
 ## Proposal {.smaller}
 
 Measure `R(f)` with a designed periodic multisine rather than one frequency at a time,
@@ -52,7 +70,7 @@ All results shown are Phase 1: a closed-loop DARM twin evaluated against the O4 
 anywhere in this deck.
 :::
 
-## Notation {.smaller}
+## Notation
 
 $$h(t) = R\,\frac{d_{\rm err}}{L},\qquad R(f) = \frac{1+G}{C},\qquad G = A\,D\,C$$
 
@@ -77,7 +95,7 @@ Notation follows Cahillane et al. 2017 (arXiv:1708.03023) and Sun et al. 2020
 (arXiv:2005.02531). This slide establishes shared symbols; it should be brief.
 :::
 
-## Calibration uncertainty in O1–O3b {.smaller}
+## Calibration uncertainty in O1–O3b
 
 | run | magnitude | phase | reported limiting term |
 |---|---|---|---|
@@ -103,7 +121,7 @@ narrow: the term that limited O3b is a shape-measurement term, and a leakage-fre
 addresses shape measurement.
 :::
 
-## Cost of the present measurement {.smaller}
+## Cost of the present measurement
 
 | practice | cost |
 |---|---|
@@ -126,7 +144,7 @@ proposal is understood as a restatement of that practice the discussion ends her
 slide draws the distinction.
 :::
 
-## Relation to the existing broadband injection {.smaller}
+## Relation to the existing broadband injection
 
 | | existing broadband Pcal injection | periodic multisine |
 |---|---|---|
@@ -146,7 +164,7 @@ identification to gravitational-wave detector calibration. The claim of novelty 
 stated at this precision and no broader.
 :::
 
-## The estimator {.smaller}
+## The estimator
 
 1. Design a periodic multisine whose power is placed according to the Fisher information.
 2. Inject it for an integer number of periods and discard the transient period or periods.
@@ -166,7 +184,7 @@ regression currently supplies indirectly. Steps 1 and 5 make the measurement a d
 problem rather than a post-processing problem.
 :::
 
-## Leakage bias in a windowed estimate {.smaller}
+## Leakage bias in a windowed estimate
 
 ![](figs/leakage.svg){.r-stretch}
 
@@ -186,7 +204,7 @@ same, but say so if asked; the DARM-specific demonstration is the R(f) slide lat
 deck.
 :::
 
-## Fisher information and drive allocation {.smaller}
+## Fisher information and drive allocation
 
 For a model `H(f, θ)` measured at lines `fₖ` with drive PSD `Pxx(fₖ)` and noise `Pyy(fₖ)`,
 
@@ -210,7 +228,7 @@ distributed by hand; the Fisher matrix determines where an additional increment 
 produces the largest reduction in σ(R(f)) for the reported parameters.
 :::
 
-## Optimal and flat drive allocation compared {.smaller}
+## Optimal and flat drive allocation compared
 
 ::: {.columns}
 ::: {.column width="50%"}
@@ -234,7 +252,7 @@ of worst-diagonal CRB variances at identical power and record length; it is not 
 quantity.
 :::
 
-## Calibration of the quoted uncertainty {.smaller}
+## Calibration of the quoted uncertainty
 
 ![](figs/crb-pull.svg){.r-stretch}
 
@@ -252,7 +270,7 @@ place of the regression residual term.
 
 # DARM {.divider}
 
-## The DARM twin {.smaller}
+## The DARM twin
 
 Sensing `C` from a coupled detuned cavity with delay, three-stage actuation
 `κ_UIM / κ_PUM / κ_TST`, the derived servo `D`, and the response
@@ -272,7 +290,7 @@ is representative rather than measured, so absolute σ levels are illustrative. 
 demonstrated — `1/√T` convergence and agreement with the CRB — do not depend on it.
 :::
 
-## Recovered `R(f)` with a Cramér–Rao envelope {.smaller}
+## Recovered `R(f)` with a Cramér–Rao envelope
 
 ![](figs/darm-response.svg){.r-stretch}
 
@@ -308,7 +326,7 @@ These crossovers are what a per-stage calibration line on each actuator measures
 connection carries forward to the TDCF slide.
 :::
 
-## Band coverage per unit time {.smaller}
+## Band coverage per unit time
 
 ![](figs/darm-sweep.svg){.r-stretch}
 
@@ -324,7 +342,7 @@ the full drive power at one frequency; the multisine advantage is in coverage pe
 not in per-point uncertainty. Overstating this invites a correct objection.
 :::
 
-## A drifting actuation strength {.smaller}
+## A drifting actuation strength
 
 ![](figs/darm-drift.svg){.r-stretch}
 
@@ -359,7 +377,7 @@ The correlation matrix is worth dwelling on. It gives a computed answer to wheth
 f_cc drift can be distinguished, which is a live question in the TDCF reconstruction.
 :::
 
-## Fisher-optimal placement of the TDCF lines {.smaller}
+## Fisher-optimal placement of the TDCF lines
 
 ![](figs/darm-callines.svg){.r-stretch}
 
@@ -374,7 +392,7 @@ re-derives where the permanent lines should sit. If the sweep comparison meets r
 this is the more modest proposal to fall back on.
 :::
 
-## Resolvability of the drift {.smaller}
+## Resolvability of the drift
 
 | quantity | value |
 |---|---|
@@ -387,7 +405,7 @@ this is the more modest proposal to fall back on.
 The drift is resolved by a computed factor rather than by inspection. We do not describe a
 result as limited without first computing the bound that would establish the limit.
 
-## The actuation stages are suspensions {.smaller}
+## The actuation stages are suspensions
 
 ![](figs/srm-diag.svg){.r-stretch}
 
@@ -407,7 +425,7 @@ closed-loop question is raised.
 
 # Limitations {.divider}
 
-## Where the method offers no improvement {.smaller}
+## Where the method offers no improvement
 
 ::: {.columns}
 ::: {.column width="33%"}
@@ -449,7 +467,7 @@ accurate answer is that we do not know the acceptable footprint and that definin
 of what we are asking for.
 :::
 
-## Comparison on the calibration figures of merit {.smaller}
+## Comparison on the calibration figures of merit
 
 | figure of merit | swept sine | periodic multisine | assessment |
 |---|---|---|---|
@@ -461,7 +479,7 @@ of what we are asking for.
 | exposure to model error | present | identical | no difference |
 | Pcal traceability | 0.3–0.15 % (O4) | unchanged, same Pcal | no difference |
 
-## Outstanding validation {.smaller}
+## Outstanding validation
 
 ::: {.columns}
 ::: {.column width="50%"}
@@ -490,7 +508,7 @@ This slide is included deliberately. A method described together with its unveri
 citations and unproven claims is more defensible than one presented without them.
 :::
 
-## Proposed test {.smaller}
+## Proposed test
 
 A single non-observing window, using the existing photon calibrator, with no additional
 hardware.
@@ -526,7 +544,7 @@ The more modest alternative, if the sweep comparison meets resistance, is A-opti
 placement of the permanent TDCF lines, which requires no operational change.
 :::
 
-## Reproducing this work {.smaller}
+## Reproducing this work
 
 ```bash
 conda env create -f environment.yml && conda activate sysid
@@ -562,21 +580,21 @@ comparison.
 
 # Backup {.divider}
 
-## Detecting a pole or zero the model does not have {.smaller}
+## Detecting a pole or zero the model does not have
 
 The measured per-bin covariance is what makes this tractable. Because it comes from the
-period-to-period scatter rather than from the fit, the residual has an **absolute scale**: it
+period-to-period scatter rather than from the fit, the residual has an absolute scale: it
 can be compared against a noise level that was established independently of the model. In an
 ordinary least-squares fit the two are not separable, and an inadequate model simply inflates
 the inferred noise.
 
 P&S prescribe three checks on a converged fit (§12.3.6, p. 477):
 
-| test | statistic | what it tells you |
+| test | statistic | what it establishes |
 |---|---|---|
-| per-entry FRF comparison (12-34) | `\|G(θ̂) − Ĝ\| ≤ √(F_p(2,2dof))·σ̂_Ĝ` at ~p% of bins | *where* — a missing pole fails at a contiguous run of bins, not scattered ones |
-| cost vs expectation | SML cost is ~χ² with known dof | *whether* — a minimum that is too large indicates undermodeling |
-| whiteness of the residuals | autocorrelation of `Ĝ − G(θ̂)` along frequency | *whether it is structured* — noise is uncorrelated between bins; a missing resonance is not |
+| per-entry FRF comparison (12-34) | `\|G(θ̂) − Ĝ\| ≤ √(F_p(2,2dof))·σ̂_Ĝ` at ~p% of bins | where — a missing pole fails at a contiguous run of bins, not scattered ones |
+| cost vs expectation | SML cost is ~χ² with known dof | whether — a minimum that is too large indicates undermodeling |
+| whiteness of the residuals | autocorrelation of `Ĝ − G(θ̂)` along frequency | whether it is structured — noise is uncorrelated between bins; a missing resonance is not |
 
 Order selection and the over- versus under-modelling trade-off are Ch 11 §11.3–§11.4;
 overmodelling is controlled by a complexity penalty on the cost.
@@ -589,16 +607,16 @@ rather than a relative one.
 Cited from the repo's P&S index; the book is not reproduced anywhere in this project.
 :::
 
-## The whiteness test, on a fit that is missing a mode {.smaller}
+## The whiteness test, on a fit that is missing a mode
 
 ![](figs/whiteness.svg){.r-stretch}
 
-A two-mode plant fitted with **one** mode, against the correctly ordered fit on the same data
+A two-mode plant fitted with one mode, against the correctly ordered fit on the same data
 and the same measured noise. Correct order: lag-1 autocorrelation
 {{< var wh.acf1_good >}} against a 95 % band of {{< var wh.bound >}}, portmanteau
 p = {{< var wh.p_good >}}, residual power {{< var wh.powratio_good >}}× expected. Undermodelled:
 lag-1 autocorrelation [{{< var wh.acf1_bad >}}]{.num}, and the worst residual window falls at
-**{{< var wh.worst_lo >}}–{{< var wh.worst_hi >}} Hz**, bracketing the {{< var wh.missing >}} Hz
+{{< var wh.worst_lo >}}–{{< var wh.worst_hi >}} Hz, bracketing the {{< var wh.missing >}} Hz
 mode the model omits.
 
 ::: {.notes}
@@ -620,18 +638,18 @@ directions — a correct fit passes, an undermodelled one is caught and localise
 
 ::: {.columns}
 ::: {.column width="50%"}
-**Localising a candidate to sensing or actuation costs nothing extra.** The stage ratio
-`H_stage/H_pcal` cancels `C`. So an unmodelled *sensing* feature — an optical spring, a
-detuning term — appears in the Pcal FRF and cancels in the stage ratio; an unmodelled
-*actuation* feature does the opposite. Which one shows the anomaly identifies the side of the
-loop before anything is fitted.
+**Localising a candidate to sensing or actuation.** The stage ratio
+`H_stage/H_pcal` cancels `C`. An unmodelled sensing feature — an optical spring, a
+detuning term — therefore appears in the Pcal FRF and cancels in the stage ratio, while an
+unmodelled actuation feature does the opposite. Which of the two carries the anomaly
+identifies the side of the loop before anything is fitted.
 
-**The unexcited lines are free.** Every bin the multisine does not drive reads the floor
-directly, and anything appearing there is not the plant responding.
+**The unexcited lines.** Every bin the multisine does not drive reads the floor
+directly, so anything appearing there is not the plant responding.
 :::
 ::: {.column width="50%"}
 **The caveat, stated plainly (11-5, p. 434).** The residual-variance compensation
-`var(G_meas − G_model) = σ²_G(k) − σ²_G(θ̂)` can go **negative** at sharp resonances, where the
+`var(G_meas − G_model) = σ²_G(k) − σ²_G(θ̂)` can go negative at sharp resonances, where the
 model is flexible and rides only one or two data points. Residual significance cannot be judged
 there.
 

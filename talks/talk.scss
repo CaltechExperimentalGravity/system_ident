@@ -1,48 +1,83 @@
 /*-- scss:defaults --*/
-// House palette, lifted from docs/sysid_plots.py so the slides and the figures
-// they carry are one visual system.
-$sky:   #1F8AC0;   // truth / primary
-$gold:  #C8973A;   // fit / designed drive
-$gray:  #94A3B8;   // measured / suppressed
-$green: #2D9D6B;
-$rose:  #D2698E;
-$ink:   #1B2733;
+// The figure palette (docs/sysid_plots.py: SKY / GOLD / GRAY / GREEN / ROSE)
+// encodes DATA. It is deliberately absent from the slide chrome below: on these
+// slides a colour means a quantity, never emphasis. Everything outside a figure
+// is ink, muted ink, or a hairline.
+$ink:      #1B2733;   // text — matches sysid_plots.INK
+$mute:     #56636E;   // captions, footer, secondary text
+$rule:     #C7D0D7;   // hairlines
+$flag:     #8A5A2B;   // the one non-ink accent, for .warn only
 
-$font-family-sans-serif: "Outfit", "Inter", "Helvetica Neue", sans-serif !default;
-$presentation-font-size-root: 30px !default;
+// A workhorse text grotesk, not a display face. Sizes and spacing carry the
+// hierarchy; the typeface stays out of the way.
+$font-family-sans-serif: "Inter", "Helvetica Neue", "Nimbus Sans", Arial, sans-serif !default;
+$presentation-font-size-root: 36px !default;
 $body-color: $ink !default;
-$link-color: $sky !default;
+$link-color: $ink !default;
 $presentation-heading-color: $ink !default;
 $presentation-heading-font-weight: 600 !default;
 $code-block-font-size: 0.55em !default;
 
 /*-- scss:rules --*/
-.reveal h1, .reveal h2 { letter-spacing: -0.01em; }
+.reveal h1, .reveal h2 { letter-spacing: 0; text-transform: none; }
 
+// The slide title is set by a hairline, not by a coloured bar. Holding it to
+// 1.1em also returns vertical room to the figure below it.
+// Held close to body size. A title much larger than its content is what leaves a
+// slide looking empty, and these titles are statements, not banners.
 .reveal h2 {
-  border-bottom: 3px solid rgba(31, 138, 192, 0.28);
-  padding-bottom: 0.18em;
+  font-size: 0.95em;
+  font-weight: 600;
+  border-bottom: 1px solid $rule;
+  padding-bottom: 0.2em;
   margin-bottom: 0.5em;
 }
 
-// Figures: the SVGs are the argument, so give them the room.
+.reveal h3 { font-size: 0.8em; font-weight: 600; }
+
+// Figures are the argument, so give them the room and keep their frame silent.
 .reveal .slide figure > figcaption,
-.reveal figcaption { font-size: 0.62em; color: #5b6b7d; }
+.reveal figcaption { font-size: 0.6em; color: $mute; }
 .reveal img { background: transparent; box-shadow: none; border: 0; }
 
-// Tight, readable tables of real numbers.
-.reveal table { font-size: 0.62em; }
-.reveal table th { border-bottom: 2px solid rgba(31, 138, 192, 0.35); }
+// Tables of real numbers: lining figures, hairline rules, and the full measure.
+// Quarto leaves tables at auto width, which strands a three-row table in the
+// middle of the slide; these are the result, so they get the whole column.
+.reveal table {
+  width: 100%;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums lining-nums;
+  border-collapse: collapse;
+}
+.reveal table th {
+  font-weight: 600;
+  border-bottom: 1px solid $ink;
+  padding: 0.3em 0.6em 0.3em 0;
+}
+.reveal table td { border-bottom: 1px solid $rule; padding: 0.3em 0.6em 0.3em 0; }
 
-// Callouts used for the two audience tracks.
-.aud-sus  { border-left: 6px solid $green; padding-left: 0.7em; }
-.aud-cal  { border-left: 6px solid $rose;  padding-left: 0.7em; }
+// The two audience tracks. Distinguished by their lead word, not by colour —
+// the rule is the same weight on both so neither reads as the favoured one.
+.aud-sus, .aud-cal { border-left: 2px solid $rule; padding-left: 0.7em; }
 
-// A quiet "measured number" emphasis.
-.num { color: $sky; font-weight: 600; font-variant-numeric: tabular-nums; }
-.warn { color: $rose; font-weight: 600; }
+// Numbers are set in tabular figures so columns of them line up. They are NOT
+// coloured and NOT emboldened: a measured value earns attention by being the
+// only quantity in the sentence.
+.num { font-variant-numeric: tabular-nums lining-nums; }
 
-.reveal .footer { color: #6b7a8c; font-size: 0.5em; }
+// The single reserved accent, for a stated caveat or a failure mode.
+.warn { color: $flag; }
 
-// Section-divider slides
-.reveal section.divider h1 { color: $sky; }
+.reveal .footer { color: $mute; font-size: 0.46em; }
+
+// Links are ink with a quiet underline rather than a saturated colour.
+.reveal a { color: $ink; text-decoration: underline; text-decoration-color: $rule; }
+.reveal a:hover { text-decoration-color: $ink; }
+
+// Section dividers: set by weight and space, not by colour.
+.reveal section.divider h1 { color: $ink; font-weight: 600; }
+
+// Callouts are structural, so keep them quiet: a hairline box, no fill, no icon
+// tint competing with the figures.
+.reveal div.callout { border-left-width: 2px; }
+.reveal div.callout .callout-body { font-size: 0.82em; }

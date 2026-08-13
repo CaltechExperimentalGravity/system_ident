@@ -1,6 +1,6 @@
 ---
 title: "Optimal-excitation system identification for LIGO"
-subtitle: "One Pintelon–Schoukens pipeline for suspensions **and** calibration"
+subtitle: "One Pintelon–Schoukens pipeline for suspensions and calibration"
 author: "`system_ident` — Caltech Experimental Gravity"
 format:
   revealjs:
@@ -16,7 +16,27 @@ format:
     footer: "system_ident · Phase 1 (digital twin) · caltechexperimentalgravity.github.io/system_ident"
 ---
 
-## Two groups, one measurement problem {.smaller}
+## Outline
+
+1. **The measurement problem** — one task shared by the suspensions and calibration groups, and the cost of present practice.
+2. **The estimator** — periodic multisine, leakage-free synchronous DFT, measured per-bin covariance, maximum-likelihood fit, Cramér–Rao bound.
+3. **The measurement in the time domain** — record length, drive headroom, and identification with the loops closed.
+4. **Suspensions** — HSTS and SRM through production damping banks, and the 40m SOS in 6 DOF.
+5. **Calibration** — `R(f)`, the per-stage `κᵢ`, and drift tracking.
+6. **Outlook** — the staged plan, and the operational answers needed from the control room.
+
+::: {.notes}
+Pacing: sections 1–3 are the shared method argument, followed by a Suspensions
+block, a Calibration block, and the request at the end. For a 25-minute slot,
+give one group its own block and cover the other's in two slides.
+
+Set expectations here: everything shown is Phase 1 — the RTSfreerun digital twin
+running the same compiled advligorts front-end C code as a real front end. There
+are no hardware injections anywhere in this deck. The final section sets out what
+would be needed in order to go further.
+:::
+
+## Two groups, one measurement problem
 
 ::: {.aud-sus}
 **Suspensions** — `f₀`, `Q`, and the cross-couplings of the rigid-body modes,
@@ -36,17 +56,6 @@ This talk covers what the Pintelon–Schoukens method offers relative to swept s
 and broadband noise, and what it currently achieves on the compiled CDS digital
 twin.
 
-::: {.notes}
-Deck layout, for pacing: slides 2–13 are the shared method argument, followed by a
-Suspensions block, a Calibration block, and the request at the end. For a
-25-minute slot, give one group its own block and cover the other's in two slides.
-
-Set expectations early: everything shown is Phase 1 — the RTSfreerun digital twin
-running the same compiled advligorts front-end C code as a real front end. There
-are no hardware injections anywhere in this deck. The final section sets out what
-we would need in order to go further.
-:::
-
 ## Rigid-body modes over the readout floor
 
 ![](figs/problem.svg){.r-stretch}
@@ -55,33 +64,34 @@ Sharp, high-`Q` rigid-body modes packed into a few Hz, over a readout floor.
 Nearly all the information about `f₀` and `Q` lives in a handful of bins per mode.
 
 ::: {.notes}
-The point of this slide is that the information is *localized*. Any drive that
+The point of this slide is that the information is localised. Any drive that
 spreads power uniformly across the band spends most of its budget where the
 parameters are not.
 :::
 
-## Present practice and its costs {.smaller}
+## Present practice and its costs
 
 | practice | what it costs |
 |---|---|
-| **Swept sine** — one line at a time, dwell, step | correct, but pays wall-clock linearly in the number of frequencies |
-| **Broadband noise + Welch** | not periodic ⇒ the DFT leaks; a high-`Q` peak is read **low**, and the bias does not average away |
-| **Ad-hoc drive shaping** | no per-bin noise model ⇒ no honest error bar, no stopping rule |
+| Swept sine — one line at a time, dwell, step | correct, but pays wall-clock linearly in the number of frequencies |
+| Broadband noise with Welch estimation | the record is not periodic, so the DFT leaks; a high-`Q` peak is read low, and the bias does not average away |
+| Ad-hoc drive shaping | no per-bin noise model, so no defensible error bar and no stopping rule |
 
 None of these is incorrect. Each leaves information, and measurement time, unused.
 
-## The Pintelon–Schoukens estimator {.smaller}
+## The Pintelon–Schoukens estimator
 
-1. **Design** a *periodic multisine* whose power sits where the Fisher information is.
-2. **Inject** it for an integer number of periods; drop the transient period(s).
-3. **Estimate** the FRF by a *synchronous* DFT — period == analysis window, so
-   **no leakage** — as a ratio of averages `⟨Y⟩/⟨X⟩`, with the **per-bin noise
-   covariance** taken from the period-to-period scatter.
-4. **Fit** the parametric model by **maximum likelihood** with that covariance.
-5. **Bound** the result with the **Cramér–Rao bound** from the accumulated Fisher
-   information — and feed it back into step 1.
+1. Design a periodic multisine whose power is placed according to the Fisher information.
+2. Inject it for an integer number of periods and discard the transient period or periods.
+3. Estimate the FRF by a synchronous DFT — the drive period equals the analysis
+   window, so the estimate is leakage-free — as a ratio of averages `⟨Y⟩/⟨X⟩`, with
+   the per-bin noise covariance obtained from the period-to-period scatter.
+4. Fit the parametric model by maximum likelihood using that covariance.
+5. Bound the result by the Cramér–Rao bound from the accumulated Fisher
+   information, and return that bound to step 1.
 
-The loop stops when the fractional parameter uncertainty `σ/θ` crosses target.
+The iteration terminates when the fractional parameter uncertainty `σ/θ` reaches
+its target.
 
 ::: {.notes}
 Step 3 carries most of the weight: periodicity is what makes the noise model
@@ -93,25 +103,25 @@ rather than a post-processing problem.
 
 ![](figs/excitations.svg){.r-stretch}
 
-Same in-band power. Only the multisine is *exactly periodic* in the analysis
+Same in-band power. Only the multisine is exactly periodic in the analysis
 window.
 
 ::: {.notes}
 Crest factors printed here are plant-referred — peak/RMS of the requested drive.
-The binding actuator limit is DAC saturation *after* the whitening/actuation
+The binding actuator limit is DAC saturation after the whitening/actuation
 chain, which this simulation does not model, so no peak/crest advantage is being
 claimed for any phasing choice.
 :::
 
 # The measurement in the time domain {.divider}
 
-## The injected drive {.smaller}
+## The injected drive
 
 ![](figs/td-drive.svg){.r-stretch}
 
-{{< var td.n_periods >}} identical periods of **{{< var td.period >}} s**
+{{< var td.n_periods >}} identical periods of {{< var td.period >}} s
 (`df = {{< var td.df >}} Hz`), ramped on and off with a Tukey window so nothing
-is stepped into the suspension. Peak sits at **{{< var td.peak_frac >}}%** of the
+is stepped into the suspension. The peak sits at {{< var td.peak_frac >}}% of the
 {{< var td.dac >}}-count coil-driver limit.
 
 ::: {.notes}
@@ -120,18 +130,18 @@ band and then requires waiting for the ringdown. The ramp is excluded from the
 analysis window; only whole periods in steady state are transformed.
 :::
 
-## Period-to-period repeatability {.smaller}
+## Period-to-period repeatability
 
 ![](figs/td-periods.svg){.r-stretch}
 
-Overlaying the steady-state periods, they agree to better than **1 part in
-10^{{< var td.spread_pow >}}^** of full scale — identical to machine precision.
-That is the whole basis for the leakage-free DFT: an integer number of periods in
-the window means every excited tone lands exactly on a bin.
+Overlaying the steady-state periods, they agree to better than 1 part in
+10^{{< var td.spread_pow >}}^ of full scale, which is machine precision. That is
+the basis for the leakage-free DFT: an integer number of periods in the window
+means every excited tone lands exactly on a bin.
 
-The first {{< var td.skip >}} periods are discarded — the transient is visible on
-the right panel and is exactly what a non-periodic estimator would smear into
-the spectrum.
+The first {{< var td.skip >}} periods are discarded. The transient is visible on
+the right panel and is what a non-periodic estimator would smear into the
+spectrum.
 
 ::: {.notes}
 This is the time-domain counterpart of the leakage slide, and the evidence for
@@ -139,42 +149,40 @@ the leakage-free claim: the record repeats, so the DFT of one period and the DFT
 of the whole record agree bin for bin.
 :::
 
-## Ringdown sets the record length {.smaller}
+## Ringdown sets the record length
 
 ![](figs/td-ringdown.svg){.r-stretch}
 
-Undamped, the {{< var td.tau_open >}} s decay is what forces
-`T ≳ Q/f₀`. With the local dampers engaged the same mode decays in
-**{{< var td.tau_damped >}} s** — you reach steady state in seconds instead of
-minutes.
+Undamped, the {{< var td.tau_open >}} s decay is what forces `T ≳ Q/f₀`. With the
+local dampers engaged the same mode decays in {{< var td.tau_damped >}} s, so
+steady state is reached in seconds rather than minutes.
 
 ::: {.callout-note appearance="simple"}
-Damping is often treated as an obstacle to the measurement. Here it is an
-advantage: it shortens the required record, and the reference-based FRF cancels
-the controller in any case, so the optic need not be undamped in order to be
-identified.
+Damping is often treated as an obstacle to the measurement. Here it shortens the
+required record, and the reference-based FRF cancels the controller in any case,
+so the optic need not be undamped in order to be identified.
 :::
 
-## Drive headroom: spectrum shape and phasing {.smaller}
+## Drive headroom: spectrum shape and phasing
 
 ![](figs/td-headroom.svg){.r-stretch}
 
-Both drives carry the same power, at the same (Schroeder) phasing. Crest factor
-is **{{< var td.crest_opt >}}** for the optimal drive and
-**{{< var td.crest_flat >}}** for the flat one — concentrating the power onto the
-modes costs you nothing in peak.
+Both drives carry the same power at the same (Schroeder) phasing. The crest
+factor is {{< var td.crest_opt >}} for the optimal drive and
+{{< var td.crest_flat >}} for the flat one, so concentrating the power onto the
+modes carries no penalty in peak.
 
 The advantage of the optimal drive comes from placing that identical power where
 the parameters are informative, not from a different peak-to-RMS ratio.
 
 ::: {.callout-note appearance="simple"}
-Peak here is **plant-referred**. The limit that actually binds is at the DAC,
-downstream of the whitening chain — see the future-work slide.
+Peak here is plant-referred. The limit that binds is at the DAC, downstream of
+the whitening chain — see the future-work slide.
 :::
 
 ::: {.notes}
 Be precise about what this figure shows: both drives use the same Schroeder
-phasing, so this is a *spectrum-shape* comparison, not a phase comparison — it
+phasing, so this is a spectrum-shape comparison, not a phase comparison — it
 says concentrating power costs no peak. It matches the tutorial's Schroeder row
 (1.84 flat / 1.93 concentrated) independently.
 
@@ -184,22 +192,22 @@ invariant under filtering, and the binding limit sits at the DAC, downstream of
 the whitening chain.
 :::
 
-## Drive and response {.smaller}
+## Drive and response
 
 ![](figs/td-response.svg){.r-stretch}
 
 A bounded, periodic, ramped drive and the corresponding periodic response. The
 excitation stays well within the actuator range throughout.
 
-## Periodicity, leakage, and the measured noise model {.smaller}
+## Periodicity, leakage, and the measured noise model
 
 ![](figs/leakage.svg){.r-stretch}
 
-`Q = {{< var leak.Q >}}` mode, same power, same **{{< var leak.T >}} s**; the
-linewidth is only **{{< var leak.bins >}}** bins wide.
+A `Q = {{< var leak.Q >}}` mode at equal power over {{< var leak.T >}} s; the
+linewidth spans {{< var leak.bins >}} bins.
 
-- multisine peak bias **{{< var leak.ms_bias >}}%** · windowed-random peak bias **{{< var leak.w_bias >}}%**
-- combined at the peak, the random estimator is **{{< var leak.rmse_ratio >}}× worse** in RMSE ({{< var leak.seeds >}} seeds)
+- multisine peak bias {{< var leak.ms_bias >}}%; windowed-random peak bias {{< var leak.w_bias >}}%
+- combined at the peak, the random estimator is {{< var leak.rmse_ratio >}}× worse in RMSE over {{< var leak.seeds >}} seeds
 
 ::: {.notes}
 The Welch estimate is both biased and noisier. The bias is the consequential
@@ -211,12 +219,13 @@ of a high-Q mode systematically under-reports the peak, and therefore the Q.
 
 ![](figs/swept.svg){.r-stretch}
 
-One multisine window ({{< var sweep.T >}} s) measures **{{< var sweep.bins >}} bins**.
-In the same wall-clock a sweep reaches **{{< var sweep.pts >}}** points; covering
-the same band to the same per-bin σ costs about **{{< var sweep.cover_h >}} h**
-— **{{< var sweep.factor >}}×** the single multisine window.
+One multisine window ({{< var sweep.T >}} s) measures {{< var sweep.bins >}} bins.
+In the same wall-clock a sweep reaches {{< var sweep.pts >}} points; covering the
+same band to the same per-bin σ requires approximately
+{{< var sweep.cover_h >}} h, which is {{< var sweep.factor >}}× the single
+multisine window.
 
-## Fisher information and drive allocation {.smaller}
+## Fisher information and drive allocation
 
 For a model `H(f, θ)` measured at lines `fₖ` with drive PSD `Pxx(fₖ)` and noise
 `Pyy(fₖ)`, the Fisher information is
@@ -226,14 +235,14 @@ $$
 \mathrm{Re}\!\left[\frac{\partial H}{\partial \theta}^{\!H}\frac{\partial H}{\partial \theta}\right]_{f_k}
 $$
 
-and the covariance you can achieve is `𝓘⁻¹` — the **Cramér–Rao bound**.
+and the attainable covariance is `𝓘⁻¹`, the Cramér–Rao bound.
 
 - The information scales as the square of the drive amplitude, so the drive level
   is a design variable rather than a constraint.
-- The optimal `Pxx` is *not* flat. P&S solve it by the **dispersion-function**
-  fixed point under a fixed power budget → power concentrates at the modes.
-- The first pass is **prior-robust**: the design is averaged over `f₀·[1±u]`, so a
-  wrong prior still gets covered.
+- The optimal `Pxx` is not flat. P&S solve it by the dispersion-function fixed
+  point under a fixed power budget, and power concentrates at the modes.
+- The first pass is prior-robust: the design is averaged over `f₀·[1±u]`, so an
+  inaccurate prior remains covered.
 
 ## The designed drive
 
@@ -249,14 +258,15 @@ worst-diagonal CRB variance between the flat and the optimal design at identical
 power and record length.
 :::
 
-## Uncertainty at fixed drive, drive at fixed uncertainty {.smaller}
+## Uncertainty at fixed drive, drive at fixed uncertainty
 
 ![](figs/convergence.svg){.r-stretch}
 
-- optimal at power `P` reaches `σ/θ ≤ {{< var head.target >}}` in **{{< var head.ttt_opt >}} passes**
-  ({{< var head.t_pass >}} s each); flat never gets there in the same budget
-- dialled down to `P/{{< var head.F >}}`, the optimal drive **matches** flat's σ at
-  **{{< var head.rms_drop >}}×** less in-band drive
+- the optimal design at power `P` reaches `σ/θ ≤ {{< var head.target >}}` in
+  {{< var head.ttt_opt >}} passes ({{< var head.t_pass >}} s each); the flat design
+  does not reach it within the same budget
+- reduced to `P/{{< var head.F >}}`, the optimal drive matches the flat design's σ
+  at {{< var head.rms_drop >}}× less in-band drive
 
 The second case is the one of operational interest: the same parameter
 uncertainty at reduced force on the optic.
@@ -265,9 +275,9 @@ uncertainty at reduced force on the optic.
 
 ![](figs/crb-pull.svg){.r-stretch}
 
-Monte Carlo over {{< var pull.seeds >}} independent measurements: the normalised
-errors `(fit − true)/σ_CRB` are 𝒩(0,1) — empirical σ = **{{< var pull.std >}}**,
-mean **{{< var pull.mean >}}**.
+Over {{< var pull.seeds >}} independent measurements, the normalised errors
+`(fit − true)/σ_CRB` are consistent with 𝒩(0,1): empirical σ = {{< var pull.std >}},
+mean {{< var pull.mean >}}.
 
 The maximum-likelihood fit attains the bound, so the quoted uncertainty is the
 realised one.
@@ -281,37 +291,38 @@ of unit width, the CRB would carry no operational meaning.
 
 ![](figs/closed-loop.svg){.r-stretch}
 
-Drive **after** the controller, read the **drive monitor** `u`: the reference-based
-FRF `⟨Y⟩/⟨U⟩` returns the **open-loop** plant through a loop suppressing the
-resonance **{{< var cl.supp >}}×** — recovered to **{{< var cl.rel >}}%**.
-The naive FRF against the injected reference returns the suppressed response.
+Driving after the controller and reading the drive monitor `u`, the
+reference-based FRF `⟨Y⟩/⟨U⟩` returns the open-loop plant through a loop
+suppressing the resonance {{< var cl.supp >}}×, recovered to
+{{< var cl.rel >}}%. The naive FRF against the injected reference returns the
+suppressed response.
 
 ::: {.notes}
 This is why the suspensions results later can be taken with the production damping
-loops closed. The controller cancels in the ratio, provided you measure the actual
-plant input rather than the reference you asked for.
+loops closed. The controller cancels in the ratio, provided the actual plant input
+is measured rather than the requested reference.
 :::
 
 # Suspensions {.divider}
 
-## The test stand: a compiled CDS front end {.smaller}
+## The test stand: a compiled CDS front end
 
-Phase 1 runs against the **RTSfreerun digital twin** — an advligorts model
-compiled from its `.mdl` and driven in-process, so identification runs against
-**the same C numerics a real front end runs**:
+Phase 1 runs against the RTSfreerun digital twin — an advligorts model compiled
+from its `.mdl` and driven in-process, so identification runs against the same C
+numerics a real front end runs:
 
 - `x1hsts` — HSTS drive→sensor cascade, order 10, 5 modes 0.67–3.78 Hz, `Q ≈ 50`
-- `x1hsts6dof` — bare-M1 6×6 HSTS state-space plant + per-DOF `cdsFilt` dampers,
-  loaded with **real production foton banks** (L1-MC2 / L1-SRM) and the engaged-FM
-  list from the archived L1 SDF
+- `x1hsts6dof` — bare-M1 6×6 HSTS state-space plant and per-DOF `cdsFilt`
+  dampers, loaded with production foton banks (L1-MC2 / L1-SRM) and the
+  engaged-FM list from the archived L1 SDF
 - the twin's own `ligo-india` seismic and BOSEM readout-noise presets as the background
 
-Everything below is measured through that stack. No hardware.
+Everything below is measured through that stack, with no hardware.
 
 ::: {.notes}
 Worth stressing: the filter banks are the site's, not ours; the plant comes from
-aligo-suspension-models; the noise levels are the twin's presets. The only thing we
-supply is the excitation and the estimator.
+aligo-suspension-models; the noise levels are the twin's presets. The only thing
+supplied here is the excitation and the estimator.
 :::
 
 ## HSTS, open loop, under the twin's own noise
@@ -324,34 +335,34 @@ test oracle. The analytic oracle is built from the scenario ZPK and cross-checke
 against the SOS coefficients the model actually loaded.
 :::
 
-## HSTS recovery: numerical results {.smaller}
+## HSTS recovery: numerical results
 
 | check | result |
 |---|---|
-| analytic oracle vs the SOS the model actually loaded | **{{< var twin.oracle >}}** max rel |
-| noise-off P&S pass vs oracle | **{{< var twin.noiseoff >}}** median |
-| fractional uncertainty, pass 1 → 3 (noise on) | **{{< var twin.frac_first >}} → {{< var twin.frac_last >}}** |
-| recovered FRF vs oracle, final pass | **{{< var twin.median_rel_pct >}}%** median |
-| worst mode `f₀` error, all 5 modes | **{{< var twin.worst_f0_pct >}}%** |
-| drive peak vs the coil-driver limit | **{{< var twin.peak >}}** of **{{< var twin.limit >}}** counts |
+| analytic oracle vs the SOS the model actually loaded | {{< var twin.oracle >}} max rel |
+| noise-off P&S pass vs oracle | {{< var twin.noiseoff >}} median |
+| fractional uncertainty, pass 1 → 3 (noise on) | {{< var twin.frac_first >}} → {{< var twin.frac_last >}} |
+| recovered FRF vs oracle, final pass | {{< var twin.median_rel_pct >}}% median |
+| worst mode `f₀` error, all 5 modes | {{< var twin.worst_f0_pct >}}% |
+| drive peak vs the coil-driver limit | {{< var twin.peak >}} of {{< var twin.limit >}} counts |
 
 The final row bears on headroom: the drive sits at roughly one third of the
 actuator limit, and the Fisher information scales as the square of the drive.
 These results are therefore not noise-limited.
 
-## Through the real damping loops {.smaller}
+## Through the real damping loops
 
-With all six production L1-MC2 top-mass dampers **closed** on `x1hsts6dof`
+With all six production L1-MC2 top-mass dampers closed on `x1hsts6dof`
 (`df = {{< var loops.df_hz >}} Hz`, {{< var loops.n_periods >}} periods,
-{{< var loops.n_passes >}} passes — measured for this talk):
+{{< var loops.n_passes >}} passes, measured for this talk):
 
-- reference-based FRF recovers the **open-loop** diagonal on all six DOF, worst
-  **{{< var loops.closed_max >}}%**, median **{{< var loops.closed_med >}}%** —
-  pitch and yaw included
-- loops **open**, the same tensor scores worst **{{< var loops.open_max >}}%**,
-  median **{{< var loops.open_med >}}%**
-- the physical `L↔P` and `R↔Y` cross-couplings come back at
-  **{{< var loops.coup_min >}}–{{< var loops.coup_max >}}%**
+- the reference-based FRF recovers the open-loop diagonal on all six DOF, worst
+  {{< var loops.closed_max >}}%, median {{< var loops.closed_med >}}%, pitch and
+  yaw included
+- with the loops open, the same tensor scores worst {{< var loops.open_max >}}%,
+  median {{< var loops.open_med >}}%
+- the physical `L↔P` and `R↔Y` cross-couplings are recovered at
+  {{< var loops.coup_min >}}–{{< var loops.coup_max >}}%
 
 The damper output carries {{< var loops.fb_rms >}}× the injected drive in RMS, so
 the loop is active rather than idling.
@@ -375,21 +386,21 @@ open, and couplings up to 1.5 %. The tests only ever asserted < 1 % and < 2 %, s
 quote these numbers, not the old ones.
 :::
 
-## The 6×6 tensor, open and closed {.smaller}
+## The 6×6 tensor, open and closed
 
 ![](figs/loops-tensor.svg){.r-stretch}
 
 Median relative error per element against the analytic state-space oracle. The
-diagonal is the plant; the bright off-diagonal cells are the *real* `L↔P` and
-`R↔Y` couplings, recovered rather than assumed away.
+diagonal is the plant; the bright off-diagonal cells are the physical `L↔P` and
+`R↔Y` couplings, which are recovered rather than assumed to be zero.
 
 ::: {.notes}
 Colour is log₁₀ of percent error. Off-diagonals that are structurally near zero
-score poorly in *relative* terms — that is expected and is why the claim is made
+score poorly in relative terms — that is expected and is why the claim is made
 on the diagonal and on the two physically dominant couplings, not on all 36.
 :::
 
-## The sign error in the plant-input reconstruction {.smaller}
+## The sign error in the plant-input reconstruction
 
 ![](figs/td-junction.svg){.r-stretch}
 
@@ -404,15 +415,15 @@ drive, so the wrong sign corrupts exactly the modes being identified — which i
 why the failure looked like an ill-conditioning wall at the resonances.
 :::
 
-## Cancellation of the controller {.smaller}
+## Cancellation of the controller
 
 ![](figs/td-cancellation.svg){.r-stretch}
 
-Same closed-loop data, two ways of forming the FRF. Dividing by the injected
-drive returns the **suppressed** closed-loop response — down
-**{{< var loops.naive_supp >}}×** at the peak, **{{< var loops.naive_bias >}}%**
-median error. Dividing by the reconstructed plant input returns the **open-loop**
-plant to **{{< var loops.ref_bias >}}%**.
+The same closed-loop data, formed two ways. Dividing by the injected drive
+returns the suppressed closed-loop response, down {{< var loops.naive_supp >}}×
+at the peak with {{< var loops.naive_bias >}}% median error. Dividing by the
+reconstructed plant input returns the open-loop plant to
+{{< var loops.ref_bias >}}%.
 
 ::: {.callout-note appearance="simple"}
 The damping loops need not be disengaged for the identification. The FRF must be
@@ -420,24 +431,26 @@ formed against the reconstructed plant input rather than against the injected
 reference.
 :::
 
-## SRM: a joint modal fit through production dampers {.smaller}
+## SRM: a joint modal fit through production dampers
 
-The SRM is an HSTS identified through its **real L1-SRM** damping banks, all six
-loops closed, under the twin's full seismic + OSEM background.
+The SRM is an HSTS identified through its production L1-SRM damping banks, all six
+loops closed, under the twin's full seismic and OSEM background.
 
 - one prior-robust multisine per actuator, `df = {{< var srm.df_hz >}} Hz`
-  ({{< var srm.period >}} s per period), 16 periods → `dof = {{< var srm.dof >}}`
-- open-loop diagonal FRF recovered to **{{< var srm.diag >}}%** median vs the
-  analytic state-space oracle — *with the controllers engaged*
-- rank-1 **joint** modal fit: shared poles across all 6×6 elements, order chosen
-  **blind** from the data (peak union, prominence-gated), oracle used only to score
+  ({{< var srm.period >}} s per period), 16 periods, giving `dof = {{< var srm.dof >}}`
+- the open-loop diagonal FRF is recovered to {{< var srm.diag >}}% median against
+  the analytic state-space oracle, with the controllers engaged
+- a rank-1 joint modal fit: shared poles across all 6×6 elements, with the order
+  chosen blind from the data (peak union, prominence-gated) and the oracle used
+  only to score
 
-**{{< var srm.n_good >}} of {{< var srm.n_modes >}}** modes recovered well in both
-`f₀` and `Q`; median `|Δf₀|` = **{{< var srm.df_med >}}%**, median `Q` error
-**{{< var srm.q_med >}}%** across the {{< var srm.n_wellsep >}} well-separated modes.
+{{< var srm.n_good >}} of {{< var srm.n_modes >}} modes are recovered well in both
+`f₀` and `Q`; the median `|Δf₀|` is {{< var srm.df_med >}}% and the median `Q`
+error {{< var srm.q_med >}}% across the {{< var srm.n_wellsep >}} well-separated
+modes.
 
 ::: {.notes}
-One honest caveat to state if asked: the OSEM readout noise is injected at the
+One caveat to state if asked: the OSEM readout noise is injected at the
 damper's sensor node rather than through an in-loop quantised sensor — the compiled
 model cannot splice a sensor between plant and damper without a rebuild. The
 seismic and OSEM disturbances are genuinely in-loop; the sensor quantisation is
@@ -458,22 +471,22 @@ motion.
 The per-bin nonparametric inverse scatters at the peaks; the parametric fit passes
 through them, since it fits a model rather than reading a spectrum.
 
-## The 0.672 / 0.676 Hz doublet is spatial {.smaller}
+## The 0.672 / 0.676 Hz doublet is spatial
 
 ![](figs/srm-doublet.svg){.r-stretch}
 
-Δf₀ ≈ **{{< var srm.doublet_mhz >}} mHz** — well inside one linewidth
+Δf₀ ≈ {{< var srm.doublet_mhz >}} mHz, well inside one linewidth
 (`Γ = f₀/Q ≈ 13 mHz`). It is not a resolution problem: the plant
-**block-diagonalises** into the orthogonal `{L,P,V}` and `{T,R,Y}` planes
+block-diagonalises into the orthogonal `{L,P,V}` and `{T,R,Y}` planes
 (cross-coupling ~1e-13). Fitting each plane alone resolves both members.
 
-## Consequences for the fit parameterization {.smaller}
+## Consequences for the fit parameterization
 
 | fit | `f₀` recovered |
 |---|---|
 | shared-pole 6×6 | one blended pole — the pair is collapsed |
-| block-decoupled, L–P–V plane | **{{< var srm.plane0_f0 >}} Hz** ± {{< var srm.plane0_f0_sigma >}}, Q = {{< var srm.plane0_Q >}} |
-| block-decoupled, T–R–Y plane | **{{< var srm.plane1_f0 >}} Hz** ± {{< var srm.plane1_f0_sigma >}}, Q = {{< var srm.plane1_Q >}} |
+| block-decoupled, L–P–V plane | {{< var srm.plane0_f0 >}} Hz ± {{< var srm.plane0_f0_sigma >}}, Q = {{< var srm.plane0_Q >}} |
+| block-decoupled, T–R–Y plane | {{< var srm.plane1_f0 >}} Hz ± {{< var srm.plane1_f0_sigma >}}, Q = {{< var srm.plane1_Q >}} |
 
 No finer `df`, no super-resolution and no doublet-concentrated drive were
 required. The apparent non-identifiability followed from the parameterization —
@@ -488,13 +501,13 @@ to a parametric fit. In this case even that was unnecessary: the pair is
 separated spatially rather than spectrally.
 :::
 
-## The 40m SOS: 6 DOF, every mode inside the bound
+## The 40m SOS in 6 DOF, against the bound
 
 ![](figs/sos-crb.svg){.r-stretch}
 
 {{< var sos.n_modes >}} rigid-body modes of a single-stage 40m SOS, identified as a
-6-DOF MIMO system. Worst pull **{{< var sos.worst_sigma >}}σ**; worst `f₀` error
-**{{< var sos.worst_f0_pct >}}%**.
+6-DOF MIMO system. The worst pull is {{< var sos.worst_sigma >}}σ and the worst
+`f₀` error {{< var sos.worst_f0_pct >}}%.
 
 ::: {.notes}
 Read the Q panel with the bound in mind, and say so out loud: the pulls are all
@@ -502,24 +515,25 @@ inside ~1.6σ, but the σ's differ a lot between modes. The side (T) mode's Q ha
 wide CRB because this low-band design spends most of its lines on L and P; its
 recovered Q is consistent with truth, just loosely bounded. Tightening it is a
 line-placement and record-length choice — more lines on the T linewidth, longer T
-— not a limit. That is exactly the kind of thing the CRB is for: it tells you
-where to spend the next measurement.
+— not a limit. That is what the CRB is for: it identifies where to spend the next
+measurement.
 :::
 
-## How that campaign was designed {.smaller}
+## How that campaign was designed
 
 The excitation design determines the result:
 
-- **two focused campaigns, not one sweep.** Low band `0.4–1.2 Hz` drives `L,P,T,Y`;
-  high band `14–26 Hz` drives `V,R`. A single broadband pass collapses the per-bin
-  covariance to rank 1 off-resonance and the `{L,P}` whitening goes singular.
-- lines **clustered on the modes**: 25 lines per mode spanning ±8 linewidths, plus
+- two focused campaigns rather than one sweep. The low band `0.4–1.2 Hz` drives
+  `L,P,T,Y`; the high band `14–26 Hz` drives `V,R`. A single broadband pass
+  collapses the per-bin covariance to rank 1 off-resonance and the `{L,P}`
+  whitening goes singular.
+- lines clustered on the modes: 25 lines per mode spanning ±8 linewidths, plus
   a few off-resonance anchors for the baseline.
-- **block-decoupled fit** — only `L–P` is coupled; the `L/T` pair is 1.8 mHz apart
+- a block-decoupled fit — only `L–P` is coupled; the `L/T` pair is 1.8 mHz apart
   and is scored per-DOF so a nearest-frequency match cannot silently swap them.
-- plant built with **python-control** from the 40m physical parameters and gated on
-  the *measured* modes (pend 1, pitch 0.6, yaw 0.7, side 1, vert 16, roll 16√2 Hz);
-  side is **not** fitted and lands −0.18 % from 1 Hz.
+- the plant is built with python-control from the 40m physical parameters and
+  gated on the measured modes (pend 1, pitch 0.6, yaw 0.7, side 1, vert 16,
+  roll 16√2 Hz); side is not fitted and lands −0.18 % from 1 Hz.
 
 ::: {.notes}
 The rank-deficiency point is the transferable one. Driving flat and then whitening
@@ -529,25 +543,26 @@ whitening singular. Clustering the lines is what keeps the estimator conditioned
 
 # Calibration {.divider}
 
-## The DARM twin {.smaller}
+## The DARM twin
 
-The Phase-1 DARM twin: sensing `C` (cavity pole + delay), three-stage actuation
+The Phase-1 DARM twin: sensing `C` (cavity pole and delay), three-stage actuation
 `κ_UIM / κ_PUM / κ_TST`, the derived servo `D`, and the response
 
 $$ R(f) \;=\; \frac{1 + G(f)}{C(f)}, \qquad G = C\,D\,A $$
 
-Pcal is the **absolute ruler**: forming `H_stage / H_pcal` cancels the sensing
-function, so the actuation strengths come out drift-immune.
+Pcal serves as the absolute reference: forming `H_stage / H_pcal` cancels the
+sensing function, so the actuation strengths are recovered independently of
+sensing drift.
 
-Same pipeline, unchanged: periodic multisine → leakage-free reference FRF with a
-measured per-bin covariance → ML fit → CRB.
+The pipeline is unchanged: periodic multisine, leakage-free reference FRF with a
+measured per-bin covariance, maximum-likelihood fit, Cramér–Rao bound.
 
 ## `R(f)` with a measured CRB envelope
 
 ![](figs/darm-response.svg){.r-stretch}
 
-Sensing: cavity pole **{{< var darm.fcc_fit >}} ± {{< var darm.fcc_sigma >}} Hz**
-(true {{< var darm.fcc >}}), delay **{{< var darm.tau_fit >}} ± {{< var darm.tau_sigma >}} µs**
+Sensing: cavity pole {{< var darm.fcc_fit >}} ± {{< var darm.fcc_sigma >}} Hz
+(true {{< var darm.fcc >}}); delay {{< var darm.tau_fit >}} ± {{< var darm.tau_sigma >}} µs
 (true {{< var darm.tau >}}).
 
 | stage | true `κ` | recovered ± σ(CRB) | error | pull |
@@ -557,27 +572,28 @@ Sensing: cavity pole **{{< var darm.fcc_fit >}} ± {{< var darm.fcc_sigma >}} Hz
 | TST | {{< var darm.k_tst_true >}} | {{< var darm.k_tst >}} ± {{< var darm.k_tst_sigma >}} | {{< var darm.k_tst_pct >}}% | {{< var darm.k_tst_pull >}}σ |
 
 ::: {.notes}
-One seed, one record — the pulls are 2σ-ish on UIM/PUM, not a bias claim. The
-TST bound is the loose one because TST has the least authority in this band; that
-is the stage the next design should address, and the bound identifies it before
-the measurement time is spent.
+One seed and one record — the pulls are near 2σ on UIM/PUM, which is not a bias
+claim. The TST bound is the loosest because that stage has the least authority in
+this band; that is the stage the next design should address, and the bound
+identifies it before the measurement time is spent.
 :::
 
 ## The hierarchical actuation hand-off
 
 ![](figs/darm-hierarchical.svg){.r-stretch}
 
-Per-stage `|Aᵢ(f)|` for the nested-offload loop with the crossovers marked — the
-three `κᵢ` are separately identifiable because each stage dominates its own band.
+Per-stage `|Aᵢ(f)|` for the nested-offload loop with the crossovers marked. The
+three `κᵢ` are separately identifiable because each stage dominates a distinct
+band.
 
 ## Band coverage per unit time on DARM
 
 ![](figs/darm-sweep.svg){.r-stretch}
 
-One {{< var darm.sweep_T >}} s multisine window covers **{{< var darm.sweep_bins >}}
-bins**; in the same wall-clock a 4-period-dwell sweep reaches
-**{{< var darm.sweep_pts >}}** points. Matching the multisine's coverage costs
-**≈ {{< var darm.sweep_cover_h >}} h**.
+One {{< var darm.sweep_T >}} s multisine window covers {{< var darm.sweep_bins >}}
+bins; in the same wall-clock a four-period-dwell sweep reaches
+{{< var darm.sweep_pts >}} points. Matching the multisine's coverage requires
+approximately {{< var darm.sweep_cover_h >}} h.
 
 ::: {.notes}
 This is the slide for the "why should calibration care" question. The recurring
@@ -589,42 +605,43 @@ computed on the same twin the rest of the section uses.
 
 ![](figs/darm-drift.svg){.r-stretch}
 
-A **{{< var darm.drift_amp >}} %/hour** drift on the TST stage, over
-{{< var darm.span_min >}} minutes, {{< var darm.n_snap >}} leakage-free snapshots.
-The plant drifts far slower than one record, so each record is *locally stationary*.
+A {{< var darm.drift_amp >}} %/hour drift on the TST stage, over
+{{< var darm.span_min >}} minutes, sampled by {{< var darm.n_snap >}} leakage-free
+snapshots. The plant drifts on a timescale far longer than one record, so each
+record is locally stationary.
 
 ## Tracking residual against the bound
 
 ![](figs/darm-tracking.svg){.r-stretch}
 
-`κ(t) = Σ cₖ bₖ(t)` in a Legendre time basis (a **Lataire–Pintelon** basis
-expansion, two-step form); the coefficient covariance `(BᵀWB)⁻¹` *is* the CRB on
+`κ(t) = Σ cₖ bₖ(t)` in a Legendre time basis — a Lataire–Pintelon basis expansion
+in two-step form. The coefficient covariance `(BᵀWB)⁻¹` is the Cramér–Rao bound on
 `κ(t)` and `κ̇(t)`.
 
 ## Joint recovery of several drifting parameters
 
 ![](figs/darm-joint.svg){.r-stretch}
 
-Optical gain, SRC detuning and a stage `κ` wandering together under a correlated
-random walk — recovered **jointly**, each inside its own CRB band. The correlation
-matrix of the joint fit is what tells you which drifts are actually separable.
+Optical gain, SRC detuning and a stage `κ` drifting together under a correlated
+random walk, recovered jointly, each within its own CRB band. The correlation
+matrix of the joint fit indicates which drifts are separable.
 
 ## Fisher-optimal placement of the calibration lines
 
 ![](figs/darm-callines.svg){.r-stretch}
 
-A-optimal calibration lines placed where the *joint* drift estimate is sharpest —
-the same Fisher argument as the suspension campaigns, applied to continuous TDCF
-lines instead of a one-shot sweep.
+A-optimal calibration lines placed where the joint drift estimate is sharpest.
+The same Fisher argument used for the suspension campaigns applies to continuous
+TDCF lines as to a one-shot sweep.
 
-## Resolvability of the drift {.smaller}
+## Resolvability of the drift
 
 | quantity | value |
 |---|---|
-| injected drift amplitude | **{{< var darm.drift_amp >}}%** of `κ` |
+| injected drift amplitude | {{< var darm.drift_amp >}}% of `κ` |
 | per-snapshot σ_κ | {{< var darm.snap_sigma >}}% of `κ` |
-| tracking σ_κ (LP fit) | **{{< var darm.track_sigma >}}%** of `κ` |
-| resolve ratio = amplitude / tracking σ | **{{< var darm.resolve >}}×** |
+| tracking σ_κ (LP fit) | {{< var darm.track_sigma >}}% of `κ` |
+| ratio of amplitude to tracking σ | {{< var darm.resolve >}}× |
 | local-stationarity error (record ÷ drift timescale) | {{< var darm.local_stat >}}% |
 
 The drift is resolved by a computed factor rather than by inspection. We do not
@@ -645,12 +662,12 @@ the actuation/DAC chain.
 
 | stage | what | state |
 |---|---|---|
-| 0 | SOS 6-DOF plant in python-control, gated on the measured modes | **done** |
-| 1 | in-process 6-DOF MIMO P&S recovery + CRB vs the plant oracle | **done** ({{< var sos.worst_sigma >}}σ) |
+| 0 | SOS 6-DOF plant in python-control, gated on the measured modes | done |
+| 1 | in-process 6-DOF MIMO P&S recovery and CRB vs the plant oracle | done ({{< var sos.worst_sigma >}}σ) |
 | 2 | rtsfree composite `x1sos6dof`, nominal `OPT_CTRL_SUS*` foton damping, analytic↔rtsfree gate | next |
 | 3 | scored test-situation library: drift, saturation, weak OSEM, elevated noise, damping on/off | planned |
 | 4 | `CDSBackend` twin-in-the-loop behind a pluggable transport (awg+nds2 / twin) | planned |
-| 5 | live 40m injection | **gated — needs you** |
+| 5 | live 40m injection | gated on the operational answers below |
 
 Known gaps at Stage 0/1: the OSEM basis reaches only `L,T,P,Y` (rank 4) — `V` and
 `R` have no OSEM actuation, and are undamped by design in the nominal bank.
@@ -661,15 +678,15 @@ Known gaps at Stage 0/1: the OSEM basis reaches only `L,T,P,Y` (rank 4) — `V` 
 ::: {.column width="50%"}
 **Suspensions**
 
-- **Foton drop-in.** Hand back the fit as a ZPK/SOS foton bank plus a provenance
+- **Foton drop-in.** Return the fit as a ZPK/SOS foton bank with a provenance
   manifest — drive used, record length, per-parameter σ, date — so a damping
-  redesign starts from a measured plant, not a model.
-- **Q and f₀ trending.** The same campaign run monthly turns into a health
+  redesign starts from a measured plant rather than a model.
+- **Q and f₀ trending.** The same campaign run monthly becomes a health
   monitor: a rubbing magnet, a drifting blade spring or a changed cross-coupling
-  shows up as a parameter moving outside its own CRB.
-- **Per-OSEM identification.** Identify in the OSEM basis instead of Euler to
-  catch a single weak or stuck coil. Today `V` and `R` have no OSEM actuation
-  at all — rank 4 of 6.
+  appears as a parameter moving outside its own CRB.
+- **Per-OSEM identification.** Identify in the OSEM basis rather than Euler to
+  catch a single weak or stuck coil. At present `V` and `R` have no OSEM
+  actuation at all — rank 4 of 6.
 - **Track B joint MIMO fit.** Shared poles across all 36 elements rather than
   per-element fits, so cross-couplings and modes are estimated together.
 :::
@@ -677,29 +694,15 @@ Known gaps at Stage 0/1: the OSEM basis reaches only `L,T,P,Y` (rank 4) — `V` 
 **Calibration**
 
 - **κ(t) between full sweeps.** Track the slow parameters continuously from the
-  permanent lines and reserve the full campaign for when the tracker says the
-  model has actually moved — less calibration downtime.
+  permanent lines and reserve the full campaign for when the tracker indicates
+  the model has moved, reducing calibration downtime.
 - **A-optimal line allocation.** Choose calibration-line frequencies and
-  amplitudes from the Fisher matrix for the parameters you report, under the
-  actuator budget you actually have.
-- **Hierarchical hand-off with honest error bars.** Propagate the CRB through
-  the TST/PUM/UIM crossovers instead of stitching separately-fit stages.
+  amplitudes from the Fisher matrix for the reported parameters, under the
+  available actuator budget.
+- **Hierarchical hand-off with propagated uncertainties.** Propagate the CRB
+  through the TST/PUM/UIM crossovers rather than stitching separately-fit stages.
 :::
 :::
-
-Common to both, and the item we consider most important: a DAC-frame,
-filter-aware drive optimisation. The drive is presently designed in plant force
-units, whereas the binding limit is at the DAC, with whitening and actuation
-filters in between. Crest factor is not invariant under filtering, so the phases
-arranged at synthesis are no longer those seen at the limiting stage. This is the
-reason the pipeline claims no peak-drive advantage from phasing. Carrying the
-optimisation through the modelled whitening chain would make such a claim
-supportable and would recover usable headroom.
-
-Also outstanding: an ISI / seismic-platform demonstration (sensor correction,
-blend filters) and coupled ASC, neither of which is yet exercised; and making the
-twin validation reproducible by a third party, which at present requires the
-compiled model to be built locally.
 
 ::: {.notes}
 Present this as a set of candidates rather than commitments. The two items most
@@ -728,17 +731,32 @@ Schroeder, and a real peak-drive claim requires doing the optimisation in the DA
 frame. That is exactly the future-work item on this slide.
 :::
 
-## What we need from the control room {.smaller}
+## The drive optimisation we consider most important
 
-Stage 4 adds three bridge pieces that only you can specify:
+Common to both tracks: a DAC-frame, filter-aware drive optimisation. The drive is
+presently designed in plant force units, whereas the binding limit is at the DAC,
+with whitening and actuation filters in between. Crest factor is not invariant
+under filtering, so the phases arranged at synthesis are no longer those seen at
+the limiting stage. This is the reason the pipeline claims no peak-drive advantage
+from phasing. Carrying the optimisation through the modelled whitening chain would
+make such a claim supportable and would recover usable headroom.
 
-1. **Timing / decoherence** — integer-period synchronous capture and the
+Also outstanding: an ISI / seismic-platform demonstration (sensor correction,
+blend filters) and coupled ASC, neither of which is yet exercised; and making the
+twin validation reproducible by a third party, which at present requires the
+compiled model to be built locally.
+
+## What is needed from the control room
+
+Stage 4 adds three bridge pieces that only the operating groups can specify:
+
+1. **Timing and decoherence** — integer-period synchronous capture and the
    per-period drive-line phase walk. What is the real GPS→period alignment and
    fractional-sample drift between awg and nds2?
 2. **Pre-injection saturation check** — the watchdog today is post-hoc, per segment.
-   We want a DAC-frame, filter-aware worst-case-peak check *before* anything is
-   injected. What is the counts↔N calibration and the coil/DAC limit on the optic
-   you would want done first?
+   What is wanted is a DAC-frame, filter-aware worst-case-peak check before
+   anything is injected. What is the counts↔N calibration and the coil/DAC limit
+   on the optic that would be done first?
 3. **Operational envelope** — damping on or off; stability margin with a comb near
    the UGF; Guardian / lock-state and abort-on-lock-loss.
 
@@ -751,7 +769,7 @@ standing rule in this project is to ask rather than to assume. This slide is the
 request the talk is built around.
 :::
 
-## Reproducing this work {.smaller}
+## Reproducing this work
 
 ```bash
 conda env create -f environment.yml && conda activate sysid
@@ -765,13 +783,13 @@ system_ident run src/system_ident/configs/rtsfreerun_hsts.yml --rtsfreerun --yes
 ```
 
 - Docs, tutorial and 13 executed worked examples:
-  **caltechexperimentalgravity.github.io/system_ident**
-- Code: **github.com/CaltechExperimentalGravity/system_ident**
+  caltechexperimentalgravity.github.io/system_ident
+- Code: github.com/CaltechExperimentalGravity/system_ident
 - The pure-Python and DARM pages re-execute anywhere. The compiled-twin pages
   (HSTS, SRM) need the rtsfreerun model built into the env — the published site
   serves their frozen results.
 
-## Summary {.smaller}
+## Summary
 
 - A periodic multisine with a synchronous DFT removes leakage bias and yields a
   measured per-bin noise model, so the quoted uncertainty is the realised one.
@@ -780,19 +798,19 @@ system_ident run src/system_ident/configs/rtsfreerun_hsts.yml --rtsfreerun --yes
   {{< var head.rms_drop >}}× lower drive.
 - The maximum-likelihood fit attains the CRB (pull σ = {{< var pull.std >}}), so
   the bound is usable as a stopping rule.
-- Closed loops present no obstacle: the reference-based FRF recovers the open-loop
-  plant through the production dampers ({{< var srm.diag >}}% on SRM).
-- Suspensions: **{{< var srm.n_good >}}/{{< var srm.n_modes >}}** SRM modes in `f₀`
-  *and* `Q`; the 0.67 Hz doublet resolved *spatially*; 40m SOS 6-DOF inside
-  **{{< var sos.worst_sigma >}}σ**.
+- The damping loops need not be opened: the reference-based FRF recovers the
+  open-loop plant through the production dampers ({{< var srm.diag >}}% on SRM).
+- Suspensions: {{< var srm.n_good >}}/{{< var srm.n_modes >}} SRM modes in `f₀`
+  and `Q`; the 0.67 Hz doublet resolved spatially; the 40m SOS in 6 DOF within
+  {{< var sos.worst_sigma >}}σ.
 - Calibration: `R(f)` with a measured CRB envelope, and a
   {{< var darm.drift_amp >}} %/h `κ` drift tracked at
-  **{{< var darm.resolve >}}×** resolvability.
+  {{< var darm.resolve >}}× resolvability.
 
-**Next:** the rtsfree SOS composite, then the CDS bridge — which is gated on the
+Next: the rtsfree SOS composite, then the CDS bridge, which is gated on the
 operational answers on the previous slide.
 
-## Backup: working rules behind these numbers {.smaller}
+## Backup: working rules behind these numbers
 
 1. **Compute the bound before calling anything a limit.** CRB, SNR, actuator
    headroom, resolution — with numbers, or it is not a limit claim. Three
