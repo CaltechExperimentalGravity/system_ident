@@ -355,11 +355,132 @@ def frf_band(model, theta, Ctheta, freq):
     return np.sqrt(np.clip(var, 0.0, None))
 
 
-def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
-    """Fit validation: off-resonance FRF agreement + cost vs. expected (P&S 12-19).
+def whitened_residual(model, theta, exps, freq):
+    """The SML whitened equation-error residual, shaped ``(n_exp, F, n_sens)``.
+
+    This is the sequence the cost is built from: ``Ceps^-1/2 (Ybar - G(theta) Ubar)``
+    per bin. Under a correct model AND a correct noise model it is i.i.d. circular-
+    complex standard normal — zero mean, ``E|e|^2 = 1``, independent across bins. Both
+    halves of that statement are testable, and they fail differently: an inflated
+    ``E|e|^2`` says the residual is too large for the measured noise, while a non-zero
+    autocorrelation across frequency says what is left over is *structured* rather than
+    random. Undermodeling (a missing pole or zero) produces the second.
+
+    The frequency axis is the middle one, in the order of ``freq``.
+    """
+    e = MIMOModalEstimator(model)._assemble(theta, exps, freq)[1]
+    return e.reshape(len(exps), len(freq), model.n_sens)
+
+
+def whiteness_test(resid, freq=None, *, max_lag=None, alpha=0.05, dof=None, n_out=None):
+    """P&S model-validation test 3 (§12.3.6, p. 477): whiteness of the residuals.
+
+    Tests whether the residual sequence is uncorrelated *along frequency*. A structural
+    error the model cannot represent — an unmodeled pole or zero, a missed optical
+    spring — does not scatter the residual randomly; it pushes a contiguous run of bins
+    the same way, which shows up as autocorrelation at short lag. Noise alone does not
+    do that, because the per-bin covariance was measured from the period-to-period
+    scatter rather than inferred from the fit, so the residual has an absolute scale to
+    be judged against.
+
+    ``resid`` is the whitened residual (see :func:`whitened_residual`); the frequency
+    axis is the LAST axis if 1-D or 2-D ``(n_seq, F)``, otherwise pass the
+    ``(n_exp, F, n_sens)`` array directly and it is regrouped to ``(n_exp*n_sens, F)``.
+    Sequences are pooled, and lag sums never wrap across a sequence boundary.
+
+    Statistics, for ``N = n_seq*F`` residuals pooled over ``n_seq`` sequences of length
+    ``F``, normalized autocorrelation ``rho_l`` and ``N_l = n_seq*(F-l)``:
+
+    - ``N^2 |rho_l|^2 / N_l`` is Exp(1) under the null, giving the per-lag band
+      ``|rho_l| <= sqrt(-ln(alpha) * N_l) / N``;
+    - the portmanteau ``Q = 2 sum_l N^2 |rho_l|^2 / N_l`` is chi-squared with ``2*max_lag``
+      degrees of freedom.
+
+    That construction is the standard Box-Pierce portmanteau carried over to circular-
+    complex residuals; P&S state the whiteness requirement itself (§12.3.6) — the
+    specific statistic here is not a transcription of one of their equations.
+
+    NO parameter correction is applied to the chi-squared dof. The Box-Pierce correction
+    subtracts the order of an ARMA model fitted TO THE TESTED SERIES; the plant's
+    parameter count is a different quantity and subtracting it rejects good fits (the
+    plant fit perturbs the residual autocorrelation by O(n_theta/N), which is negligible
+    whenever the test is worth running).
+
+    ``mean_power`` is NOT referenced to 1 when the whitening uses a SAMPLE covariance over
+    a finite number of periods: ``Ceps^-1/2`` is then itself noisy and inflates the
+    whitened power by ``dof/(dof-n_y)`` — the same factor P&S apply to the expected cost.
+    Pass ``dof`` (periods minus transients) and ``n_out`` (= ``n_sens``) to get
+    ``mean_power_expected`` and the ``power_ratio`` that should be compared against 1.
+
+    CAVEAT — non-uniform line spacing. Lag is measured in EXCITED-LINE INDEX, not in Hz.
+    Where the design clusters lines on the modes (which is the normal case here, see
+    ``design.pintelon.select_excited_lines``), one index step is not one frequency step,
+    and a lag mixes scales across cluster boundaries. Run the test per contiguous
+    cluster when the spacing is strongly non-uniform.
+
+    Returns a dict: ``lags``, ``acf`` (``|rho_l|``), ``acf_bound``, ``n_exceed``, ``stat``,
+    ``dof``, ``p_value``, ``white`` (bool, at ``alpha``), ``mean_power`` (``E|e|^2``, 1.0
+    under the null), and the worst sliding-window excess — ``worst_window_power`` with
+    ``worst_window_hz`` when ``freq`` is supplied — which points at WHERE the excess sits.
+    """
+    from scipy.stats import chi2
+    e = np.asarray(resid)
+    if e.ndim == 1:
+        e = e[None, :]
+    elif e.ndim == 3:                      # (n_exp, F, n_sens) -> (n_exp*n_sens, F)
+        e = np.moveaxis(e, 1, -1).reshape(-1, e.shape[1])
+    elif e.ndim != 2:
+        raise ValueError(f"resid must be 1-D, 2-D (n_seq,F) or 3-D (n_exp,F,n_sens); got {e.ndim}-D")
+    n_seq, F = e.shape
+    if F < 8:
+        raise ValueError(f"need at least 8 frequency bins for a whiteness test, got {F}")
+    max_lag = int(max_lag if max_lag is not None else min(20, max(1, F // 4)))
+    max_lag = max(1, min(max_lag, F - 1))
+
+    N = n_seq * F
+    den = float(np.sum(np.abs(e) ** 2))
+    if den <= 0:
+        raise ValueError("residual is identically zero — nothing to test")
+    lags = np.arange(1, max_lag + 1)
+    acf, stat_l = np.empty(max_lag), np.empty(max_lag)
+    for i, lag in enumerate(lags):
+        num = np.sum(e[:, lag:] * np.conj(e[:, :-lag]))     # per-sequence, no wrap
+        rho = np.abs(num) / den
+        acf[i] = rho
+        stat_l[i] = N * N * rho * rho / (n_seq * (F - lag))  # ~ Exp(1) under the null
+    acf_bound = np.sqrt(-np.log(alpha) * n_seq * (F - lags)) / N
+    stat = float(2.0 * stat_l.sum())
+    chi_dof = int(2 * max_lag)
+    p_value = float(chi2.sf(stat, chi_dof))
+
+    power = (np.abs(e) ** 2).mean(axis=0)                   # pooled per-bin, ~1 under null
+    win = max(1, min(max_lag, F))
+    kern = np.ones(win) / win
+    wpow = np.convolve(power, kern, mode="valid")
+    j = int(np.argmax(wpow))
+    out = {"lags": lags, "acf": acf, "acf_bound": acf_bound,
+           "n_exceed": int(np.sum(acf > acf_bound)),
+           "stat": stat, "dof": chi_dof, "p_value": p_value, "white": bool(p_value >= alpha),
+           "mean_power": float(power.mean()),
+           "worst_window_power": float(wpow[j]), "worst_window_slice": (j, j + win)}
+    if dof is not None and n_out is not None and dof > n_out:
+        exp_pow = float(dof) / (float(dof) - float(n_out))   # sample-covariance inflation
+        out["mean_power_expected"] = exp_pow
+        out["power_ratio"] = float(power.mean() / exp_pow)
+        out["worst_window_ratio"] = float(wpow[j] / exp_pow)
+    if freq is not None:
+        f = np.asarray(freq, float)
+        out["worst_window_hz"] = (float(f[j]), float(f[min(j + win - 1, len(f) - 1)]))
+    return out
+
+
+def validate_fit(model, theta, exps, freq, dof, modes_hz=None, *, alpha=0.05):
+    """Fit validation: off-resonance FRF agreement + cost vs. expected (P&S 12-19)
+    + whiteness of the residuals (P&S 12.3.6 test 3).
 
     Returns dict with frf_rel_median_offres (median |G_fit-G_inv|/|G_inv| off-res),
-    cost, cost_expected, cost_ratio.
+    cost, cost_expected, cost_ratio, and the :func:`whiteness_test` report under
+    ``whiteness`` (plus flattened ``white`` / ``whiteness_p`` for convenience).
     """
     n_sens, n_act = model.n_sens, model.n_act
     G_fit = model.eval(theta, freq)
@@ -373,9 +494,12 @@ def validate_fit(model, theta, exps, freq, dof, modes_hz=None):
     cost = MIMOModalEstimator(model)._assemble(theta, exps, freq)[2]
     # cost sums over n_act experiments AND len(freq) bins (P&S 12-19 generalized)
     cost_expected = dof / (dof - n_sens) * n_sens * len(freq) * n_act
+    wh = whiteness_test(whitened_residual(model, theta, exps, freq), freq,
+                        alpha=alpha, dof=dof, n_out=n_sens)
     return {"frf_rel_median_offres": frf_rel_median_offres,
             "cost": float(cost), "cost_expected": float(cost_expected),
-            "cost_ratio": float(cost / cost_expected)}
+            "cost_ratio": float(cost / cost_expected),
+            "whiteness": wh, "white": wh["white"], "whiteness_p": wh["p_value"]}
 
 
 def fit_block_decoupled(exps, freq, blocks, *, dof=None, max_iter=600, prior_weight=0.0):

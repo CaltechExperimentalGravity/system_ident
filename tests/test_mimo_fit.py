@@ -5,7 +5,8 @@ from system_ident.mimo_fit import (peak_pick_modes, find_modes, init_residues, i
                                     MIMOModalEstimator, parameter_covariance,
                                     mimo_parameter_covariance, mimo_fisher_matrix,
                                     modal_uncertainty, modal_frac_uncertainty, frf_band,
-                                    validate_fit, fit_block_decoupled)
+                                    validate_fit, fit_block_decoupled,
+                                    whiteness_test, whitened_residual)
 
 def synth_openloop(model, modes, phi, psi, *, sigZ=0.0, M=20, seed=0, freq=None):
     """Robust-method campaign on G = model truth (open loop). Returns (exps, freq, theta_true, G)."""
@@ -195,3 +196,76 @@ def test_fit_block_decoupled_resolves_spatial_doublet():
     assert abs(fA[0] - 1.000) < 1e-3            # block A recovers the 1.000 Hz member
     assert abs(fB[0] - 1.004) < 1e-3            # block B recovers the 1.004 Hz member
     assert res[0]["mu"] is not None and res[0]["mu"][0]["f0_std"] < 1e-3   # CRB populated
+
+# --------------------------------------------------------------- whiteness (P&S test 3)
+def test_whiteness_accepts_white_noise():
+    """Pure circular-complex noise is white: the portmanteau must not reject it."""
+    rng = np.random.default_rng(0)
+    e = (rng.standard_normal((4, 400)) + 1j * rng.standard_normal((4, 400))) / np.sqrt(2)
+    rep = whiteness_test(e, alpha=0.05)
+    assert rep["white"] and rep["p_value"] > 0.05
+    assert abs(rep["mean_power"] - 1.0) < 0.15           # E|e|^2 = 1 under the null
+    assert rep["n_exceed"] <= 3                          # ~5% of 20 lags may cross by chance
+
+
+def test_whiteness_rejects_correlated_residual():
+    """A smooth (correlated) residual is exactly what undermodeling leaves behind."""
+    rng = np.random.default_rng(1)
+    w = (rng.standard_normal((4, 400)) + 1j * rng.standard_normal((4, 400))) / np.sqrt(2)
+    e = np.apply_along_axis(lambda v: np.convolve(v, np.ones(8) / 8, mode="same"), 1, w)
+    rep = whiteness_test(e, alpha=0.05)
+    assert not rep["white"] and rep["p_value"] < 1e-3
+    assert rep["acf"][0] > rep["acf_bound"][0]           # lag-1 correlation is the tell
+
+
+def test_whiteness_detects_an_unmodeled_mode():
+    """The point of the test: fit 1 mode to a 2-mode plant and have validation SAY so.
+
+    The fit is given the RIGHT noise (so nothing is hidden in an inflated covariance) and
+    the WRONG order. Undermodeling must show up as non-white residuals and an inflated
+    cost, while the correctly-ordered fit on the same data passes both.
+    """
+    modes = [(0.6, 30), (1.6, 40)]
+    phi = np.array([[1., .3, .2], [.2, 1., .4]]); psi = np.array([[1., .2, .1], [.1, 1., .3]])
+    m2 = Rank1ModalModel(3, 3, 2)
+    exps, freq, _, G = synth_openloop(m2, modes, phi, psi, sigZ=5e-3, M=20, seed=5)
+
+    good = validate_fit(m2, MIMOModalEstimator(m2).fit(exps, freq, initial_theta(m2, exps, freq, G)).theta,
+                        exps, freq, dof=20, modes_hz=[f for f, _ in modes])
+    m1 = Rank1ModalModel(3, 3, 1)                        # one mode short — undermodeled
+    bad = validate_fit(m1, MIMOModalEstimator(m1).fit(exps, freq, initial_theta(m1, exps, freq, G)).theta,
+                       exps, freq, dof=20, modes_hz=[f for f, _ in modes])
+
+    assert good["white"], "correctly-ordered fit should leave white residuals"
+    assert not bad["white"], "undermodeled fit must be caught by the whiteness test"
+    assert bad["whiteness_p"] < 1e-6
+    assert bad["cost_ratio"] > good["cost_ratio"]        # cost-vs-expected agrees
+    # power_ratio is referenced to the sample-covariance inflation dof/(dof-n_y), not 1
+    assert good["whiteness"]["power_ratio"] < 1.3 < bad["whiteness"]["power_ratio"]
+
+
+def test_whiteness_localises_the_missing_mode():
+    """The worst-window excess should point at the mode the model left out (1.6 Hz)."""
+    modes = [(0.6, 30), (1.6, 40)]
+    phi = np.array([[1., .3, .2], [.2, 1., .4]]); psi = np.array([[1., .2, .1], [.1, 1., .3]])
+    m2 = Rank1ModalModel(3, 3, 2)
+    exps, freq, _, G = synth_openloop(m2, modes, phi, psi, sigZ=5e-3, M=20, seed=7)
+    m1 = Rank1ModalModel(3, 3, 1)
+    th = MIMOModalEstimator(m1).fit(exps, freq, initial_theta(m1, exps, freq, G)).theta
+    rep = whiteness_test(whitened_residual(m1, th, exps, freq), freq, max_lag=12,
+                         dof=20, n_out=3)
+    lo, hi = rep["worst_window_hz"]
+    assert lo <= 1.6 <= hi or min(abs(lo - 1.6), abs(hi - 1.6)) < 0.25
+
+
+def test_whiteness_input_shapes_and_guards():
+    rng = np.random.default_rng(2)
+    e3 = (rng.standard_normal((2, 200, 3)) + 1j * rng.standard_normal((2, 200, 3))) / np.sqrt(2)
+    r3 = whiteness_test(e3)                              # (n_exp, F, n_sens) regrouped
+    assert r3["white"] and len(r3["lags"]) == r3["dof"] // 2   # no parameter correction
+    r1 = whiteness_test(e3[0, :, 0])                     # 1-D accepted
+    assert "acf" in r1 and r1["lags"][0] == 1
+    with pytest.raises(ValueError):
+        whiteness_test(np.ones(4, complex))              # too few bins
+    with pytest.raises(ValueError):
+        whiteness_test(np.zeros((2, 50), complex))       # identically zero
