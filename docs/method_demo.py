@@ -513,12 +513,13 @@ def sweep_fig(c, *, height=520):
     yr = sp._logy_range([c.frac_ms[m], c.frac_sw[sw_ok]], decades=decades)
     fig.update_xaxes(type="log", title_text="frequency [Hz]")
     fig.update_yaxes(type="log", range=yr, title_text="σ(FRF)/|FRF|  (per bin)")
-    fig.add_annotation(x=0.5, y=1.0, xref="paper", yref="paper", yanchor="bottom",
-                       showarrow=False, font=dict(size=sp.SZ_ANNOT, color=sp.INK),
-                       text=f"full-band coverage by sweep ≈ {c.t_cover/3600:.0f} h "
-                            f"({c.cover_factor:.0f}× the one multisine window)")
-    fig.update_layout(title="Fractional FRF uncertainty — same twin, same power, "
-                            "equal wall-clock")
+    # Carried as a real subtitle rather than a paper-anchored annotation: at
+    # y=1.0 it shared the top band with the title and the horizontal legend.
+    fig.update_layout(title=dict(
+        text="Fractional FRF uncertainty — same twin, same power, equal wall-clock",
+        subtitle=dict(text=f"full-band coverage by sweep ≈ {c.t_cover/3600:.0f} h "
+                           f"({c.cover_factor:.0f}× the one multisine window)",
+                      font=dict(size=sp.SZ_ANNOT, color=sp.INK))))
     return sp.style(fig, height=height)
 
 
@@ -809,6 +810,6 @@ def crb_pull_fig(c, *, height=440):
                     line=dict(color=sp.SKY, width=2.8), name="standard normal 𝒩(0,1)")
     fig.update_xaxes(title_text="normalised error   (fit − true) / σ<sub>CRB</sub>", range=[-4, 4])
     fig.update_yaxes(title_text="probability density")
-    fig.update_layout(title=f"The ML fit stands on the Cramér–Rao bound — pulls are 𝒩(0,1) "
+    fig.update_layout(title=f"ML fit against the Cramér–Rao bound — pulls are 𝒩(0,1) "
                             f"(empirical σ = {c.emp_std:.2f} over {c.n_seeds} seeds × 2 params)")
     return sp.style(fig, height=height)

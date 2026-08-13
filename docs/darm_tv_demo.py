@@ -120,7 +120,7 @@ def tracking_error_fig(c, *, height=430):
     fig.add_hline(y=0.0, line=dict(color=sp.GRAY, width=1, dash="dot"))
     fig.update_xaxes(title_text="time [min]")
     fig.update_yaxes(title_text=f"κ_{NAME} tracking error")
-    fig.update_layout(title="Tracking error vs the Cramér–Rao band — the recovery is honest")
+    fig.update_layout(title="κ tracking error against the Cramér–Rao band")
     return sp.style(fig, height=height)
 
 
@@ -279,7 +279,7 @@ def joint_corr_fig(cj=None, *, height=430):
                                reversescale=True, zmid=0,
                                text=np.round(cj.corr, 2), texttemplate="%{text}",
                                colorbar=dict(title="corr")))
-    fig.update_layout(title="How well the drifts separate — off-diagonal ≈ 0 is clean, ±1 is "
+    fig.update_layout(title="Separability of the drifts — off-diagonal ≈ 0 is separable, ±1 is "
                             "degenerate")
     return sp.style(fig, height=height, legend="v")
 

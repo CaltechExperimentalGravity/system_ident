@@ -312,7 +312,7 @@ def doublet_resolved_fig(*, height=560):
     fig.update_xaxes(title_text="mode frequency f₀ [Hz]")
     fig.update_yaxes(title_text="quality factor Q")
     fig.update_layout(
-        title=f"The 0.67 Hz doublet is spatial, not a resolution limit — "
+        title=f"The 0.67 Hz doublet, resolved spatially — "
               f"Δf₀ ≈ {b.df_hz * 1e3:.1f} mHz across orthogonal planes")
     return sp.style(fig, height=height)
 

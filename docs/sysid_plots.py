@@ -108,8 +108,14 @@ def style(fig, height=None, legend="h", legend_y=1.02):
     fig.update_layout(
         template="plotly_white",
         font=dict(family=FONT, size=SZ_BASE, color=INK),
-        margin=dict(l=82, r=30, t=64, b=66),
-        title_font=dict(family=FONT, size=SZ_AXIS + 2),
+        margin=dict(l=82, r=30, t=96, b=66),
+        # The title gets its own band at the top of the CONTAINER, above the
+        # plotting area. The horizontal legend sits at y=1.02 in paper coords,
+        # i.e. just above the axes — without this separation a long title and a
+        # wide legend are drawn through each other.
+        title=dict(font=dict(family=FONT, size=SZ_AXIS + 2),
+                   x=0, xanchor="left", xref="container",
+                   y=1, yanchor="top", yref="container", pad=dict(t=10, l=4)),
     )
     fig.update_xaxes(
         title_font=dict(size=SZ_AXIS), tickfont=dict(size=SZ_TICK), gridcolor=GRID
@@ -647,7 +653,7 @@ def info_ellipse(ellipses, *, xlabel="f₀  [Hz]", ylabel="Q", nsig=1.0, height=
 
 
 def resolvability_map(ratio, budget, *, points=(), rayleigh=1.0, height=560,
-                      title="When are two modes resolvable?"):
+                      title="Resolvability of two modes in a parametric fit"):
     """Log–log resolvability map for a parametric two-mode fit.
 
     ``x = Δf/Γ`` (mode separation in linewidths); ``y = budget`` is the measurement

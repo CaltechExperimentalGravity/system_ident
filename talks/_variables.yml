@@ -110,7 +110,7 @@ td:
   peak_frac: '33'
   period: '64'
   skip: '2'
-  spread_pow: '11'
+  spread_pow: '10'
   tau_damped: '2.9'
   tau_open: '143'
 twin:

@@ -375,8 +375,7 @@ def convergence_fig(cv=None, *, height=560):
     fig.update_xaxes(type="log", title_text="record length T = P·nperseg/f_s  [s]")
     fig.update_yaxes(type="log", title_text="fractional 1σ   σ(θ)/θ",
                      range=sp._logy_range([allv], decades=3))
-    fig.update_layout(title="Parameter-error convergence — every cal parameter falls as 1/√T "
-                            "onto the Cramér–Rao bound")
+    fig.update_layout(title="Parameter-error convergence — 1/√T onto the Cramér–Rao bound")
     return sp.style(fig, height=height)
 
 
@@ -470,7 +469,7 @@ def cal_line_spectrum_fig(cs=None, *, height=560):
     yr = sp._logy_range([cs.asd, cs.floor], decades=6)
     fig.update_xaxes(type="log", title_text="frequency [Hz]")
     fig.update_yaxes(type="log", range=yr, title_text="DARM displacement ASD  [m/√Hz]")
-    fig.update_layout(title=f"Calibration lines in the DARM spectrum — each stands its SNR above "
+    fig.update_layout(title=f"Calibration lines in the DARM spectrum — per-line SNR above "
                             f"the floor over a {cs.T:.0f} s record")
     return sp.style(fig, height=height)
 

@@ -272,8 +272,8 @@ def group_sos(nums: dict, force: bool) -> None:
     fig.update_yaxes(title_text="error in units of the CRB σ", range=[-lim, lim],
                      zeroline=False)
     fig.update_xaxes(title_text="40m SOS rigid-body mode  (DOF, oracle f₀)")
-    fig.update_layout(title="40m SOS, 6 DOF: every recovered mode lands inside "
-                            f"{nums['sos_worst_sigma']:.2f}σ of the Cramér–Rao bound")
+    fig.update_layout(title="40m SOS, 6 DOF — worst pull "
+                            f"{nums['sos_worst_sigma']:.2f}σ against the Cramér–Rao bound")
     _write(sp.style(fig, height=520), "sos-crb")
 
 
@@ -364,7 +364,10 @@ _FREEZE_13 = (_ROOT / "docs" / "_freeze" / "examples" / "13-darm-drift-tracking"
 #: figure title fragment → deck figure name, in the frozen page's own order.
 _TV_FIGS = {
     "drifting ESD strength": "darm-drift",
-    "Tracking error vs the Cram": "darm-tracking",
+    # Matched on the stable part of the title only: the editorial tail was
+    # rewritten in darm_tv_demo, and a key carrying it would stop matching the
+    # moment example 13 is re-executed.
+    "Rao band": "darm-tracking",
     "Three parameters drifting at once": "darm-joint",
     "A-optimal cal lines": "darm-callines",
 }
