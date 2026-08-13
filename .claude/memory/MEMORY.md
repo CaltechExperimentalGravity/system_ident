@@ -22,3 +22,5 @@ Each entry is one durable fact in its own file; write new ones here, never to `~
 - [CI stays light](ci-stays-light.md) — heavy tests and renders run locally; measure step timings before proposing any CI speedup
 - [Never open the user's browser](never-open-the-users-browser.md) — HARD RULE: never `open`/preview a rendered page or URL; report the path and stop
 - [No Foton export](no-foton-export.md) — HARD RULE: never build a foton ZPK/SOS exporter (left to someone else); *reading* foton banks is fine
+- [Never search outside the repo](never-search-outside-repo.md) — HARD RULE: no find/grep/ls outside `/home/rana/GIT/system_ident`; ask for the path instead
+- [Pull before concluding a file is absent](pull-before-concluding-absent.md) — `git fetch`/`pull` first; the local clone may be many commits behind another machine
