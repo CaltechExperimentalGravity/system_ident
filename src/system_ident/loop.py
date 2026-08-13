@@ -140,13 +140,21 @@ class SysIDLoop:
         # capture pre-run state for the safe handoff
         self.watchdog.snapshot([exc[d] for d in dofs] + [rb[d] for d in dofs])
 
-        # quiet-time readback PSD per DoF (no excitation) -> Pyy for design/Fisher
-        Pyy = {}
-        for d in dofs:
-            quiet = self.backend.read([rb[d]], total_dur)[rb[d]]
-            Pyy[d] = self._noise_psd(quiet, fs, nperseg, band)
-
         try:
+            # quiet-time readback PSD per DoF (no excitation) -> Pyy for
+            # design/Fisher. Inside the try now, not before it (2026-08-11):
+            # this is a real backend.read() call, exposed to the exact same
+            # CDSTransportError/KeyboardInterrupt faults as every other read
+            # in the campaign -- a fault here used to skip the graceful
+            # watchdog.abort() handoff entirely and surface as a raw,
+            # uncaught traceback instead of "ABORTED: .../safe-state handoff
+            # completed.", confirmed on real hardware (a passive-read gap
+            # fault interrupted mid-retry).
+            Pyy = {}
+            for d in dofs:
+                quiet = self.backend.read([rb[d]], total_dur)[rb[d]]
+                Pyy[d] = self._noise_psd(quiet, fs, nperseg, band)
+
             for it in range(max_iter):
                 uncertainties = {}
                 # First pass: prior-robust excitation from the prior + its error
