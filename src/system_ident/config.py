@@ -287,14 +287,33 @@ class RunConfig:
         return CDSBackend.from_config(self.raw, transport=transport, authorizer=authorizer)
 
     def build_priors(self) -> dict:
-        """Return per-DoF prior :class:`TFModel` models (one per DoF)."""
+        """Return per-DoF prior :class:`TFModel` models (one per DoF).
+
+        Each DoF entry is either a resonance spec (``{resonances, gain,
+        [zeros]}``) or raw transfer-function coefficients (``{num, den}``) --
+        e.g. seeding the next measurement from a previous run's fitted
+        result, highest power first, matching ``TFModel``'s own convention.
+        """
         if "priors" not in self.raw:
             raise ConfigError("runs need a 'priors' section (one model per DoF)")
-        spec = _resonance_spec(self.raw["priors"])
-        return {
-            dof: TFModel.from_resonances(d["resonances"], d["gain"], zeros=d["zeros"])
-            for dof, d in spec.items()
-        }
+        priors: dict = {}
+        for dof, d in self.raw["priors"].items():
+            if "num" in d and "den" in d:
+                priors[dof] = TFModel(
+                    num=[float(x) for x in d["num"]],
+                    den=[float(x) for x in d["den"]],
+                )
+            elif "resonances" in d and "gain" in d:
+                priors[dof] = TFModel.from_resonances(
+                    [tuple(r) for r in d["resonances"]], float(d["gain"]),
+                    zeros=[complex(z) for z in d.get("zeros", [])],
+                )
+            else:
+                raise ConfigError(
+                    f"priors.{dof} needs either {{resonances, gain}} or "
+                    f"{{num, den}}, got keys {sorted(d)}"
+                )
+        return priors
 
     def build_estimator(self):
         return ESTIMATORS[self.raw["strategy"]["estimator"]]()
