@@ -6,7 +6,7 @@ categories: [SISO, resonance]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The whole nine-panel diagnostic arc on the simplest possible plant — one resonance, end to end.
 - How optimal excitation, the leakage-free FRF, the ML fit and the Cramér–Rao bound fit together. New to the method? Start from [the overview](../tutorial/overview.qmd).
 :::
@@ -24,7 +24,7 @@ The pipeline is always the same three moves, run for several passes:
 
 1. **design** an optimal periodic multisine that puts drive power where the model is
    most uncertain;
-2. **measure** the frequency-response function (FRF) *leakage-free* with a synchronous,
+2. **measure** the frequency-response function (FRF) leakage-free with a synchronous,
    integer-period DFT;
 3. **fit** the plant by maximum likelihood, weighting each bin by its measured
    uncertainty — then redesign from the improved model and repeat.
@@ -68,10 +68,10 @@ Pyy    = np.ones_like(freq)          # white readout-noise floor
 Px_tot = 1.0                         # fixed drive-power budget
 ```
 
-## The parameters we're chasing
+## The parameters being recovered
 
-Every step below reprints this table so you can watch the numbers move. We start
-knowing only the **prior** — deliberately wrong by 5 % in $f_0$, 10 % in $Q$.
+Every step below reprints this table, so the numbers can be followed pass by pass. The
+campaign starts from the **prior** alone — deliberately wrong by 5 % in $f_0$, 10 % in $Q$.
 
 ```{python}
 #| code-summary: "Prior vs true parameters"
@@ -85,10 +85,10 @@ sp.param_table(
 
 ## 1 — Design the excitation
 
-The optimal drive is the fixed point of the Pintelon–Schoukens *dispersion* function:
+The optimal drive is the fixed point of the Pintelon–Schoukens dispersion function:
 it pours power into the bins that carry the most Fisher information about $(f_0, Q)$ —
 the resonance and its skirts — instead of spreading it flat. **Same total power, sharper
-parameters.** The first pass uses a *prior-robust* drive (spread over $f_0(1\pm u)$) so a
+parameters.** The first pass uses a prior-robust drive (spread over $f_0(1\pm u)$) so a
 far prior still covers the true resonance.
 
 ```{python}
@@ -107,9 +107,9 @@ sp.excitation_design(
 ```
 
 ::: {.callout-note}
-The variance reduction above buys sharper parameters at **no extra measurement time or
-drive power** — only a smarter allocation of the same budget. That is the whole promise
-of optimal experiment design.
+The variance reduction above yields tighter parameters at **no extra measurement time or
+drive power**, from a different allocation of the same budget. That is what optimal
+experiment design provides.
 :::
 
 ## 2 — Run the campaign
@@ -143,11 +143,11 @@ sp.param_table(["step", "f₀ [Hz]", "Q", "DC gain |G(0)|", "σ/θ (CRB)"], rows
                caption="Parameters at each step")
 ```
 
-## ▶ Watch the loop converge
+## ▶ The loop converging
 
-Press **Play** to watch six passes of the loop: the drive ASD (bottom) reallocates power
+Press **Play** for six passes of the loop: the drive ASD (bottom) reallocates power
 toward the resonance while the maximum-likelihood fit (top, gold dashed) tightens onto the
-true plant. Drag the slider to step through passes by hand.
+true plant. The slider steps through the passes individually.
 
 ```{python}
 #| code-summary: "Animated convergence over passes"
@@ -163,8 +163,8 @@ sp.animate_passes(freq, np.abs(true.eval(freq)),
 ## 3 — Is the drive gentle? The measurement time series
 
 The Schroeder phasing gives the multisine a low crest factor: a smooth, bounded waveform
-rather than an impulsive kick. The mirror settles into a steady bounded oscillation — the
-suspension is being *coaxed*, not slammed.
+rather than an impulsive kick. The mirror settles into a steady bounded oscillation: the
+suspension is driven smoothly rather than stepped.
 
 ```{python}
 #| code-summary: "Drive + mirror motion, first ~64 s of pass 1"
@@ -263,11 +263,11 @@ sp.pass_overlay(freq,
     np.abs(true.eval(freq))).show()
 ```
 
-## 🎛 Try it yourself
+## 🎛 Interactive resonance
 
-Drag the sliders — the Bode magnitude of a second-order resonance updates live in your
-browser (no server, no re-run). Move $f_0$ to slide the peak; raise $Q$ to make it taller
-and sharper. This is the very shape the loop above is built to measure.
+Dragging the sliders updates the Bode magnitude of a second-order resonance in the
+browser (no server, no re-run). $f_0$ slides the peak; raising $Q$ makes it taller
+and sharper. This is the shape the loop above is built to measure.
 
 ```{ojs}
 //| echo: false

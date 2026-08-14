@@ -1,32 +1,32 @@
 ---
 title: "13 — Tracking a drifting DARM parameter"
-description: "The DARM loop's calibration parameters drift, forcing continuous re-measurement. On the coupled reduced-quad plant, track an actuation strength κ(t), the SRC detuning δ(t) (which splits the cavity pole into a complex pair), and finally several parameters drifting at once under a realistic random wander — recovered jointly with Lataire–Pintelon fits on leakage-free P&S snapshots, within honest Cramér–Rao bands, with the correlation matrix exposing which drifts are degenerate."
+description: "The DARM loop's calibration parameters drift, forcing continuous re-measurement. On the coupled reduced-quad plant, track an actuation strength κ(t), the SRC detuning δ(t) (which splits the cavity pole into a complex pair), and finally several parameters drifting at once under a realistic random wander — recovered jointly with Lataire–Pintelon fits on leakage-free P&S snapshots, within calibrated Cramér–Rao bands, with the correlation matrix exposing which drifts are degenerate."
 image: thumbnails/13.svg
 categories: [calibration, closed-loop, DARM, time-varying]
 freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
-- Why a *drifting* plant is a system-ID problem, not a re-measurement chore.
-- Recovering a time-varying actuation strength **κ(t)** from leakage-free snapshots, with a real CRB.
-- Tracking the **SRC detuning δ(t)** — the *new* physics of the coupled plant, where the cavity pole splits into a complex pair — from the Pcal FRF, independent of the κ drift.
-- Tracking **several parameters drifting at once, at random** (a joint fit), and reading off from the **correlation matrix** which drifts are hard to tell apart.
-- Proving each drift is **resolvable** with a computed bound — not eyeballing the plot.
+## Contents
+- Why a drifting plant is a system-ID problem rather than a re-measurement chore.
+- Recovering a time-varying actuation strength **κ(t)** from leakage-free snapshots, with a measured CRB.
+- Tracking the **SRC detuning δ(t)** — the physics the coupled plant adds, where the cavity pole splits into a complex pair — from the Pcal FRF, independent of the κ drift.
+- Tracking **several parameters drifting at once, at random** (a joint fit), and reading off from the **correlation matrix** which drifts are hard to separate.
+- Establishing that each drift is **resolvable** with a computed bound rather than by inspection.
 :::
 
 The [DARM calibration page](08-darm-calibration.qmd) recovers the loop's sensing, actuation,
-and response at **one instant**. But the reason DARM calibration is the slowest recurring LIGO
+and response at **one instant**. The reason DARM calibration is the slowest recurring LIGO
 measurement is that those parameters **drift** — the optical gain, the coupled-cavity pole, and
 the actuation strengths wander over minutes to hours, so the calibration is re-measured again and
-again. This page treats that drift head-on: as a slowly time-varying system to *identify*, not a
+again. This page treats that drift as a slowly time-varying system to identify, not a
 nuisance to average away.
 
 ::: {.callout-note appearance="simple"}
 ## The plant and the scope
-This runs on the **new coupled DARM plant** — the M0-damped reduced-QUAD hierarchical actuation
+This runs on the **coupled DARM plant** — the M0-damped reduced-QUAD hierarchical actuation
 (M0 / PUM / ESD) with coupled detuned-cavity sensing, where the SRC detuning splits the cavity pole
-into a complex pair (the same twin as [example 08](08-darm-calibration.qmd)). We build up in three steps: a single
+into a complex pair (the same twin as [example 08](08-darm-calibration.qmd)). The build-up is in three steps: a single
 actuation strength κ(t) on a smooth curve, then the SRC detuning δ(t), then the realistic case —
 **several parameters drifting at once, at random**, recovered jointly. Still deferred: a
 Gaussian-process wander with a measured drift spectrum, all seven TDCFs together, and the one-shot
@@ -56,13 +56,13 @@ estimator:
 
 1. **Snapshot.** At a sequence of times, take one leakage-free periodic-multisine measurement and
    recover the instantaneous actuation strength with **Pcal as the ruler**. Because the sensing
-   `C` cancels in the stage-to-Pcal ratio, each snapshot is *immune to sensing drift* and carries
-   an honest per-estimate σ.
+   `C` cancels in the stage-to-Pcal ratio, each snapshot is independent of sensing drift and carries
+   its own per-estimate σ.
 2. **Basis fit.** Fit `κ(t) = Σ cₖ bₖ(t)` in a time-basis (Legendre) to the snapshot series by
    weighted least squares — a Lataire–Pintelon basis expansion in two-step form. The coefficient
-   covariance **is** the Cramér–Rao bound on the drift curve κ(t) and its rate.
+   covariance is the Cramér–Rao bound on the drift curve κ(t) and its rate.
 
-We drift the **ESD (TST) stage** — the one whose strength really wanders in an interferometer, as
+The drifted stage is the **ESD (TST)** — the one whose strength wanders in an interferometer, as
 charge builds on the reaction mass — with a 5 %, hour-scale profile, on the coupled reduced-quad
 plant (the ruler `H_stage/H_pcal = κ_i·D_i·N_i` recovers κ through the M0-damped compliance and the
 nested-offload distribution).
@@ -82,12 +82,12 @@ its CRB band:
 dd.drift_fig(c)
 ```
 
-The fit rides straight through the snapshots and follows the injected drift — a 5 % excursion
-resolved cleanly, even though each single snapshot only pins κ to about a percent.
+The fit passes through the snapshots and follows the injected drift: a 5 % excursion
+resolved, even though each single snapshot pins κ only to about a percent.
 
-## Is the recovery honest?
+## Calibration of the tracking uncertainty
 
-A curve through points is easy; a curve that knows its own uncertainty is the point. The recovery
+A curve through points is not sufficient; the curve has to carry its own uncertainty. The recovery
 residual (recovered − truth) stays inside the ±σ Cramér–Rao band — the error bar neither
 collapses (which would be fabricated confidence) nor balloons (which would be uselessly
 conservative):
@@ -99,8 +99,8 @@ dd.tracking_error_fig(c)
 
 ## The feasibility gate: is the drift resolvable?
 
-Before calling a drift "trackable" or "buried in noise," compute the bound. The tracking σ from the
-fit is far below the injected drift amplitude, so the drift is genuinely **resolved**, not noise —
+Before calling a drift trackable or buried in noise, compute the bound. The tracking σ from the
+fit is far below the injected drift amplitude, so the drift is resolved rather than noise,
 and the local-stationarity approximation costs a fraction of a percent, well under the per-snapshot
 error:
 
@@ -109,17 +109,17 @@ error:
 display(dd.resolvability_table(c))
 ```
 
-The resolve ratio is a knob, not a limit: more periods per snapshot, more snapshots, or a stronger
-drive all buy it down further — the same Fisher levers as everywhere else in the pipeline.
+The resolve ratio is a controlled variable, not a limit: more periods per snapshot, more snapshots,
+or a stronger drive all reduce it — the same Fisher levers as everywhere else in the pipeline.
 
-## The new physics: a drifting SRC detuning δ(t)
+## A drifting SRC detuning δ(t)
 
-The coupled plant lets us track the drift that the old single-pole twin could not represent: the
+The coupled plant admits a drift the single-pole twin could not represent: the
 **SRC detuning δ**. As the SRC error point wanders around its slightly-detuned operating point, the
 cavity pole moves — splitting toward a complex pair — and the sensing shape changes with it. δ is a
-*sensing* parameter, so it does **not** cancel in the κ ruler; instead it is recovered from the
-**Pcal FRF shape** (`C_meas = H_pcal·(1+G)`), which makes the δ snapshot independent of the κ drift
-— the two compose into a joint κ(t), δ(t) picture. We drift δ by 5 % around a 5° operating point:
+sensing parameter, so it does not cancel in the κ ruler; it is instead recovered from the
+**Pcal FRF shape** (`C_meas = H_pcal·(1+G)`), which makes the δ snapshot independent of the κ drift,
+so the two compose into a joint κ(t), δ(t) picture. δ is drifted by 5 % around a 5° operating point:
 
 ```{python}
 #| code-summary: "Snapshot the drifting SRC detuning δ(t) from the Pcal FRF, fit δ(t)"
@@ -134,19 +134,19 @@ display(dd.delta_resolvability_table(cd))
 
 The detuning is recovered to a hundredth of a degree per snapshot — the coupled-cavity split leaves
 a strong high-frequency signature in `C`, so δ is well-identified even at this small detuning. Note
-the separation of concerns: κ comes from the stage/Pcal *ratio* (immune to sensing drift), δ from
-the Pcal *shape* (immune to actuation drift), so a real interferometer's simultaneous κ- and
+the separation of concerns: κ comes from the stage/Pcal ratio (independent of sensing drift), δ from
+the Pcal shape (independent of actuation drift), so a real interferometer's simultaneous κ- and
 δ-drift are tracked by two independent snapshots on the same records.
 
-## Round 2: everything drifts at once, and at random
+## Round 2: several parameters drifting at once, at random
 
-The two sections above each drift **one** parameter along a **smooth** curve. Reality is messier on
-both counts: several calibration numbers wander **simultaneously**, and the wander is **random**
-(a meandering walk), not a tidy sine. Here we do both — the optical gain `κ_C`, the SRC detuning
+The two sections above each drift one parameter along a smooth curve. Both are simplifications:
+several calibration numbers wander simultaneously, and the wander is random
+(a meandering walk) rather than a sine. This section does both — the optical gain `κ_C`, the SRC detuning
 `δ`, and the ESD strength `κ_ESD` all drift together as random (Ornstein–Uhlenbeck) walks, and each
-record is fit for **all three at once**. A joint fit is essential because the parameters are not
-independent: a wobble in one can masquerade as a wobble in another, and only a joint fit — with the
-Pcal record pinning the sensing and each stage record pinning its own strength — untangles them.
+record is fit for all three at once. A joint fit is necessary because the parameters are not
+independent: a wobble in one can present as a wobble in another, and only a joint fit — with the
+Pcal record pinning the sensing and each stage record pinning its own strength — separates them.
 
 ```{python}
 #| code-summary: "Three random drifts at once, recovered in one joint fit per record"
@@ -155,29 +155,29 @@ dd.joint_drift_fig(cj)
 ```
 
 All three random wanders are followed within their error bars. The **correlation matrix** of a
-single snapshot shows *how well* they separate:
+single snapshot shows how well they separate:
 
 ```{python}
 #| code-summary: "Which drifts are hard to tell apart"
 dd.joint_corr_fig(cj)
 ```
 
-`δ` separates cleanly from the two gains (near-zero correlation) — it lives in the sensing *shape*,
-which the amplitudes don't touch. But `κ_C` (optical gain) and `κ_ESD` (test-mass drive) are
-strongly **anti-correlated**: both simply scale the ESD line, so the loop shape alone cannot tell an
-optical-gain change from an actuation change — it is the **Pcal absolute reference** that breaks the
-tie (exactly why Pcal is the fiducial in a real calibration). The joint fit surfaces that degeneracy
-honestly rather than hiding it in a one-at-a-time recovery.
+`δ` separates cleanly from the two gains (near-zero correlation) — it lives in the sensing shape,
+which the amplitudes do not touch. `κ_C` (optical gain) and `κ_ESD` (test-mass drive) are
+strongly **anti-correlated**: both scale the ESD line, so the loop shape alone cannot distinguish an
+optical-gain change from an actuation change — the **Pcal absolute reference** breaks the
+tie, which is why Pcal is the fiducial in a real calibration. The joint fit reports that degeneracy
+rather than concealing it in a one-at-a-time recovery.
 
 ## Designing the drive: a few optimal lines, not broadband
 
-The rounds above inject a **broadband** multisine — power in every bin — which is *not* how a real
-calibration drives the interferometer, and *not* what optimal excitation calls for. The plant is
-**one** system (the opto-mechanical DARM sensing `C` plus the quad suspension) with **one** joint
-parameter vector, and it is read out by a **few always-on calibration lines**. The right question
-is where to *put* those lines. Given a prior on how much each parameter drifts, we place and weight
-a handful of lines — Pcal lines plus one per in-band stage — to **minimise the joint estimator
-variance on the drifts** (a Bayesian A-optimal design), under the **real force budgets**: the Pcal's
+The rounds above inject a **broadband** multisine — power in every bin — which is neither how a real
+calibration drives the interferometer nor what optimal excitation calls for. The plant is
+one system (the opto-mechanical DARM sensing `C` plus the quad suspension) with one joint
+parameter vector, and it is read out by a few always-on calibration lines. The question
+is where to place those lines. Given a prior on how much each parameter drifts, a handful of lines —
+Pcal lines plus one per in-band stage — are placed and weighted to **minimise the joint estimator
+variance on the drifts** (a Bayesian A-optimal design), under the real force budgets: the Pcal's
 ±200 mW photon-calibrator range, and each suspension stage capped at the same displacement ruler.
 
 Every line informs every parameter — a suspension line passes through `C` and `1/(1+G)` so it
@@ -196,10 +196,11 @@ dd.design_fig(dc)
 display(dd.design_table(dc))
 ```
 
-A **handful** of designed lines reaches a lower joint cost than a broadband multisine that spends the
-same budget over ~six times as many lines — the drive belongs where each parameter is informative,
-not spread thin across the band (much of which is the seismic wall or a stage's dead zone). Injecting
-exactly this roster on the twin and reading it back leakage-free recovers the drifting parameters:
+A handful of designed lines reaches a lower joint cost than a broadband multisine that spends the
+same budget over ~six times as many lines — the drive is placed where each parameter is informative,
+rather than spread across the band, much of which is the seismic wall or a stage's dead zone.
+Injecting exactly this roster on the twin and reading it back leakage-free recovers the drifting
+parameters:
 
 ```{python}
 #| code-summary: "Track the joint set from the DESIGNED cal-line readout (not broadband)"
@@ -208,37 +209,38 @@ dd.tracked_lines_fig(tc)
 ```
 
 ::: {.callout-note appearance="simple"}
-## What's grounded, and what the scope is
+## What is grounded, and what the scope is
 The **κ_C drift prior is measured** (Sun et al. 2020: the optical gain varies 1–2 % over a run); the
 **Pcal budget is real** (±200 mW → `pcal_range_disp`); the **O4 line frequencies are published**
 (Wade et al. 2025, Fig. 4). The drift priors for `δ`, `κ_PUM`, `κ_ESD` are **representative
 placeholders** — the O3/O4 papers do not quantify them — and the per-stage force caps are **derived**
 by matching the Pcal ruler, since the papers give no per-stage line amplitude. The design tracks the
 **identifiable joint set** for this twin and the O4 floor: `κ_C`, `δ`, and the two in-band stages
-`κ_PUM`/`κ_ESD`. The other TDCFs are feasibility-gated, not hidden:
+`κ_PUM`/`κ_ESD`. The other TDCFs are feasibility-gated rather than omitted:
 
 - **`κ_M0`** — the design frequency band runs down to **1 Hz** (there is no arbitrary cap), and the
-  placement uses the honest **seismic wall** extrapolated below 10 Hz (`darm_o4_asd_seismic`, ≈ f⁻⁷).
-  With that real floor the top mass is squeezed out from both sides: below ~10 Hz the seismic wall
+  placement uses the **seismic wall** extrapolated below 10 Hz (`darm_o4_asd_seismic`, ≈ f⁻⁷).
+  With that floor the top mass is constrained from both sides: below ~10 Hz the seismic wall
   buries its line, and above ~10 Hz its own hierarchical offload rolls its DARM authority off as
   ≈ f⁻⁸. A leakage-free simulation confirms the line cannot be recovered anywhere in band, so
-  `κ_M0` is **not** claimed here — it would need a sub-Hz line, where the detector is deaf. (The
-  analytic Fisher is optimistic for this offloaded stage; the simulation is the arbiter.)
+  `κ_M0` is **not** claimed here — it would require a sub-Hz line, where the detector has no
+  sensitivity. (The analytic Fisher is optimistic for this offloaded stage; the simulation is the
+  arbiter.)
 - **`f_cc`/`τ`** need a wideband high-frequency Pcal spread to become well-conditioned.
 
-The joint Fisher (`darm_callines.joint_fisher`) plus the simulated readout together say what each of
-those would require, rather than reporting a number the simulation won't back up.
+The joint Fisher (`darm_callines.joint_fisher`) plus the simulated readout together state what each
+of those would require, rather than reporting a number the simulation does not support.
 :::
 
-## Honest gaps
+## Remaining gaps
 
-On the coupled reduced-quad plant, the machinery now tracks **several parameters drifting at once,
+On the coupled reduced-quad plant, the machinery tracks **several parameters drifting at once,
 under a realistic random wander, within a Cramér–Rao bound, from a P&S-optimal designed cal-line
-drive** — and the correlation matrix names the degeneracies instead of hiding them. What's still
+drive**, and the correlation matrix names the degeneracies rather than concealing them. What remains
 simplified: the random walk is a plain Ornstein–Uhlenbeck process (a Gaussian-process wander with a
-measured drift spectrum is the honest next step); the estimator is the two-step form (snapshot, then
+measured drift spectrum is the next step); the estimator is the two-step form (snapshot, then
 basis-fit) rather than the one-shot Lataire–Pintelon fit; the drift priors for all but `κ_C` are
 representative placeholders pending real per-parameter numbers; and `κ_M0`, `f_cc`, `τ` need the
 out-of-band / wideband lines noted above to join the tracked set. What this page establishes is the
-foundation: the "can we track it?" question gets a numeric answer, jointly, from an optimal drive,
-and honestly — see `notes/darm-calibration-via-pns.md`.
+foundation: the question of whether a drift can be tracked gets a numeric answer, jointly, from an
+optimal drive — see `notes/darm-calibration-via-pns.md`.

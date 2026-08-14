@@ -25,7 +25,7 @@ Leakage-free FRF
     DFT smears resonance power into neighbouring bins.
 
 Reference-based FRF (ratio-of-averages)
-:   The estimator $\hat H = \overline{Y}/\overline{X}$ — the ratio of the *period-averaged*
+:   The estimator $\hat H = \overline{Y}/\overline{X}$ — the ratio of the period-averaged
     output and input spectra, **not** the cross-/auto-spectrum $S_{yx}/S_{xx}$. Averaging the
     complex spectra projects onto the deterministic multisine, which cancels loop and sensor
     noise; in **closed loop** it returns the open-loop plant with no controller model.
@@ -44,7 +44,7 @@ Crest factor
 ## Design & Fisher information
 
 Fisher information $I(\theta)$
-:   How many *nats* of information the experiment carries about each model parameter, for a
+:   How many nats of information the experiment carries about each model parameter, for a
     given drive PSD $P_{xx}$, readout-noise PSD $P_{yy}$, and time $T$. Its inverse is the
     Cramér–Rao bound. See [Fisher & excitation](fisher.qmd#from-model-to-measurement-budget).
 
@@ -88,7 +88,7 @@ Fractional uncertainty (stop criterion)
 
 Sample-ML / equation error / errors-in-variables (EIV)
 :   The MIMO estimator's cost: it fits the equation error $e = \hat Y - G\,\hat U$ weighted by
-    the projected input/output sample covariance. Because it carries the noise on *both* $Y$
+    the projected input/output sample covariance. Because it carries the noise on both $Y$
     and the measured input $U$, it is unbiased in closed loop and needs **no** FRF matrix
     inverse. See [MIMO & joint modal](mimo-modal.qmd#the-estimator-sample-ml-no-matrix-inverse).
 
@@ -124,16 +124,16 @@ Common-denominator model ($B/A$)
 ## Resolution & near-degeneracy
 
 Spatial doublet
-:   Two modes coincident in *frequency* but living in *orthogonal DOF subspaces* (e.g. the
+:   Two modes coincident in frequency but living in orthogonal DOF subspaces (e.g. the
     $\{L,P,V\}$ vs $\{T,R,Y\}$ planes of a suspension). A shared-pole fit collapses them —
     a parameterization artifact — but `fit_block_decoupled` resolves both by fitting each
     block alone, with **no** finer $df$. See [example 10](../examples/10-srm-hsts.qmd).
 
 Super-resolution
-:   Parametric ML resolving two modes closer than one linewidth — impossible for
-    non-parametric peak-picking. The CRB says at what budget: the required $\text{SNR}\cdot N$
+:   Parametric ML resolving two modes closer than one linewidth, which non-parametric
+    peak-picking cannot. The CRB gives the budget: the required $\text{SNR}\cdot N$
     grows as a steep but finite power of $\Gamma/\Delta f$. A cost, not a wall.
-    See [When are two modes resolvable?](fisher.qmd#when-are-two-modes-resolvable).
+    See [Resolvability of two modes](fisher.qmd#when-are-two-modes-resolvable).
 
 Rayleigh limit (non-parametric)
 :   The classical "can't resolve closer than one bin / one linewidth" rule. It applies to

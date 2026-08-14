@@ -6,9 +6,9 @@ categories: [MIMO, coupling]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - A genuine 2×2 coupled MIMO plant: shared normal modes, diagonal notches, real cross-coupling.
-- Element-by-element recovery — the step before the *joint* modal fit of examples 09–10.
+- Element-by-element recovery — the step before the joint modal fit of examples 09–10.
 :::
 
 > **On a real reduced plant:** for genuine coupled aLIGO dynamics (a 4×4 reduced-quad yaw chain, not a lumped 2×2), see [example 11](11-reduced-quad.qmd) — the same rank-1 modal recovery, numpy-only.
@@ -17,7 +17,7 @@ categories: [MIMO, coupling]
 
 Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
 **not** a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
-the *same normal modes*, so the honest model is a coupled 2×2 matrix
+the same normal modes, so the correct model is a coupled 2×2 matrix
 
 $$
 H(s) = \bigl(M s^2 + C s + K\bigr)^{-1},
@@ -29,7 +29,7 @@ H(s) = \bigl(M s^2 + C s + K\bigr)^{-1},
 $$
 
 Every element shares the normal-mode **poles**; what differs is the **numerator**:
-the diagonals carry an *anti-resonance notch* at the partner DoF's mode, while the
+the diagonals carry an anti-resonance notch at the partner DoF's mode, while the
 off-diagonals are notch-free and set by the coupling. We build that from a modal
 expansion (`plant.coupled_suspension`) using representative Advanced-LIGO quad
 rigid-body frequencies, then identify the whole matrix one input column at a time.
@@ -38,7 +38,7 @@ rigid-body frequencies, then identify the whole matrix one input column at a tim
 ## Modeling note
 This is a **simplified, physically-motivated** model — a coupled 2-DoF normal-mode
 expansion with a single longitudinal↔pitch coupling — **not** a validated full Advanced-LIGO
-suspension state-space model. The mode frequencies are *representative* values from the
+suspension state-space model. The mode frequencies are representative values from the
 aLIGO quad rigid-body modes (longitudinal ≈ 0.43, 1.00, 2.01, 3.42 Hz; pitch ≈ 0.56, 1.31,
 2.81 Hz), of which we use the two lowest of each here. Sources:
 Aston *et al.*, *Quadruple suspension design for Advanced LIGO*, Class. Quantum Grav. **29**
@@ -184,7 +184,7 @@ sp.timeseries(t, [("drive (POS)", c0["drive"], sp.SKY)],
 ## The 2×2 matrix — magnitude, phase, coherence
 
 Note the **notch** between the peaks on the diagonals (`H[POS←POS]`, `H[PIT←PIT]`) and its
-*absence* on the off-diagonals — the signature of a genuinely coupled system, not a scaled
+absence on the off-diagonals — the signature of a genuinely coupled system, not a scaled
 diagonal.
 
 ```{python}

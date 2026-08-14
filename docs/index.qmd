@@ -31,9 +31,10 @@ toc: false
 
 ::: {.column-screen-inset style="max-width:1080px; margin:1.5rem auto 0;"}
 
-**Drag the gold curve** to redistribute the drive energy across frequency, then watch how long
-it takes to identify the plant to 5%. Two resonances share one power budget — feed the mode
-whose **Q** is least certain. The tall peak is a trap; the flat sweep is slow. Can you reach par?
+**Drag the gold curve** to redistribute the drive energy across frequency; the readout gives the
+time to identify the plant to 5%. Two resonances share one power budget, and the shortest time
+comes from allocating power to the mode whose **Q** is least certain. A single tall peak and a
+flat sweep are both slower than the Fisher-optimal allocation, which the par line marks.
 
 ```{=html}
 <div id="excitation-arcade" class="excitation-arcade"></div>
@@ -91,8 +92,8 @@ display(HTML(f"""
     <div class="feature-card">
       <span class="feature-icon">&#119979;</span>
       <h3>Fisher-optimal excitation</h3>
-      <p>The dispersion function ν(f) tells you how much each frequency bin contributes to
-         parameter information given the current drive and readout noise.
+      <p>The dispersion function ν(f) gives the contribution of each frequency bin to
+         parameter information, given the current drive and readout noise.
          The Pintelon–Schoukens fixed-point iteration redistributes drive power toward
          high-ν bins under a fixed total-power budget — converging to the optimal spectrum
          in 3–5 iterations.</p>
@@ -136,11 +137,11 @@ display(HTML(f"""
 </div>
 
 <div class="page-section">
-  <p class="section-label">New here?</p>
+  <p class="section-label">Where to start</p>
   <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
     A reading path
   </h2>
-  <p>Read in this order — each step builds on the last:</p>
+  <p>Each step builds on the previous one:</p>
   <ol style="line-height:1.9; padding-left:1.3rem;">
     <li><a href="tutorial/overview.html"><strong>The method</strong></a> — the whole loop in one page (start here).</li>
     <li><a href="tutorial/model.html"><strong>The model</strong></a> — how a plant is parameterized.</li>
@@ -150,7 +151,7 @@ display(HTML(f"""
     <li><a href="tutorial/safety-and-ops.html"><strong>Safety &amp; operations</strong></a> — watchdog, ramps, safe handoff.</li>
     <li><a href="examples/01-single-resonance.html"><strong>Worked examples</strong></a> — the executable ladder, 01 → 10.</li>
   </ol>
-  <p>New to the vocabulary? The <a href="tutorial/glossary.html">glossary</a> defines every
+  <p>The <a href="tutorial/glossary.html">glossary</a> defines every
      load-bearing term with a pointer to where it is used.</p>
 </div>
 
@@ -159,7 +160,7 @@ display(HTML(f"""
   <h2 style="font-family:'Outfit',sans-serif; font-size:1.6rem; font-weight:700; margin-bottom:1rem;">
     Run the twin demo
   </h2>
-  <p>Install into your environment, then run the digital-twin demo — a small 2-DoF
+  <p>Install the package, then run the digital-twin demo — a small 2-DoF
      (POS/PIT) campaign that runs end to end in under a second, no hardware
      required. For the 3-DoF POS/PIT/YAW campaign, see
      <a href="examples/04-suspension-multidof.html">example 04</a>.</p>

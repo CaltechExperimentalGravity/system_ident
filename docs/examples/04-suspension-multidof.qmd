@@ -6,7 +6,7 @@ categories: [multi-DoF, campaign]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - A full multi-DoF (POS/PIT/YAW) campaign — the same path the CLI runs.
 - Reading per-DoF convergence and the standard diagnostics across a suspension.
 :::

@@ -6,7 +6,7 @@ categories: [SISO, SNR-limited]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - What identification looks like with **no resonance to aim at** — a plain low-pass.
 - Why a flat in-band drive is the right design when there is nothing to concentrate on.
 :::
@@ -21,7 +21,7 @@ with the cavity pole $f_c$ setting the bandwidth (DC gain 1). There is **no shar
 resonance** to aim at — the identification is **signal-to-noise limited**. We run the same
 full diagnostic set as the resonance examples and recover the pole by maximum likelihood
 from a 30 %-wrong prior. The interesting twist: even with no peak, the optimal drive is
-*not* flat — the Fisher information about $f_c$ concentrates around the corner, and the
+not flat — the Fisher information about $f_c$ concentrates around the corner, and the
 excitation follows it.
 
 ```{python}

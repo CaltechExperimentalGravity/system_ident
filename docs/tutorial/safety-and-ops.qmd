@@ -4,7 +4,7 @@ title: "Safety & operations"
 
 ## Hardware safety design principles
 
-On a real interferometer, *only physical limits trigger an abort*.
+On a real interferometer, only physical limits trigger an abort.
 Coherence health and fit quality are surfaced as status and recorded in the
 history but never cause an automatic stop — a low-coherence pass is a bad
 measurement, not a dangerous one.  What matters for safety is:
@@ -19,7 +19,7 @@ Both are monitored by `Watchdog` at every read segment during a pass.
 The excitation itself is designed to stay clear of the first limit: the periodic
 multisine is built with low-crest **Schroeder phases**, which minimise the
 peak-to-RMS ratio so a given in-band power lands well inside the actuator's range
-(a random-phase drive of the same RMS would saturate far sooner). The watchdog is
+(a random-phase drive of the same RMS would saturate sooner). The watchdog is
 the backstop, not the first line of defence.
 
 ## The safe-handoff routine
@@ -80,7 +80,7 @@ If the `[dashboard]` extra is installed, the CLI also serves a live dashboard:
 - **Convergence** — fractional uncertainty vs pass number
 
 The dashboard has a **STOP** button that calls the safe-handoff routine via
-a websocket message to the running loop — it's the same routine as an abort,
+a websocket message to the running loop — the same routine as an abort,
 not a SIGKILL.
 
 ::: {.callout-tip}

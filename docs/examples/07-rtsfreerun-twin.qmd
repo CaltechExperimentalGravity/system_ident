@@ -7,22 +7,22 @@ freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The same P&S pipeline on the real **compiled-CDS** front-end (RTSfreerun twin).
 - Open-loop recovery under twin seismic + readout noise, then the 6-DoF plant with production loops closed.
 :::
 
-Examples [01–06](index.qmd) identify *teaching* plants — lumped resonances and a coupled
-normal-mode expansion. This one identifies the **real thing**: a compiled
+Examples [01–06](index.qmd) identify teaching plants — lumped resonances and a coupled
+normal-mode expansion. This one identifies a compiled
 [`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun) advligorts front-end model
-of a LIGO HSTS suspension — *the same C filter numerics a control-room front-end runs*,
+of a LIGO HSTS suspension: the same C filter numerics a control-room front-end runs,
 driven through the same channel API, under the digital twin's own seismic and readout noise.
 No hardware; no method changes. The Pintelon–Schoukens loop (periodic multisine →
 leakage-free reference FRF → maximum-likelihood fit → Cramér–Rao refinement) runs exactly as
 it does on the teaching plants.
 
 ::: {.callout-note appearance="simple"}
-## What makes this page different
+## What distinguishes this page
 The plant here is **not** a Python lumped model — it is the compiled `x1hsts` / `x1hsts6dof`
 CDS composite (built from a `.mdl` by `rtsfreerun`), carrying the as-built `HSTS_DRV_TF`
 foton cascade and a 36-state MIMO suspension state space. Because that model is not installed
@@ -49,19 +49,19 @@ import rtsfreerun_demo as rd
 
 The HSTS drive→sensor plant is the order-10 `HSTS_DRV_TF` cascade — **five modes** near
 0.67, 1.01, 1.52, 2.81 and 3.78 Hz, each $Q\!\approx\!50$, threaded with near-cancelling
-zeros. We inject the multisine at the coil-driver excitation port and read the 16-bit sensor
-displacement while the twin runs `ligo-india` seismic on the ISI and BOSEM readout noise.
+zeros. The multisine is injected at the coil-driver excitation port and the 16-bit sensor
+displacement read while the twin runs `ligo-india` seismic on the ISI and BOSEM readout noise.
 The FRF input is the **after-actuator drive monitor**, so the coil driver divides out and the
-recovered transfer is the bare suspension. *(A1 — the wiring/oracle smoke test that gates this
-page — lives in the test suite; here we go straight to recovery.)*
+recovered transfer is the bare suspension. (A1 — the wiring/oracle smoke test that gates this
+page — lives in the test suite; this page goes straight to recovery.)
 
-### What you'd watch in the control room — one raw measurement
+### One raw measurement, before any fitting
 
-Before any fitting, here is the raw audit: a single broadband measurement, exactly the channels
-you would trend at the front end. The drive is injected through a **3 s Tukey on/off ramp**
-(actuator-safe — you never slam a suspension), held at full amplitude through the measured
-periods, then ramped back down; the readout is the real 16-bit sensor under the twin's seismic +
-BOSEM noise. Nothing here is fitted — it is what went in and what came out.
+The raw audit is a single broadband measurement on the channels a front end would trend. The
+drive is injected through a **3 s Tukey on/off ramp** (actuator-safe: a suspension is never
+stepped into), held at full amplitude through the measured periods, then ramped back down; the
+readout is the real 16-bit sensor under the twin's seismic + BOSEM noise. Nothing here is
+fitted — it is what went in and what came out.
 
 ```{python}
 #| code-summary: "One raw open-loop measurement (Tukey-ramped broadband drive, twin noise)"
@@ -69,8 +69,8 @@ a2a = rd.a2_audit(seed=1)
 rd.drive_response_fig(a2a)
 ```
 
-You can see the drive ramp up over 3 s, the suspension ring up to steady state, and the readout
-carry the modes plus the broadband sensor/seismic floor. The measurement uses only the flat
+The drive ramps up over 3 s, the suspension rings up to steady state, and the readout
+carries the modes plus the broadband sensor/seismic floor. The measurement uses only the flat
 middle periods (the leakage-free, integer-period window), so the ramps fall in discarded settle.
 
 ```{python}
@@ -80,8 +80,8 @@ rd.exc_design_fig(a2a)
 
 The audit drives **flat** in-band (every line illuminated, so coherence is interpretable
 everywhere); the campaign below instead spends its power budget where the Fisher information is —
-the gold ASD concentrates at the five modes. Now the leakage-free reference FRF and its
-**per-line coherence** — where on the band do we actually trust this measurement?
+the gold ASD concentrates at the five modes. Next, the leakage-free reference FRF and its
+**per-line coherence**, which establish where in the band the measurement is trustworthy.
 
 ```{python}
 #| code-summary: "Measured FRF vs oracle, with per-line coherence"
@@ -89,7 +89,7 @@ rd.bode_audit_fig(a2a, fit=a2a.fit)
 ```
 
 Coherence sits at ~1 across the driven band (deterministic drive, modest noise); the measured FRF
-(markers, with σ error bars) lands on the analytic oracle, and a quick ML fit threads it. The
+(markers, with σ error bars) lands on the analytic oracle, and an ML fit passes through it. The
 **residuals** — normalised `(measured − fit)/σ` — should be a structureless ±2 scatter with a
 standard-normal histogram if the noise model is right:
 
@@ -100,7 +100,7 @@ rd.residuals_fig(a2a, a2a.fit)
 
 ### Optimal-excitation campaign
 
-The audit above is a single flat sweep. The actual identification is the P&S **optimal-excitation
+The audit above is a single flat sweep. The identification proper is the P&S **optimal-excitation
 campaign**: a prior-robust first pass, then point-optimal refinement that concentrates the drive
 where the Fisher information is, folding each pass in by inverse-variance and refitting.
 
@@ -122,14 +122,14 @@ rd.convergence_fig(a2.fracs)
 
 ## A3 · Closed-loop — the real damping loops engaged
 
-Now the `x1hsts6dof` composite: the bare-M1 **6×6 MIMO** HSTS state space with the
+Next the `x1hsts6dof` composite: the bare-M1 **6×6 MIMO** HSTS state space with the
 **production L1 `MC2_M1_DAMP` foton banks** closed around all six rigid-body DOFs
-(L, T, V, R, P, Y), tuned to a $\tau\!\approx\!5$ s ringdown — the very loops that damp the
-suspension in the observatory. A closed loop normally *hides* the plant: the sensor sees the
-suppressed response $G/(1+GC)$, not $G$. The P&S **reference-based** estimate recovers $G$ anyway,
-by taking the FRF against the **true plant input** — the drive *minus* the controller feedback
+(L, T, V, R, P, Y), tuned to a $\tau\!\approx\!5$ s ringdown — the loops that damp the
+suspension in the observatory. A closed loop normally conceals the plant: the sensor sees the
+suppressed response $G/(1+GC)$, not $G$. The P&S **reference-based** estimate recovers $G$ regardless,
+by taking the FRF against the **true plant input** — the drive minus the controller feedback
 at the `COIL_DRV_SUM` junction. The feedback sign is load-bearing: negligible off-resonance,
-it dominates exactly at the damped modes.
+it dominates at the damped modes.
 
 ```{python}
 #| code-summary: "Drive each DOF open- and closed-loop; recover the plant tensor"
@@ -138,13 +138,13 @@ display(rd.diag_table(d))
 ```
 
 With the loops closed, every diagonal element comes back as the **open-loop** plant to a part
-in a thousand — the controller is cancelled, not fit. That is the whole point of a
-reference-based closed-loop identification: you measure the suspension you want to model, not
-the suppressed loop you happened to be running.
+in a thousand — the controller is cancelled, not fitted. That is the purpose of a
+reference-based closed-loop identification: the measured quantity is the suspension to be
+modelled, not the suppressed loop it happens to be running in.
 
-#### What the cancellation looks like in the raw time series
+#### The cancellation in the raw time series
 
-To see *why* it works, here is one raw closed-loop measurement on the L DoF — the four channels a
+The mechanism is visible in one raw closed-loop measurement on the L DoF — the four channels a
 control-room audit would log: the injected `DRIVE_EXC`, the **damper feedback** it provokes, the
 **reconstructed plant input** (drive − feedback, the `"+-"` `COIL_DRV_SUM` node), and the sensor
 readout — all with the loops live.
@@ -156,7 +156,7 @@ rd.loop_timeseries_fig(a3a)
 ```
 
 The damper output is non-trivial (the loop is genuinely active), and the plant input is the drive
-*minus* it. Taking the FRF against that reconstructed plant input — not the injected drive —
+minus it. Taking the FRF against that reconstructed plant input — not the injected drive —
 cancels the controller and returns the open-loop plant, with coherence at unity:
 
 ```{python}
@@ -164,12 +164,12 @@ cancels the controller and returns the open-loop plant, with coherence at unity:
 rd.bode_audit_fig(a3a)
 ```
 
-That table is the *breadth* result — all six loops cancelled at once, nonparametrically. The
-*depth* result is the **same parametric campaign as [A2](#a1a2-open-loop-siso-under-the-twins-own-noise)**,
-now run through a closed loop. Taking the longitudinal (L) DoF: we seed an analytic modal prior
+That table is the breadth result — all six loops cancelled at once, nonparametrically. The
+depth result is the **same parametric campaign as [A2](#a1a2-open-loop-siso-under-the-twins-own-noise)**,
+now run through a closed loop. Taking the longitudinal (L) DoF: an analytic modal prior is seeded
 (its order chosen from the state-space oracle — L carries five modes; pitch and yaw carry fewer,
-and over-modelling them is what used to break the optimal-excitation design), then run the
-prior-robust → point-optimal refinement against the reconstructed plant input.
+and over-modelling them is what previously broke the optimal-excitation design), then the
+prior-robust → point-optimal refinement runs against the reconstructed plant input.
 
 ```{python}
 #| code-summary: "A3 depth — the optimal-excitation parametric campaign, loops closed (L DoF)"
@@ -178,10 +178,10 @@ rd.bode_overlay(a3.ff, a3.oracle, a3.fit, freq=a3.freq, H_meas=a3.H_meas,
                 title="L drive→sense — open-loop oracle vs closed-loop parametric recovery")
 ```
 
-The recovered model sits on the **open-loop** state-space oracle through all five modes — even
-though the L damper (and the other five) are live. The modal parameters return to the analytic
-truth, and the Cramér–Rao uncertainty falls pass over pass exactly as in the open-loop case: a
-closed loop costs nothing here, because the reference-based estimate never saw it.
+The recovered model sits on the **open-loop** state-space oracle through all five modes, with
+the L damper (and the other five) live. The modal parameters return to the analytic
+truth, and the Cramér–Rao uncertainty falls pass over pass as in the open-loop case: the
+closed loop carries no penalty here, because the reference-based estimate never saw it.
 
 ```{python}
 #| code-summary: "Closed-loop modal recovery + CRB convergence (L DoF)"
@@ -199,18 +199,18 @@ dictates. Each per-pair FRF is overlaid on its analytic state-space element belo
 with the closed-loop diagonal recovery from A3 in green on the diagonal.
 
 The cross-coupling is small — the diagonals peak near 18, the strongest off-diagonal near 0.15.
-So the **diagonals are drawn at their true scale, and every off-diagonal element is multiplied by
-one shared factor (×100)** to lift it onto the same axis (noted in the figure title and the
-"oracle" legend entry). The scaling is purely for visibility; it is the same number for all 30
-off-diagonal panels, so their *relative* magnitudes are preserved.
+The **diagonals are therefore drawn at their true scale, and every off-diagonal element is
+multiplied by one shared factor (×100)** to lift it onto the same axis (noted in the figure title
+and the "oracle" legend entry). The scaling is for visibility only; it is the same number for all
+30 off-diagonal panels, so their relative magnitudes are preserved.
 
 ```{python}
 #| code-summary: "6×6 |FRF| tensor — oracle vs open-loop (A4) and closed-loop diagonal (A3)"
 rd.tensor_grid(d)
 ```
 
-The off-diagonal elements *under closed loop* still carry the cross-loop bias — recovering the
+The off-diagonal elements under closed loop still carry the cross-loop bias — recovering the
 coupled matrix jointly, with shared modal poles across elements, is the parametric MIMO fit
-(the named Track B follow-on). The per-pair open-loop tensor here is the honest nonparametric
+(the named Track B follow-on). The per-pair open-loop tensor here is the nonparametric
 MIMO result, and the closed-loop diagonal is the controller-cancelled SISO recovery — both
 against the same compiled twin a real front-end runs.

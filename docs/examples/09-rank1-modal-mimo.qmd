@@ -7,7 +7,7 @@ freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The rank-1 **joint MIMO modal fit**: shared poles, per-mode rank-1 residues, data-driven mode-finding.
 - The theory behind it: [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
@@ -26,7 +26,7 @@ that ties all the elements to a common set of modes.
 ::: {.callout-note appearance="simple"}
 ## A six-mode demonstration
 The twin is a coupled normal-mode plant with six shared modes (representative low-frequency
-suspension values), driven through six diagonal velocity dampers. It is a *demonstration* of
+suspension values), driven through six diagonal velocity dampers. It is a demonstration of
 the joint-fit measurement, not a validated suspension model, and six modes are not a proof
 that the method scales without limit. The page is rendered with `freeze: true`.
 :::
@@ -70,7 +70,7 @@ per-mode `(f0, Q)` uncertainty.
 
 The figure below shows one diagonal element `G[0,0]` and one off-diagonal `G[0,3]`: the
 nonparametric `|Gnp|` (markers, noisy near the peaks), the rank-1 `|Gfit|` with its ±1σ band,
-and the analytic truth. The parametric fit predicts cleanly **through** the resonances where
+and the analytic truth. The parametric fit predicts through the resonances where
 the per-bin inverse scatters.
 
 ```{python}
@@ -112,5 +112,5 @@ On this twin the joint fit recovers all six modal frequencies to ~0.15 % through
 damping loops, with Q to a few percent and a Cramér–Rao envelope consistent with the
 deviations. It is a six-mode demonstration of the rank-1 modal step on a representative
 coupled plant — not a validated suspension model, and not a claim that the method scales
-without limit. The honest next test is a higher-order, measured plant under a real decoupling
+without limit. the next test is a higher-order, measured plant under a real decoupling
 design.

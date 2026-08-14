@@ -1,14 +1,14 @@
 ---
 title: "11 — Reduced aLIGO QUAD (modal fit, no twin)"
-description: "The joint-MIMO rank-1 modal fit on a REAL reduced aLIGO quadruple suspension — the 59-state modal-truncation model committed in the package — identified end to end in pure numpy. The four yaw rigid-body modes come back to a part in 10⁵ with a Cramér–Rao bound, and the whole page runs in CI and in your browser, no compiled twin required."
+description: "The joint-MIMO rank-1 modal fit on a REAL reduced aLIGO quadruple suspension — the 59-state modal-truncation model committed in the package — identified end to end in pure numpy. The four yaw rigid-body modes come back to a part in 10⁵ with a Cramér–Rao bound, and the whole page runs in CI and in the browser, no compiled twin required."
 image: thumbnails/11.svg
 categories: [MIMO, modal, reduced-plant]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The flagship rank-1 modal fit (examples [09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) run on a **real reduced aLIGO quad** — realistic multi-stage dynamics between the lumped teaching plants and the heavy compiled twin.
-- That the *whole* pipeline is numpy-only: it runs unfrozen in CI and in [Binder](interactive.qmd)/the [in-browser demo](interactive.qmd), no twin.
+- That the whole pipeline is numpy-only: it runs unfrozen in CI and in [Binder](interactive.qmd)/the [in-browser demo](interactive.qmd), no twin.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/11-reduced-quad.ipynb)  ·  runs live, no install (the [in-browser demo](interactive.qmd) is instant)
@@ -18,7 +18,7 @@ compiled-CDS twin through its real loops ([10](10-srm-hsts.qmd), `freeze: true`,
 This page runs the same method on the **realistic middle**: the digital twin's **modal-truncation
 reduced** aLIGO quadruple suspension — the full 1483-state state-space cut to a faithful
 **59-state** model over the control band — committed in the package as
-`system_ident/models/quad_reduced_50hz.npz`. Because the reduced model is just `(A,B,C,D)`, the
+`system_ident/models/quad_reduced_50hz.npz`. Because the reduced model is only `(A,B,C,D)`, the
 plant FRF `G(f)=C(2πif·I−A)⁻¹B+D` and the whole campaign are **pure numpy** — so, unlike the
 compiled-twin pages, this one is not frozen: it re-runs in CI and in Binder.
 
@@ -43,7 +43,7 @@ yaw actuator of each stage, read the yaw displacement of each — a 4×4 open-lo
 well-separated rigid-body modes (0.6–3.0 Hz). One Pintelon–Schoukens multisine per actuator is
 driven through the numpy-only `ReducedPlantBackend`; the per-bin matrix recovery `G = Y·X⁻¹`
 returns the open-loop 4×4 FRF (the backend synthesizes the steady-state response exactly, so a
-long record costs nothing).
+a long record is inexpensive).
 
 ```{python}
 #| code-summary: "What resolution / record does the campaign use?"
@@ -56,7 +56,7 @@ display(Markdown(
 
 ## Through-resonance recovery
 
-The rank-1 modal fit shares one set of poles across the 4×4 and threads cleanly **through** the
+The rank-1 modal fit shares one set of poles across the 4×4 and passes through the
 resonances where the per-bin inverse (grey) scatters. One diagonal (`G[0,0]`, M0→M0) and one
 off-diagonal (`G[0,3]`, L3→M0) element, with the fit's ±1σ band and the reduced plant's analytic
 truth:
@@ -87,7 +87,7 @@ display(Markdown(
     f"The joint fit recovers all **{h.n_modes}** yaw modes of the reduced quad: median |Δf₀| vs "
     f"the exact modes = **{h.df_med:.4f}%** (a part in 10⁵), median |ΔQ| = **{h.q_med:.1f}%**, "
     f"with a trustworthy CRB. Everything on this page — the plant, the campaign, the fit — is "
-    f"numpy/scipy, so it ran just now in CI (or in your browser) with no compiled twin."))
+    f"numpy/scipy, so it ran just now in CI (or in the browser) with no compiled twin."))
 ```
 
 ## What this shows
@@ -97,6 +97,6 @@ lumped teaching plant or the local-only compiled twin. The frequencies of the fo
 rigid-body modes come back to a part in 10⁵ and their (model-set) Q to a percent, all in portable
 numpy — the realistic, reproducible middle the reduced models were brought in to provide. The
 same machinery drives the [SRM demo](10-srm-hsts.qmd) through real production loops on the twin;
-here it runs anywhere. For the **closed-loop** version — the same reduced quad identified *through*
+here it runs anywhere. For the **closed-loop** version — the same reduced quad identified through
 its damping loops with the controller cancelled (via `python-control`), see
 [example 12](12-reduced-quad-closed.qmd).

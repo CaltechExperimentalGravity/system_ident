@@ -1,14 +1,14 @@
 ---
 title: "Excitation playground"
-subtitle: "Spend one drive-power budget every way — race them all"
+subtitle: "One drive-power budget, spent every available way, compared side by side"
 page-layout: full
 listing: false
 ---
 
-One resonant plant, one fixed drive-power budget, and every excitation you might reach for:
+One resonant plant, one fixed drive-power budget, and each excitation in common use:
 the **Fisher-optimal multisine**, a naive **cophased** multisine, a **swept sine**, and
-**broadband and shaped noise**. Pick any of them and watch two numbers — and the whole
-scoreboard — update live, all in your browser, no install.
+**broadband and shaped noise**. Selecting any of them updates two figures of merit, and the
+full comparison table, in the browser with no install.
 
 ```{=html}
 <div id="excitation-playground" class="excitation-playground"></div>
@@ -17,49 +17,50 @@ scoreboard — update live, all in your browser, no install.
 
 ## The two axes
 
-Every drive here spends the **same total power**. What changes is *how* it spends it, and that
-splits cleanly into two independent stories:
+Every drive here spends the same total power. What differs is how it is distributed, and that
+separates into two independent quantities:
 
 - **Time to identify to 5%** — set by the drive's **power spectrum** $P_{xx}(f)$ alone. This is
-  the real Cramér–Rao bound (the same Fisher kernel as the [landing-page game](index.qmd) and the
-  [`system_ident` pipeline](examples/interactive.qmd)). Pile power where the plant's modal
-  parameters are least certain and the clock plummets; spread it flat and you wait ~40× longer.
-  Notice that *every* flat-spectrum drive — flat multisine, white noise, a linear sweep — shares
-  the **same** time, whatever its phase. Fisher can't tell them apart.
+  the Cramér–Rao bound (the same Fisher kernel as the [landing-page game](index.qmd) and the
+  [`system_ident` pipeline](examples/interactive.qmd)). Concentrating power where the plant's
+  modal parameters are least certain shortens the time by roughly 40× relative to a flat
+  spectrum. Every flat-spectrum drive — flat multisine, white noise, a linear sweep — reaches
+  the same time whatever its phase, because the Fisher information does not depend on phase.
 
-- **Crest factor** — how peaky the drive is, `max|x|/rms`. It matters because the actuator's DAC has
-  a fixed range: a peaky drive clips (or forces you to turn the whole thing down, throwing away SNR).
-  The **Fisher-optimal drive is naturally gentle** — it collapses onto ~2 tones, so its crest is ~2
-  with nothing to tune. A **swept sine** is gentlest of all (~$\sqrt2$, a constant-envelope sine);
-  broadband **noise** sits ~3.4; and a naively **cophased** multisine detonates into an impulse (~15)
-  that would clip instantly. So the lever for headroom is the same as for speed — *concentrate the
-  spectrum* — not any phase cleverness (see the caveat below).
+- **Crest factor** — the peakiness of the drive, `max|x|/rms`. It matters because the actuator's
+  DAC has a fixed range: a peaky drive clips, or forces the whole drive to be scaled down,
+  discarding SNR. The Fisher-optimal drive is low-crest as a by-product — it collapses onto
+  ~2 tones, so its crest is ~2 with nothing to tune. A **swept sine** is lowest (~$\sqrt2$, a
+  constant-envelope sine); broadband **noise** sits ~3.4; and a naively **cophased** multisine
+  reaches ~15, an impulse that would clip immediately. The lever for headroom is therefore the
+  same as the lever for speed — concentrate the spectrum — rather than any phase adjustment
+  (see the caveat below).
 
-## Why the optimal spectrum wins
+## Why the optimal spectrum is fastest
 
-The champion (★) is the **Fisher-optimal spectrum**. It collapses almost entirely onto **two tones**
-(all the budget sits on the two resonances — effective line count ≈ 2), and that one fact buys both
-prizes: it identifies the plant ~40× faster than any flat drive, *and* two tones are intrinsically
-low-crest (~2), so it stays inside the actuator range for free. A swept sine matches that crest but
-wastes power off-resonance; broadband noise loses on speed (and pays a further leakage / variance
-penalty for being aperiodic). That is the case for
-[optimal excitation](tutorial/why-optimal-excitation.qmd) — something you can *feel* by clicking,
-before a single equation.
+The best performer (★) is the **Fisher-optimal spectrum**. It collapses almost entirely onto
+two tones (the whole budget sits on the two resonances — effective line count ≈ 2), and that
+single property accounts for both results: it identifies the plant ~40× faster than any flat
+drive, and two tones are intrinsically low-crest (~2), so it stays inside the actuator range
+without further work. A swept sine matches that crest but spends power off-resonance;
+broadband noise is slower and pays a further leakage / variance penalty for being aperiodic.
+That is the case for [optimal excitation](tutorial/why-optimal-excitation.qmd), shown here
+interactively rather than algebraically.
 
 ::: {.callout-note appearance="simple"}
-## A caveat on crest, and on phase tricks
-Crest is the quantity the **DAC** sees, and this page measures it on the raw synthesized samples.
-In a real actuator the drive is shaped by the whitening / actuation chain on its way to the DAC,
-which reassigns the per-frequency phases — so a crest carefully minimized at synthesis (e.g. by a
-Schroeder phase schedule) does **not** survive to where the range limit actually bites. The
+## A caveat on crest, and on phase adjustment
+Crest is the quantity the **DAC** sees, and this page measures it on the raw synthesized
+samples. In a real actuator the drive is shaped by the whitening / actuation chain on its way
+to the DAC, which reassigns the per-frequency phases — so a crest minimized at synthesis (for
+example by a Schroeder phase schedule) does not survive to where the range limit applies. The
 dependable way to keep the drive within range is to keep its spectrum concentrated, which the
-optimal design does anyway; phase-shaping is not a lever you can bank on here.
+optimal design does regardless; phase-shaping is not a dependable lever here.
 :::
 
 ::: {.callout-tip appearance="simple"}
-## Then make it real
-This page is a fast JavaScript twin for playing. When you want the genuine article — the real
-`optimal_excitation`, `TFModel`, and Cramér–Rao code running on an actual reduced aLIGO
-suspension — the [**Run it live**](examples/interactive.qmd) page executes the real `system_ident`
-package in your browser through WebAssembly.
+## Running the real package
+This page is a JavaScript approximation for interactive exploration. The
+[**Run it live**](examples/interactive.qmd) page executes the actual `system_ident` package —
+the real `optimal_excitation`, `TFModel`, and Cramér–Rao code, on a reduced aLIGO
+suspension — in the browser through WebAssembly.
 :::

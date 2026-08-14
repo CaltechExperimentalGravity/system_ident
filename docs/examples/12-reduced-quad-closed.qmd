@@ -6,7 +6,7 @@ categories: [MIMO, modal, reduced-plant, closed-loop]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The **closed-loop** flagship (examples [05](05-closed-loop-arm.qmd)/[09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) on a **real reduced aLIGO quad**: identify through the live dampers, with the reference-based FRF **cancelling the controller**, not fitting it.
 - That the natural tool for a state-space plant closed around controllers — **python-control** (time-domain simulation) — runs the whole thing in CI and Binder.
 :::
@@ -15,7 +15,7 @@ categories: [MIMO, modal, reduced-plant, closed-loop]
 
 [Example 11](11-reduced-quad.qmd) identifies the reduced quad **open loop** (numpy-only). Real
 suspensions run under **damping loops**, though — so this page closes the same yaw chain around
-velocity dampers and identifies it *through* them. The plant is the committed 59-state reduced
+velocity dampers and identifies it through them. The plant is the committed 59-state reduced
 model as a **`python-control` state space**; the loop (`CoupledLoop` + `MIMOTwinBackend`) is
 simulated in the **time domain**; and the leakage-free reference-based FRF `G = Y·X⁻¹` returns the
 **open-loop** plant even though the data were taken closed — the controller is *cancelled, not
@@ -38,7 +38,7 @@ h = rc.headline()
 ## Closing the loop
 
 Each yaw stage gets a velocity damper (`k·s·ωc/(s+ωc)`); `CoupledLoop` builds the sensitivity
-`S=(I+L)⁻¹` and discretizes it, and `MIMOTwinBackend` drives the multisine through the *closed*
+`S=(I+L)⁻¹` and discretizes it, and `MIMOTwinBackend` drives the multisine through the closed
 loop with `control.forced_response`. We check the loop is stable, then drive each actuator and
 recover the open-loop FRF through the dampers:
 
@@ -53,7 +53,7 @@ display(Markdown(
 
 ## Recovery through the loops
 
-The nonparametric `Y·X⁻¹` (markers) is the *open-loop* plant recovered from *closed-loop* data;
+The nonparametric `Y·X⁻¹` (markers) is the open-loop plant recovered from closed-loop data;
 the rank-1 fit (gold) threads through it, and the analytic open-loop truth (dashed) confirms the
 controller is gone:
 
@@ -77,15 +77,15 @@ display(rc.modal_table())
 display(Markdown(
     f"Through the live damping loops, the reference-based FRF recovers all **{h.n_modes}** yaw "
     f"modes of the reduced quad — median |Δf₀| vs the open-loop truth = **{h.df_med:.2f}%** — with "
-    f"the controller *cancelled, not fit*. (Q is only loosely pinned through the loops for these "
-    f"near-undamped modes, an honest cost of the closed record; the frequencies are the invariant "
+    f"the controller cancelled rather than fitted. (Q is only loosely pinned through the loops for these "
+    f"near-undamped modes, a real cost of the closed record; the frequencies are the invariant "
     f"the reference-based method delivers.) All of it — the state-space plant, the loop, the "
     f"time-domain simulation — is `python-control`, running in CI and Binder."))
 ```
 
 ## Open vs closed
 
-Example 11 (open loop, numpy) and this page (closed loop, python-control) identify the *same*
+Example 11 (open loop, numpy) and this page (closed loop, python-control) identify the same
 reduced quad. Open loop, the modes come back to a part in 10⁵; closed loop, the reference-based
 FRF still returns them to a percent **while the dampers are running** — the property that makes
 in-situ identification of a live suspension possible. The method is unchanged from the

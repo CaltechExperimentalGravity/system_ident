@@ -2,12 +2,12 @@
 title: "MIMO & joint modal identification"
 ---
 
-The [closing-the-loop](closing-the-loop.qmd) page fits **one** transfer function per
+The [closing-the-loop](closing-the-loop.qmd) page fits one transfer function per
 degree of freedom. A suspension is not one transfer function — it is a coupled,
 multi-input / multi-output (MIMO) system whose degrees of freedom **share the same
 resonances**. The longitudinal, pitch and yaw responses of a single stage all ring at
-the *same* modal frequencies; what differs between elements is only *how strongly* each
-mode couples in and out. This page is the theory home for the joint fit that exploits
+the same modal frequencies; what differs between elements is how strongly each
+mode couples in and out. This page is the theory home for the joint fit that uses
 that structure — the parametric step on top of the ordinary Pintelon–Schoukens
 measurement that the [worked example 09](../examples/09-rank1-modal-mimo.qmd) and the
 [real-SRM example 10](../examples/10-srm-hsts.qmd) run end-to-end.
@@ -31,13 +31,13 @@ This is the book's default because the rational $B/A$ form has good linear-least
 starting values and avoids the local minima of a partial-fraction parameterization.
 
 ::: {.callout-note}
-## Why this package fits a *rank-1 modal* model instead
+## Why this package fits a rank-1 modal model instead
 
-At MIMO scale the free-per-element numerator $B$ has enough freedom to **absorb pole
-errors** — the shared denominator drifts while the numerators compensate, and the modal
+At MIMO scale the free-per-element numerator $B$ has enough freedom to absorb pole
+errors — the shared denominator drifts while the numerators compensate, and the modal
 frequencies come out biased. For a proportionally-damped, reciprocal mechanical structure
-the residue of each mode is **rank one**, so we can parameterize the physics directly and
-remove that freedom. `mimo_modal.Rank1ModalModel` implements
+the residue of each mode is **rank one**, so the physics can be parameterized directly and
+that freedom removed. `mimo_modal.Rank1ModalModel` implements
 
 $$
 G_{ij}(s) = \sum_{k=1}^{n_\text{modes}}
@@ -47,11 +47,11 @@ $$
 
 with shared poles $(a_k, b_k)$ and a **rank-1 real residue** $R_k = \varphi_k\,\psi_k^{\!\top}$
 per mode — a sensor mode shape $\varphi_k$ times an actuator mode shape $\psi_k$. All the
-coupling lives in the mode shapes, **not** in the residue rank. Frequencies are normalized
+coupling lives in the mode shapes, not in the residue rank. Frequencies are normalized
 by $s_\text{ref} = 2\pi\,\text{median}(f)$ so the high-order evaluation stays conditioned.
 (If the residues were genuinely full-rank — non-reciprocal, non-proportional damping — the
 common-denominator $B/A$ would be the correct fallback. For LIGO suspensions the rank-1
-modal form is both correct and far better conditioned.)
+modal form is both correct and better conditioned.)
 :::
 
 The pole $\lambda_k$ (a root of $s_n^2 + b_k s_n + a_k$, de-normalized) maps to the
@@ -64,10 +64,10 @@ $$
 
 ## The estimator — sample-ML, no matrix inverse
 
-The measurement is the ordinary campaign: drive **each actuator in turn** with a periodic
-multisine (P&S's *robust* method, $n_\text{exp} = n_u$ uncorrelated experiments), observe
-$M$ steady-state periods, and DFT each period on the excited-line grid. From the periods we
-form, per experiment $l$ and excited bin $k$, the **sample-mean** input/output spectra
+The measurement is the ordinary campaign: drive each actuator in turn with a periodic
+multisine (P&S's robust method, $n_\text{exp} = n_u$ uncorrelated experiments), observe
+$M$ steady-state periods, and DFT each period on the excited-line grid. From the periods,
+per experiment $l$ and excited bin $k$, come the **sample-mean** input/output spectra
 $\hat U^{[l]},\hat Y^{[l]}$ and their **sample covariance** $\hat C_Z^{[l]}$ (the
 period-to-period scatter — the same period-variance machinery the SISO path uses).
 
@@ -87,20 +87,20 @@ $$
 \hat C_\varepsilon^{[l]} = \big[\,I,\;-G\,\big]\,\hat C_Z^{[l]}\,\big[\,I,\;-G\,\big]^{\mathsf H}.
 $$
 
-Two properties matter, and both come from this structure:
+Two properties follow from this structure:
 
 - **It is unbiased in closed loop** (given the reference). The weighting
-  $\hat C_\varepsilon$ carries the noise on **both** $Y$ and the measured plant input $U$ and
-  their cross-covariance — an errors-in-variables fit. Because the injected multisine *is*
+  $\hat C_\varepsilon$ carries the noise on both $Y$ and the measured plant input $U$ and
+  their cross-covariance — an errors-in-variables fit. Because the injected multisine is
   the reference and the sample mean over periods is the noise-free reference-driven response,
-  the fit needs no controller model: the loop is simply part of the plant that maps drive to
+  the fit needs no controller model: the loop is part of the plant that maps drive to
   response. (This is the same reference-based cancellation the [SISO closed-loop
   mode](closing-the-loop.qmd#identifying-in-closed-loop-controller-aware) uses.)
 - **It never inverts the FRF.** The cost fits the raw $\hat Y,\hat U$ spectra, so there is
-  **no** $\hat G = Y\!\cdot\!X^{-1}$ step. The per-bin matrix inverse is ill-conditioned
-  exactly at the resonances (the drive monitors are small there); the equation-error
-  weighting handles resonances gracefully instead. This is *why* the parametric fit predicts
-  cleanly **through** the peaks where the nonparametric $Y\!\cdot\!X^{-1}$ overlay scatters —
+  no $\hat G = Y\!\cdot\!X^{-1}$ step. The per-bin matrix inverse is ill-conditioned
+  at the resonances (the drive monitors are small there); the equation-error
+  weighting handles resonances without it. This is why the parametric fit predicts
+  cleanly through the peaks where the nonparametric $Y\!\cdot\!X^{-1}$ overlay scatters —
   see example 09's through-resonance figure. The recovered $\hat G$ is kept only as a
   nonparametric **overlay for validation** and to seed starting values.
 
@@ -118,13 +118,13 @@ and returns a mode set and count — a data-driven **model order**. Those seed t
 `init_residues` then solves a linear least squares for the rank-1 shapes. Because the modes
 are found from the recovered FRF, the recovery is the same whether the design prior was
 right or badly wrong — the property example 09 demonstrates and example 10 relies on to fit
-the real SRM **blind**.
+the real SRM blind.
 
 ::: {.callout-warning}
 ## Do not over-count modes
 Seeding more poles than the data resolves collapses the shared denominator into
-near-cancelling pairs and makes the Fisher matrix singular. `find_modes` counts *distinct,
-resolvable* peaks; a genuine near-degeneracy is handled by the tools in the last two
+near-cancelling pairs and makes the Fisher matrix singular. `find_modes` counts distinct,
+resolvable peaks; a genuine near-degeneracy is handled by the tools in the last two
 sections, not by adding a coincident pole.
 :::
 
@@ -147,42 +147,43 @@ the iterative loop (`mimo_iterate.iterate_mimo`) drives toward.
 ## How many periods?
 For the sample covariance to give a trustworthy CRB, P&S require
 $\text{dof} \ge n_y + 8$ degrees of freedom (roughly, periods/blocks). For a 6-DoF
-suspension that is $\text{dof} \ge 14$. Fewer periods can still *converge*, but the reported
+suspension that is $\text{dof} \ge 14$. Fewer periods can still converge, but the reported
 error bars are not yet trustworthy — a real constraint on how short the campaign can be, and
-one the feasibility gate expects you to state with the number, not hand-wave.
+one the feasibility gate requires be stated with the number rather than hand-waved.
 :::
 
 ## Sizing the measurement — resolution from the ringdown
 
 The frequency resolution is not guessed; it is derived from the prior. A mode $(f_0, Q)$ has
-linewidth $\Gamma = f_0/Q$ and ringdown $\tau = Q/(\pi f_0)$. To resolve **$Q$** (not just
+linewidth $\Gamma = f_0/Q$ and ringdown $\tau = Q/(\pi f_0)$. To resolve $Q$ (not just
 $f_0$) the fit needs several bins across each resonance, $df \le \Gamma / (\text{a few
 bins})$; since $df = 1/T$, that sets a minimum record length $T \gtrsim Q/f_0$.
 `design.resolution.recommend_resolution` turns the prior modes into the concrete
 $(n_\text{fft}, df, n_\text{transient})$ campaign knobs. Resolution and record length are
-**knobs you set from the math**, not fixed limits — see [Fisher & excitation](fisher.qmd)
-for the CRB behind them.
+**controlled variables set from the math**, not fixed limits — see
+[Fisher & excitation](fisher.qmd) for the CRB behind them.
 
 ## Near-degenerate modes: spatial vs frequency
 
-Two modes at nearly the same frequency are the interesting case — and the place where it is
-easiest to mistake a modeling choice for a physical wall. There are two genuinely different
-situations, and the feasibility gate insists you tell them apart:
+Two modes at nearly the same frequency are the case where it is easiest to mistake a
+modeling choice for a physical wall. There are two genuinely different situations, and the
+feasibility gate requires distinguishing them:
 
 - **Spatial doublet.** If the plant block-diagonalizes into orthogonal DOF subspaces (a
   suspension whose dynamics split into, say, the $\{L,P,V\}$ and $\{T,R,Y\}$ planes), two
-  modes coincident in *frequency* can live in *different* blocks. A single shared-pole fit
+  modes coincident in frequency can live in different blocks. A single shared-pole fit
   collapses the pair — one pole set forced across two orthogonal modes makes $J^{\mathsf H}J$
   ill-conditioned — but that is a **parameterization** artifact, not a data limit.
   `mimo_fit.fit_block_decoupled` fits each block alone, where only one of the pair appears,
-  and recovers **both with no finer $df$ and no super-resolution**. This is exactly the
+  and recovers both with no finer $df$ and no super-resolution. This is the
   0.67 Hz doublet resolved in [example 10](../examples/10-srm-hsts.qmd).
-- **Frequency near-degeneracy.** Two modes in the *same* block, separated by $\Delta f$
-  below a linewidth, are a true frequency-resolution question. It is still **not** a wall:
-  parametric ML super-resolves, and the CRB says at what cost — the required budget grows as
+- **Frequency near-degeneracy.** Two modes in the same block, separated by $\Delta f$
+  below a linewidth, are a true frequency-resolution question. It is still not a wall:
+  parametric ML super-resolves, and the CRB gives the cost — the required budget grows as
   a steep but finite power of $\Gamma/\Delta f$. Compute it and report the record length or
-  SNR that resolves the pair; never quote a one-bin / one-linewidth (Rayleigh) limit against
-  a parametric fit. See [*When are two modes resolvable?*](fisher.qmd#when-are-two-modes-resolvable).
+  SNR that resolves the pair; a one-bin / one-linewidth (Rayleigh) limit should never be
+  quoted against a parametric fit. See
+  [*Resolvability of two modes*](fisher.qmd#when-are-two-modes-resolvable).
 
 ## Worked examples
 

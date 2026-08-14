@@ -1,21 +1,21 @@
 ---
 title: "Why optimal-excitation system ID"
-description: "A balanced, evidence-based case for optimal-excitation frequency-domain identification (Pintelon–Schoukens) against broadband random noise and swept sine — with real head-to-head campaigns from the system_ident package, and an honest account of when each alternative is the right choice."
+description: "An evidence-based comparison of optimal-excitation frequency-domain identification (Pintelon–Schoukens) against broadband random noise and swept sine — with head-to-head campaigns from the system_ident package, and an account of when each alternative is the appropriate choice."
 freeze: true
 ---
 
-This page makes the case for the measurement method `system_ident` implements — an
-**optimal-excitation, periodic-multisine, frequency-domain** identification in the
-[Pintelon–Schoukens](overview.qmd) ("P&S") tradition — and weighs it fairly against the two
-excitations most subsystems reach for first: **broadband random noise** and the **swept
-sine**. It is written for engineers in *any* LIGO subsystem — suspensions, seismic/ISI,
-DARM/calibration, ALS, OMC — because the argument is about the measurement, not the plant.
+This page sets out the measurement method `system_ident` implements — an
+optimal-excitation, periodic-multisine, frequency-domain identification in the
+[Pintelon–Schoukens](overview.qmd) ("P&S") tradition — and weighs it against the two
+excitations most subsystems reach for first: broadband random noise and the swept
+sine. It is written for engineers in any LIGO subsystem — suspensions, seismic/ISI,
+DARM/calibration, ALS, OMC — because the argument concerns the measurement, not the plant.
 
-The thesis is not "multisine always wins." It is: **when measurement time is expensive,
-drive is bounded, the plant is high-Q, and the loop is closed, optimal-excitation ID buys you
-more parameter precision per second and per count of drive than the alternatives — and we can
-show it, not just assert it.** Where a swept sine or random noise is the right tool, this page
-says so.
+The claim is not that the multisine is always preferable. It is narrower: when measurement
+time is expensive, drive is bounded, the plant is high-Q, and the loop is closed,
+optimal-excitation ID delivers more parameter precision per second and per count of drive
+than the alternatives, and the margin is measured here rather than asserted. Where a swept
+sine or random noise is the appropriate tool, this page says so.
 
 ::: {.callout-note appearance="simple"}
 ## Everything below is a real package run
@@ -42,72 +42,71 @@ import method_demo as md
 
 ## 1 · The measurement problem, and the figures of merit
 
-Every subsystem identification looks the same once you squint: a plant with **sharp, high-Q
-resonances** packed into a **narrow band**, observed through a **noisy readout**, driven by an
-actuator with a **hard amplitude limit**, often **inside a closed loop** — and you get only so
-much **observing time** to measure it before the instrument must go back to work.
+Every subsystem identification has the same shape: a plant with sharp, high-Q resonances
+packed into a narrow band, observed through a noisy readout, driven by an actuator with a
+hard amplitude limit, often inside a closed loop, and allotted only so much observing time
+before the instrument must go back to work.
 
 ```{python}
 #| code-summary: "A representative suspension plant over its readout floor"
 md.problem_fig()
 ```
 
-So a method is good or bad only relative to what you actually pay and get. We score every
-excitation on the same five figures of merit:
+A method is therefore good or bad only relative to what it costs and returns. Every
+excitation here is scored on the same five figures of merit:
 
 - **Parameter / FRF uncertainty per unit time** — the Cramér–Rao σ (or σ/θ) reached for a
-  given total measurement time. *Less time for the same σ is the prize.*
-- **Uncertainty per unit in-band drive power** — the same σ for a given **RMS** (in-band power)
-  budget. Drive is ultimately capped by actuator saturation, so this is a hard currency too. We
-  report RMS **plant-referred**; the *peak* that truly binds is set at the DAC, after the
+  given total measurement time.
+- **Uncertainty per unit in-band drive power** — the same σ for a given RMS (in-band power)
+  budget. Drive is ultimately capped by actuator saturation, so this is a hard currency too.
+  RMS is reported plant-referred; the peak that binds is set at the DAC, after the
   whitening/actuation chain this simulation does not model (see §2.1 and §9).
-- **Leakage bias** — does the estimator read a sharp resonance at its true height, or smear it?
-  A bias no amount of averaging removes.
-- **Per-bin noise model** — does the method *measure* its own error bar on each frequency, or
-  must you assume one?
-- **Safety** — whether the method is safe to run **closed-loop**, and how much in-band drive
+- **Leakage bias** — whether the estimator reads a sharp resonance at its true height or
+  smears it. This is a bias no amount of averaging removes.
+- **Per-bin noise model** — whether the method measures its own error bar at each frequency
+  or requires one to be assumed.
+- **Safety** — whether the method is safe to run closed-loop, and how much in-band drive
   power it asks of the actuator.
 
-The rest of this page is those five columns, filled with real numbers.
+The rest of this page is those five columns, filled with measured numbers.
 
-## 2 · The three excitations, fairly
+## 2 · The three excitations
 
-All three put energy into the plant and watch it respond. They differ in *how the energy is
-distributed in frequency and time* — and that difference is the whole story.
+All three put energy into the plant and observe the response. They differ in how that energy
+is distributed in frequency and time, and that difference accounts for the rest.
 
 ```{python}
 #| code-summary: "The same in-band power as swept sine, random noise, and a multisine"
 md.excitations_fig()
 ```
 
-- **Swept sine** drives **one frequency at a time**, dwelling long enough to beat down noise at
-  that line. It is leakage-free per line, trivially interpretable, and spends *all* its power
-  where it is pointed — but it visits the band **serially**.
-- **Broadband random noise** drives **every frequency at once** with random phase. It is the
-  fastest way to a qualitative whole-band picture and an honest coherence — but it is **not
-  periodic**, so its DFT leaks, and a single record gives no internal error bar.
-- **Periodic multisine** also drives every frequency at once, with a period **exactly equal to
-  the analysis window**, tiled and repeated. **That periodicity — not the choice of phase — is
-  what makes the measurement leakage-free and self-error-barred**, and it is the substrate the
-  optimal design shapes. The line *phases* are a free choice (the package defaults to Schroeder);
-  as §2.1 shows, they do not affect the FRF or its error bar at all.
+- **Swept sine** drives one frequency at a time, dwelling long enough to beat down noise at
+  that line. It is leakage-free per line, directly interpretable, and spends all its power
+  where it is pointed, but it visits the band serially.
+- **Broadband random noise** drives every frequency at once with random phase. It is the
+  fastest route to a qualitative whole-band picture and a coherence estimate, but it is not
+  periodic, so its DFT leaks, and a single record gives no internal error bar.
+- **Periodic multisine** also drives every frequency at once, with a period exactly equal to
+  the analysis window, tiled and repeated. That periodicity — not the choice of phase — is
+  what makes the measurement leakage-free and self-error-barred, and it is the substrate the
+  optimal design shapes. The line phases are a free choice (the package defaults to
+  Schroeder); as §2.1 shows, they do not affect the FRF or its error bar.
 
-The crest factors printed above are real but **plant-referred** — peak/RMS of the digital
-*request*, not of the waveform at the actuator's hard limit. Because crest factor is not
-invariant under filtering, a low plant-referred crest does **not** imply a low crest at the DAC
-once a whitening/actuation chain sits in between. This page therefore claims **no** crest- or
-peak-drive advantage from phasing; §2.1 makes that case in full.
+The crest factors printed above are measured but plant-referred — peak/RMS of the digital
+request, not of the waveform at the actuator's hard limit. Because crest factor is not
+invariant under filtering, a low plant-referred crest does not imply a low crest at the DAC
+once a whitening/actuation chain sits in between. This page therefore claims no crest- or
+peak-drive advantage from phasing; §2.1 sets out that argument in full.
 
-### 2.1 · Phasing: Schroeder vs random — a plant-referred fact, not a measurement advantage
+### 2.1 · Phasing: Schroeder vs random, a plant-referred fact
 
-A multisine's line *phases* are free: they set only the **time-domain crest factor** (peak/RMS)
-of the drive, nothing else. It is worth being precise about what that does and does not buy,
-because the textbook framing — "Schroeder phases minimise the crest factor, so a saturation-
-limited actuator carries more power" — is true only in a reference frame this simulation cannot
-actually reach.
+A multisine's line phases are free: they set only the time-domain crest factor (peak/RMS)
+of the drive. It is worth being precise about what that does and does not achieve, because
+the textbook framing — "Schroeder phases minimise the crest factor, so a saturation-limited
+actuator carries more power" — holds only in a reference frame this simulation cannot reach.
 
-**Schroeder really is lower-crest, in plant-referred units.** The package default
-(`phase="schroeder"`) minimises peak/RMS of the *requested* waveform; random phasing does not.
+**Schroeder is lower-crest in plant-referred units.** The package default
+(`phase="schroeder"`) minimises peak/RMS of the requested waveform; random phasing does not.
 The gap is real and grows with the number of lines:
 
 ```{python}
@@ -117,9 +116,9 @@ md.phasing_crest_fig(ph)
 ```
 
 Schroeder sits near a constant ≈1.9 regardless of line count; random phasing climbs as ≈√(ln N),
-from comparable at a handful of lines to roughly **2× worse** across hundreds of flat lines. On
-the **concentrated optimal ASD** this page actually drives with — a couple dozen significant
-lines piled at the modes — the gap is **much smaller**:
+from comparable at a handful of lines to roughly 2× worse across hundreds of flat lines. On
+the concentrated optimal ASD this page actually drives with — a couple dozen significant
+lines piled at the modes — the gap is much smaller:
 
 ```{python}
 #| code-summary: "Crest on the concentrated optimal ASD vs a flat one (printed inline)"
@@ -127,12 +126,12 @@ display(md.phasing_shape_md(ph))
 ```
 
 So in plant-referred units Schroeder is lower-crest, but for the few concentrated lines the
-optimal design uses the margin over random is modest (~1.4×), not the order-of-magnitude the
-"hard actuator limit" framing implies.
+optimal design uses, the margin over random is modest (~1.4×) rather than the order of
+magnitude the "hard actuator limit" framing implies.
 
-**But phasing does not change the measurement at all.** The leakage-free FRF and its Cramér–Rao
-bound depend on the line **amplitudes/power**, not the phases — the CRB function does not even
-take phase as an argument. Driving the *same* plant with the *same* PSD and the *same* noise
+**Phasing does not change the measurement.** The leakage-free FRF and its Cramér–Rao
+bound depend on the line amplitudes and power, not the phases — the CRB function does not
+take phase as an argument. Driving the same plant with the same PSD and the same noise
 seeds, Schroeder and random phasing recover statistically identical FRFs, identical per-bin σ,
 and an identical CRB:
 
@@ -142,31 +141,32 @@ pin = md.phasing_invariance_campaign()
 display(md.phasing_invariance_table(pin))
 ```
 
-**Why the crest advantage is moot here — the DAC reference frame.** In LIGO the actuator's hard
-saturation limit lives at the **DAC** (counts/volts), and there are **whitening and actuation
-filters between the digital excitation request and the DAC**. Crest factor is *not* invariant
-under filtering: the whitening filter reshapes the waveform, scrambling the carefully optimised
-Schroeder phases, so the DAC-frame crest is generally higher and unrelated to the plant-referred
-crest minimised above. **Minimising crest in plant units therefore buys nothing at the DAC — the
-limit that actually binds — and this simulation does not model the whitening chain, so it cannot
-even represent the DAC frame.**
+**Why the crest margin does not transfer — the DAC reference frame.** In LIGO the actuator's
+hard saturation limit lives at the DAC (counts/volts), and there are whitening and actuation
+filters between the digital excitation request and the DAC. Crest factor is not invariant
+under filtering: the whitening filter reshapes the waveform and scrambles the optimised
+Schroeder phases, so the DAC-frame crest is generally higher and unrelated to the
+plant-referred crest minimised above. Minimising crest in plant units therefore has no effect
+at the DAC — the limit that binds — and this simulation does not model the whitening chain,
+so it cannot represent the DAC frame at all.
 
 ::: {.callout-important appearance="simple"}
-## The honest bottom line on phasing
-Phase touches **only** the crest factor, and crest is a **DAC-frame** quantity this plant-referred
-simulation does not model. Since the estimate is phase-invariant (table above) and the one thing
-phase affects does not transfer to the binding limit, **the phase choice is not load-bearing
-here: random phases are essentially as good as Schroeder for our purposes.** A genuine crest /
-peak-drive optimisation is a *DAC-frame, filter-aware* problem (push the optimisation through the
-whitening chain) — future work, not a claim this page makes from plant-referred numbers.
+## Phasing: the conclusion
+Phase touches only the crest factor, and crest is a DAC-frame quantity this plant-referred
+simulation does not model. Since the estimate is phase-invariant (table above) and the one
+quantity phase affects does not transfer to the binding limit, the phase choice is not
+load-bearing here: random phases are as good as Schroeder for these purposes. A crest or
+peak-drive optimisation is a DAC-frame, filter-aware problem — pushing the optimisation
+through the whitening chain — and is future work rather than a claim this page makes from
+plant-referred numbers.
 :::
 
 ## 3 · Broadband random noise leaks, and is variance-inefficient
 
-The case against random noise is not aesthetic. On a **high-Q resonance** — exactly where the
-information lives — a windowed transform of a one-off random record **biases the peak low**,
-because the sharp mode leaks its power into neighbouring bins. The leakage-free multisine, given
-**the same plant, the same power, and the same wall-clock**, does not.
+The case against random noise is not aesthetic. On a high-Q resonance — where the information
+lives — a windowed transform of a one-off random record biases the peak low, because the
+sharp mode leaks its power into neighbouring bins. The leakage-free multisine, given the same
+plant, the same power, and the same wall-clock, does not.
 
 ```{python}
 #| code-summary: "Same high-Q mode, same power, same time: leakage-free vs windowed random"
@@ -175,8 +175,8 @@ md.leakage_bode_fig(c_leak)
 ```
 
 The multisine markers sit on the true peak with tight error bars; the windowed-Welch points
-read the resonance visibly low. Repeating both over several noise realisations separates the two
-failure modes — **bias** (leakage) and **scatter** (variance):
+read the resonance low. Repeating both over several noise realisations separates the two
+failure modes, bias (leakage) and scatter (variance):
 
 ```{python}
 #| code-summary: "Peak-bin bias and scatter over several seeds"
@@ -184,27 +184,27 @@ v_leak = md.leakage_variance(n_seeds=8)
 display(md.leakage_table(v_leak))
 ```
 
-The random estimator is biased **and** noisier; combined as RMSE at the peak it is many times
-worse than the leakage-free multisine carrying identical power for identical time. This is the
-single most important reason the package never identifies with random noise: the bias is
-systematic, it lands exactly on the high-Q features you care most about, and **averaging longer
-does not remove it.**
+The random estimator is biased and noisier; combined as RMSE at the peak it is many times
+worse than the leakage-free multisine carrying identical power for identical time. This is
+the principal reason the package never identifies with random noise: the bias is systematic,
+it lands on the high-Q features the measurement exists to characterise, and averaging longer
+does not remove it.
 
 ::: {.callout-tip appearance="simple"}
-## When random noise *is* the right tool
-For a **qualitative** whole-band look, a quick **coherence** check, or any broadband floor/
-disturbance characterisation where a percent-level peak bias is irrelevant, colored random noise
-is fast, simple, and entirely appropriate — and `excitation.timeseries_from_asd` exists for
-exactly that. The argument here is against using it as the *quantitative FRF estimator* on a
-sharp resonance.
+## When random noise is the right tool
+For a qualitative whole-band look, a quick coherence check, or any broadband floor or
+disturbance characterisation where a percent-level peak bias is irrelevant, colored random
+noise is fast, simple, and appropriate — and `excitation.timeseries_from_asd` exists for
+that. The argument here is against using it as the quantitative FRF estimator on a sharp
+resonance.
 :::
 
-## 4 · The swept sine is slow
+## 4 · The serial coverage cost of the swept sine
 
-The swept sine has no leakage problem and no crest-factor problem — it spends full power on one
-clean line at a time. Its cost is **time**: it tours the band **serially**. The multisine measures
-**every bin in one window**; in that *same* wall-clock the sweep reaches only a handful of
-frequencies (each, fairly, very tight because it spends full power there).
+The swept sine has no leakage problem and no crest-factor problem — it spends full power on
+one clean line at a time. Its cost is time: it tours the band serially. The multisine measures
+every bin in one window; in that same wall-clock the sweep reaches only a handful of
+frequencies, each of them tight, because it spends full power there.
 
 ```{python}
 #| code-summary: "σ(FRF)/|FRF| — whole-band multisine vs equal-wall-clock swept sine"
@@ -212,25 +212,25 @@ c_sweep = md.sweep_campaign(seed=0)
 md.sweep_fig(c_sweep)
 ```
 
-The sweep points sit *on or below* the multisine envelope — full power per line buys low σ at
-each visited frequency — but there are only a few of them. **Covering the whole band to the same
-per-bin σ costs the sweep the factor annotated on the plot** (here roughly two orders of
-magnitude longer than the one multisine window). On a real instrument that is the difference
+The sweep points sit on or below the multisine envelope — full power per line gives low σ at
+each visited frequency — but there are only a few of them. Covering the whole band to the
+same per-bin σ costs the sweep the factor annotated on the plot, here roughly two orders of
+magnitude longer than the one multisine window. On a real instrument that is the difference
 between a measurement that fits inside a maintenance window and one that does not.
 
 ::: {.callout-tip appearance="simple"}
-## When the swept sine *is* the right tool
-For a **single line** — one calibration tone, one resonance you want pinned to high SNR, a
-quick spot check — the swept sine is the obvious choice: nothing beats putting all your power on
-the one frequency you care about. It is also the most transparent thing to interpret. The
-multisine wins when you need **the whole band**.
+## When the swept sine is the right tool
+For a single line — one calibration tone, one resonance to be pinned to high SNR, a quick
+spot check — the swept sine is the obvious choice, since all the available power goes to the
+one frequency of interest. It is also the most transparent to interpret. The multisine
+applies when the whole band is needed.
 :::
 
-## 5 · Optimal excitation wins on time *and* on in-band drive (the headline)
+## 5 · Time and in-band drive under the optimal design
 
-So far the multisine has matched the alternatives where they are weak. The headline result is
-where it is *strong*: spend the drive budget not flat across the band, but **concentrated where
-the Fisher information is**. `design.pintelon.optimal_excitation` solves for that allocation by
+So far the multisine has matched the alternatives where they are weak. The principal result
+is the allocation: spend the drive budget not flat across the band, but concentrated where
+the Fisher information is. `design.pintelon.optimal_excitation` solves for that allocation by
 the dispersion-function fixed point (see [Fisher & excitation](fisher.qmd)).
 
 ```{python}
@@ -239,10 +239,10 @@ head = md.headline_campaign()
 md.headline_design_fig(head)
 ```
 
-The gold drive piles power onto the two resonances instead of spreading it flat. The exact
-**Cramér–Rao variance-reduction factor** `F` — worst-parameter, at equal power and time, from
-`fisher.parameter_covariance` — is annotated on the design panel. That factor is the budget the
-optimal design has to spend, and it can be cashed out **two** ways:
+The gold drive concentrates power onto the two resonances instead of spreading it flat. The
+Cramér–Rao variance-reduction factor `F` — worst-parameter, at equal power and time, from
+`fisher.parameter_covariance` — is annotated on the design panel. That factor is the budget
+the optimal design has to spend, and it can be taken in either of two forms:
 
 ```{python}
 #| code-summary: "Three real campaigns: flat, optimal (same power), optimal (matched σ)"
@@ -250,39 +250,38 @@ md.headline_convergence_fig(head)
 ```
 
 ```{python}
-#| code-summary: "Head-to-head: σ reached, and the drive it took"
+#| code-summary: "Side by side: σ reached, and the drive it took"
 display(md.headline_table(head))
 ```
 
-Read the table honestly, both rows of the optimal arm:
+Both rows of the optimal arm matter:
 
-- **At equal drive power**, the optimal multisine reaches a parameter uncertainty several times
-  lower than the flat drive in the same number of passes — the flat drive never even crosses the
-  σ/θ target inside the budget, while the optimal drive crosses it in a couple of passes. *That
-  is the time win,* and it is frame-robust: it is a statement about Fisher information per second,
-  independent of any actuator unit.
-- **Dialled down to power P/F**, the optimal multisine instead *matches* the flat drive's σ —
-  but now at a fraction of the **in-band drive power** (RMS). *That is the drive win:* the same
-  answer for materially less in-band power asked of the actuator.
+- **At equal drive power**, the optimal multisine reaches a parameter uncertainty several
+  times lower than the flat drive in the same number of passes; the flat drive does not cross
+  the σ/θ target inside the budget, while the optimal drive crosses it in a couple of passes.
+  This is the time reduction, and it is frame-robust: a statement about Fisher information per
+  second, independent of any actuator unit.
+- **Reduced to power P/F**, the optimal multisine instead matches the flat drive's σ, at a
+  fraction of the in-band drive power (RMS). This is the drive reduction: the same result for
+  materially less in-band power asked of the actuator.
 
-The RMS figures are **plant-referred**. We make **no peak- or crest-drive claim**: concentrating
+The RMS figures are plant-referred. No peak- or crest-drive claim is made: concentrating
 power does raise the plant-referred crest, but as §2.1 showed, plant-referred crest does not
-transfer to the DAC — the limit that actually binds — through the (unmodeled) whitening chain. The
-load-bearing wins here are the **time** (whole-band simultaneity) and the **CRB allocation** of
+transfer to the DAC — the limit that binds — through the unmodelled whitening chain. The
+load-bearing results here are the time (whole-band simultaneity) and the CRB allocation of
 in-band power, both frame-robust.
 
-You do not get both at once for free — `F` is one budget — but you get to **choose** which
-scarce resource (time or in-band drive power) to spend it on. Flat excitation gives you neither
-choice.
+The two cannot be had simultaneously — `F` is a single budget — but which scarce resource
+(time or in-band drive power) it is spent on is a choice. Flat excitation offers neither.
 
-## 6 · A closed loop is not an obstacle
+## 6 · Identification inside a closed loop {#a-closed-loop-is-not-an-obstacle}
 
-Most LIGO plants are measured **inside a control loop** — the very damping or servo that keeps
-the instrument usable suppresses the response you want to see. The naive FRF taken against the
-*injected reference* then returns the **suppressed closed-loop response**, not the plant. The
-P&S **reference-based** estimate — the ratio of period-averaged spectra against the **drive
-monitor** (the true plant input) — cancels the controller and returns the **open-loop plant**,
-with no controller model.
+Most LIGO plants are measured inside a control loop, and the damping or servo that keeps the
+instrument usable suppresses the response to be measured. The naive FRF taken against the
+injected reference then returns the suppressed closed-loop response rather than the plant.
+The P&S reference-based estimate — the ratio of period-averaged spectra against the drive
+monitor, which is the true plant input — cancels the controller and returns the open-loop
+plant, with no controller model.
 
 ```{python}
 #| code-summary: "A high-Q mode under a velocity damper: recover the open-loop plant through the live loop"
@@ -290,34 +289,34 @@ cl = md.closed_loop_campaign(seed=0)
 md.closed_loop_fig(cl)
 ```
 
-The loop suppresses the resonance by the factor in the title, and the naive estimate dutifully
-returns that suppressed curve. The reference-based estimate, against the same data, lands back on
-the **open-loop** plant to a fraction of a percent — the controller is *cancelled, not fit*. This
-is why "the plant is in a loop" is not a reason to reach for special-case tooling: the same
-multisine pipeline handles it. (The DARM page, [example 08](../examples/08-darm-calibration.qmd),
-is the same idea on the gravitational-wave readout; the suspension closed loop here is the
+The loop suppresses the resonance by the factor in the title, and the naive estimate returns
+that suppressed curve. The reference-based estimate, on the same data, lands on the open-loop
+plant to a fraction of a percent — the controller is cancelled rather than fitted. A plant
+inside a loop is therefore not a reason to reach for special-case tooling: the same multisine
+pipeline handles it. (The DARM page, [example 08](../examples/08-darm-calibration.qmd), is
+the same idea on the gravitational-wave readout; the suspension closed loop here is the
 general statement.)
 
-## 7 · The consolidated head-to-head
+## 7 · The consolidated comparison
 
-One table, four excitations, the five figures of merit — populated from the real campaigns above
-on the representative suspension plants of this page.
+One table, four excitations, the five figures of merit, populated from the campaigns above on
+the representative suspension plants of this page.
 
 ```{python}
 #| code-summary: "Everything, side by side (real numbers from the campaigns)"
 display(md.headtohead_table(head, v_leak, c_sweep, cl))
 ```
 
-The pattern: the swept sine is safe and exact but slow; broadband random is fast but biased on
-the high-Q peaks and unsafe to use as the quantitative estimator in a loop; the flat multisine
-fixes leakage and the loop but spends its budget indiscriminately; the **optimal multisine**
-keeps every multisine advantage and additionally converts the Fisher structure of the plant into
-**less time or less drive, your choice.**
+The pattern: the swept sine is safe and exact but slow; broadband random is fast but biased
+on the high-Q peaks and unsuited to use as the quantitative estimator in a loop; the flat
+multisine addresses leakage and the loop but spends its budget indiscriminately; the optimal
+multisine retains every multisine property and additionally converts the Fisher structure of
+the plant into either less time or less drive.
 
 ## 8 · How any subsystem uses the package
 
-The pipeline is plant-agnostic. To identify a new subsystem you supply two things — a **channel
-backend** (how to inject and read) and a **prior model** — and run the loop:
+The pipeline is plant-agnostic. Identifying a new subsystem requires two things — a channel
+backend (how to inject and read) and a prior model — and then the loop:
 
 ```python
 from system_ident.backends.base import ChannelBackend   # implement inject()/read()/ramp_down()
@@ -331,7 +330,7 @@ from system_ident.safety import Watchdog, SafetyLimits
 # 1. a prior — even a rough one; the first pass is prior-robust over f0·(1±u)
 prior = {"POS": TFModel.from_resonances([(1.0, 50.0)], gain=300.0)}
 
-# 2. a backend that speaks your channels (twin shown; swap in your CDS/hardware backend)
+# 2. a backend that speaks the relevant channels (twin shown; swap in a CDS/hardware backend)
 backend = TwinBackend(plant, {"EXC": "POS"}, {"RSP": "POS"},
                       drive_channels={"DRV": "POS"})   # DRV = the loop's drive monitor
 
@@ -346,57 +345,58 @@ result = loop.run(config, prior, seed=0)               # result.models["POS"] is
 
 Everything on this page is that loop with a different `config` and `prior`. The worked
 [examples 01–08](../examples/index.qmd) walk the same path from a single resonance through a
-coupled 2×2 suspension, the compiled CDS twin, and the DARM readout — each running the *identical*
-diagnostic set (excitation design → time series → magnitude/phase/coherence Bode → residuals →
-Cramér–Rao recovery → drive safety → convergence).
+coupled 2×2 suspension, the compiled CDS twin, and the DARM readout — each running the
+identical diagnostic set (excitation design → time series → magnitude/phase/coherence Bode →
+residuals → Cramér–Rao recovery → drive safety → convergence).
 
-## 9 · Honest caveats — and when each alternative is right
+## 9 · Assumptions, failure modes, and when each alternative applies
 
-No method is free. The optimal multisine carries real assumptions and failure modes, and the
-alternatives are genuinely better in specific regimes.
+No method is without cost. The optimal multisine carries assumptions and failure modes, and
+the alternatives are better in specific regimes.
 
-**What the optimal multisine needs.**
+**What the optimal multisine requires.**
 
-- **Synchronous, integer-period capture.** The leakage-free guarantee holds only if the drive is
-  periodic over the analysis window and the acquisition is sample-synchronous. Lose period
-  alignment (clock drift, dropped samples, a non-integer window) and the leakage advantage
-  decays toward the windowed-random case. On CDS this is a wiring requirement, not a given.
-- **A prior.** The optimal design is only as good as the model it is computed from. The package
-  mitigates this with a **prior-robust first pass** (power spread over `f0·(1±u)`), but a wildly
-  wrong prior, an over-specified model order, or a missing mode can misallocate the budget. The
-  honest mode of operation is *iterative*: a broad pass, then concentrate.
-- **A stationary, linear plant over the window.** The whole-band-in-one-window advantage assumes
-  the plant does not drift mid-measurement and responds linearly to the drive. Strong
+- **Synchronous, integer-period capture.** The leakage-free guarantee holds only if the drive
+  is periodic over the analysis window and the acquisition is sample-synchronous. Losing
+  period alignment (clock drift, dropped samples, a non-integer window) decays the leakage
+  advantage toward the windowed-random case. On CDS this is a wiring requirement, not a given.
+- **A prior.** The optimal design is only as good as the model it is computed from. The
+  package mitigates this with a prior-robust first pass (power spread over `f0·(1±u)`), but a
+  badly wrong prior, an over-specified model order, or a missing mode can misallocate the
+  budget. The mode of operation is iterative: a broad pass, then concentrate.
+- **A stationary, linear plant over the window.** The whole-band-in-one-window property
+  assumes the plant does not drift mid-measurement and responds linearly to the drive. Strong
   nonlinearity or fast non-stationarity breaks the model the CRB is computed against.
 - **In a comb-sensitive band, a comb is a cost.** A multisine puts many lines in band at once.
-  Where those lines contaminate a science band (e.g. DARM during observation), that footprint is
-  a real operational price the swept sine's single line largely avoids — run in non-observing
-  time, or use known phases so the lines subtract.
-- **The binding actuator limit is at the DAC, and this sim is plant-referred.** In LIGO the hard
-  saturation limit is at the **DAC** (counts/volts), with **whitening and actuation filters
-  between the digital excitation request and the DAC**. Crest factor is not invariant under
+  Where those lines contaminate a science band (e.g. DARM during observation), that footprint
+  is a real operational price the swept sine's single line largely avoids — run in
+  non-observing time, or use known phases so the lines subtract.
+- **The binding actuator limit is at the DAC, and this simulation is plant-referred.** In LIGO
+  the hard saturation limit is at the DAC (counts/volts), with whitening and actuation filters
+  between the digital excitation request and the DAC. Crest factor is not invariant under
   filtering, so a waveform optimised for low crest in plant/force units (Schroeder phasing,
-  concentrated power) is reshaped by the whitening chain and can present an unrelated — generally
-  higher — peak at the DAC. This demonstration models only the plant-referred frame and omits
-  that chain, so **it makes no crest-factor or peak-drive claim**; the in-band-power (RMS) numbers
-  it reports are plant-referred. A genuine peak/crest optimisation is a **DAC-frame, filter-aware**
-  problem — push the design through the whitening/actuation model and minimise the peak *there*.
-  That is real future work, not something these plant-referred numbers can stand in for.
+  concentrated power) is reshaped by the whitening chain and can present an unrelated —
+  generally higher — peak at the DAC. This demonstration models only the plant-referred frame
+  and omits that chain, so it makes no crest-factor or peak-drive claim; the in-band-power
+  (RMS) numbers it reports are plant-referred. A peak/crest optimisation is a DAC-frame,
+  filter-aware problem — push the design through the whitening/actuation model and minimise
+  the peak there. That is future work, and these plant-referred numbers cannot stand in for it.
 
-**When to pick the alternative instead.**
+**When to pick an alternative instead.**
 
-- **Swept sine** — a single line to high SNR, a quick spot check, or any time transparency and
-  putting all power on one frequency matter more than band coverage.
+- **Swept sine** — a single line to high SNR, a quick spot check, or any case where
+  transparency and full power on one frequency matter more than band coverage.
 - **Broadband random** — a fast qualitative whole-band picture, coherence diagnostics, or
   disturbance/floor characterisation where a percent-level peak bias is irrelevant.
-- **Flat multisine** — when you have *no* usable prior at all and want leakage-free, self-error-
-  barred whole-band coverage before you know where to concentrate. (It is the package's own first
-  pass.)
+- **Flat multisine** — when no usable prior exists and leakage-free, self-error-barred
+  whole-band coverage is wanted before the concentration points are known. (It is the
+  package's own first pass.)
 
-The optimal multisine is the right default when **all** of: time is scarce, drive is bounded, the
-plant is high-Q, the loop is closed, and you have at least a rough prior — which is to say, most
-of the time, on most LIGO subsystems. But the package implements **one** pipeline, and the honest
-position is to know which knob (and which excitation) the situation calls for.
+The optimal multisine is the appropriate default when all of the following hold: time is
+scarce, drive is bounded, the plant is high-Q, the loop is closed, and at least a rough prior
+exists — which covers most LIGO subsystems most of the time. The package implements one
+pipeline, and the position taken here is that the situation determines which knob, and which
+excitation, applies.
 
 ## References
 
@@ -409,5 +409,5 @@ FRF; and the Gaussian maximum-likelihood estimator with its Cramér–Rao effici
 suspension parameters (the form carried by `fisher.fisher_matrix`).
 
 [LIGO-G1400084](https://dcc.ligo.org/LIGO-G1400084) (Larry Price) — original motivation and prior
-work. See also `notes/darm-calibration-via-pns.md` for the DARM-specific head-to-head and its
+work. See also `notes/darm-calibration-via-pns.md` for the DARM-specific comparison and its
 literature trail.

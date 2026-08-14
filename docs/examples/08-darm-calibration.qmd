@@ -24,7 +24,7 @@ the Sun 2020 O3 parameterisation.
 :::
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The multisine pipeline applied to the **gravitational-wave readout** (DARM): recovering `C` and the per-stage actuation `κ` leakage-free, with `1/√T` convergence onto the Cramér–Rao bound.
 - **Hierarchical actuation across the quad** (M0/PUM/ESD), the inter-stage crossovers, and the **calibration lines at their SNR height in the DARM spectrum**.
 - The **response `R(f)` recovered model-free** with a measured CRB envelope, against the real Advanced-LIGO O4 noise floor.
@@ -46,9 +46,9 @@ The twin uses representative Advanced-LIGO numbers — a coupled-cavity pole nea
 ~77 µs delay, three pendulum-stage actuators, and a UGF≈50 Hz loop — but the **noise floor is
 real**: the representative O4 sensitivity (`aligo_O4high`, LIGO-T2000012) × the 4 km arm, so the line
 SNRs and the CRB below are set against an actual O4 DARM floor. The injected drive magnitude is a
-*representative* choice (not a measured value), so absolute σ levels are illustrative while the
+representative choice (not a measured value), so absolute σ levels are illustrative while the
 demonstrated shapes (the `1/√T` scaling, the CRB tracking) do not depend on it. It is a
-*demonstration* of the measurement, not a calibration of any real instrument. The page is rendered
+demonstration of the measurement, not a calibration of any real instrument. The page is rendered
 with `freeze: true`.
 :::
 
@@ -76,7 +76,7 @@ actuation strengths — to ~1 % in magnitude and ~1° in phase across the band.
 dd.truth_fig()
 ```
 
-## One Pcal multisine — what you'd watch
+## One Pcal multisine — the raw measurement
 
 A single periodic multisine injected at Pcal, ramped on and off over 3 s, with the DARM
 error read out under the loop's real disturbance and readout noise.
@@ -96,7 +96,7 @@ dd.pcal_bode_fig(a)
 
 ## The deliverable: R(f), model-free
 
-Because `d_err/x_pc = C/(1+G)`, the response is simply its reciprocal — `R(f) = 1/FRF`, with
+Because `d_err/x_pc = C/(1+G)`, the response is its reciprocal — `R(f) = 1/FRF`, with
 no model in the loop. Its CRB envelope falls straight out of the FRF's per-bin error.
 
 ```{python}
@@ -129,7 +129,7 @@ display(dd.actuation_table(d))
 
 ## How fast does each parameter converge?
 
-The number a calibration group actually plans around is *exposure* — how long a measurement must
+The number a calibration group actually plans around is exposure — how long a measurement must
 run to pin each parameter to a target. Because the estimator is period-averaged, every parameter's
 variance falls as `1/P` (equivalently `1/T`), and the fit / period-to-period-variance σ **is** the
 Cramér–Rao bound — so the recovered 1σ tracks the `1/√T` law with no free knob. Below, the six core
@@ -150,7 +150,7 @@ DARM is actuated on all four quad masses hierarchically: the fast, weak ESD (**T
 command directly, and two nested offload filters push the low-frequency drive up the chain to the
 **PUM** and the strong, slow **M0** (top mass). Each stage's DARM-referred authority is
 `A_i = κ_i · D_i(f) · N_i(f)` — the M0-damped reduced-QUAD compliance `N_i` shaped by the
-distribution filter `D_M0 = O_A·O_B`, `D_PUM = O_A`, `D_TST = 1`. The offload runs in *force* units,
+distribution filter `D_M0 = O_A·O_B`, `D_PUM = O_A`, `D_TST = 1`. The offload runs in force units,
 so the compliances carry the hierarchy and `κ_i = 1`. M0 owns the lowest frequencies and hands off
 up the chain, so adjacent stages cross where their authority is equal — **M0/PUM near
 `F_PT ≈ 0.5 Hz`, PUM/TST near `F_EP ≈ 10 Hz`**. Those crossovers are exactly what a per-stage
@@ -173,7 +173,7 @@ frequencies come from the production damping design rather than a single-loop M0
 
 ## The calibration lines in the DARM spectrum
 
-In operation the strengths are tracked *continuously* by always-on calibration lines — one per
+In operation the strengths are tracked continuously by always-on calibration lines — one per
 actuation stage, plus a Pcal reference — not swept campaigns. What matters is how far each line
 stands above the DARM noise, because the per-record strength precision is `σκ/κ ≈ 1/SNR`. Below,
 one line per stage (M0 low, PUM mid, TST in-band) is injected on the hierarchical twin, the loop is
@@ -191,7 +191,7 @@ dd.cal_line_spectrum_fig(cs)
 ```
 
 ```{python}
-#| code-summary: "Per-line height, SNR, and the strength precision it buys"
+#| code-summary: "Per-line height, SNR, and the strength precision it yields"
 display(dd.cal_line_table(cs))
 ```
 
@@ -214,7 +214,7 @@ dd.comparison_fig(c)
 display(dd.fom_table(c))
 ```
 
-## Honest gaps
+## Remaining gaps
 
 This twin is a single DARM loop with the coupled detuned-cavity sensing (the SRC-detuning `δ`
 splits the cavity pole into a complex pair). It shows leakage-free recovery of `C`, the per-stage
@@ -222,14 +222,14 @@ strengths and their CRB convergence, the hierarchical actuation crossovers, and 
 budget — but it still holds the parameters static within a record (drift is tracked in
 [example 13](13-darm-drift-tracking.qmd)), and omits the cross-couplings of a real interferometer.
 The noise floor is real (`aligo_O4high`), but the injected drive magnitude and the resulting line
-SNRs are *representative*, not a specific instrument state; the real test is to run these injections
+SNRs are representative, not a specific instrument state; the real test is to run these injections
 on the same instrument and compare the `σ(R(f))`-per-hour envelopes — see
 `notes/darm-calibration-via-pns.md`.
 
 ## Roadmap
 
 The through-line never changes — a periodic multisine, a leakage-free reference FRF, a
-maximum-likelihood fit toward the Cramér–Rao bound. Each step below raises the *twin's* fidelity
+maximum-likelihood fit toward the Cramér–Rao bound. Each step below raises the twin's fidelity
 toward a real DARM calibration, keeping that one method.
 
 **Done**
@@ -237,8 +237,8 @@ toward a real DARM calibration, keeping that one method.
 - **Static single-loop calibration** (this page). Sensing `C`, three-stage actuation `κ`, the
   response `R(f)` with a measured CRB envelope, and a swept-sine head-to-head on the same twin.
 - **Round 1 — track a drifting parameter** ([example 13](13-darm-drift-tracking.qmd)). A known slow
-  drift on the ESD strength `κ(t)`, recovered with a Lataire–Pintelon time-basis fit inside an
-  honest CRB band, with resolvability proven by a computed bound rather than eyeballed.
+  drift on the ESD strength `κ(t)`, recovered with a Lataire–Pintelon time-basis fit inside a
+  calibrated CRB band, with resolvability established by a computed bound rather than by inspection.
 
 **Next — raising fidelity, roughly in order**
 

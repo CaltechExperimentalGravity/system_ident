@@ -11,14 +11,14 @@ the [glossary](glossary.qmd) for **CRB**, **dispersion**, and **D-optimal** if t
 
 ## From model to measurement budget
 
-Every measurement experiment faces the same tension: you have a finite amount of
+Every measurement experiment faces the same tension: a finite amount of
 drive power (bounded by actuator saturation) and a finite measurement time (bounded
-by how long you can hold an interferometer in a non-standard state).  The question
-is not *how much* to drive, but *where*.
+by how long an interferometer can be held in a non-standard state).  The question
+is not how much to drive, but where.
 
 The **Fisher information matrix** `I(θ)` is the bridge.
 It quantifies, for a given model θ and experimental design (Pxx, T, Pyy),
-exactly how many *nats* of information the experiment carries about each parameter
+how many nats of information the experiment carries about each parameter
 and each pair of parameters.  Its inverse is the Cramér–Rao lower bound — the best
 any unbiased estimator can do.
 
@@ -62,8 +62,8 @@ $$
 
 the sensitivity of the information ellipsoid to a marginal unit of drive power
 placed at $f$. High $\nu(f)$ marks the bins where the resonance is strongly
-excited *and* the readout noise is not overwhelming the response — exactly where
-each extra Hz of drive buys the most parameter information.
+excited and the readout noise is not overwhelming the response, which is where
+each extra Hz of drive returns the most parameter information.
 
 By construction the power-weighted average of $\nu$ is the parameter count,
 $\int P_{xx}(f)\,\nu(f)\,df / P_{\text{tot}} = \operatorname{tr}[I^{-1}I] = n_\theta$.
@@ -76,15 +76,15 @@ fixed-point iteration that flattens $\nu$ to this optimum.
 ## Interactive comparison
 
 The figure below shows the result for a simple 1 Hz resonance with Q = 20.
-The **top panel** is the plant |G(f)|, annotated at the resonance peak.
-The **bottom panel** compares the drive ASDs: the optimal allocation
-(gold, filled) vs a flat sweep of equal total power (gray, dashed).
-Hover over either curve to read exact values; zoom in on the resonance to see
+The top panel is the plant |G(f)|, annotated at the resonance peak.
+The bottom panel compares the drive ASDs: the optimal allocation
+(gold, filled) against a flat sweep of equal total power (gray, dashed).
+Hovering over either curve reads exact values; zooming in on the resonance shows
 how tightly the optimal drive brackets it.
 
 ```{python}
 #| label: fig-optimal-excitation
-#| fig-cap: "Optimal excitation vs flat drive of equal power, for a 1 Hz / Q=20 resonance. The optimal drive piles power at the resonance; the flat drive spreads it uniformly. Zoom in on 0.8–1.2 Hz to compare."
+#| fig-cap: "Optimal excitation vs flat drive of equal power, for a 1 Hz / Q=20 resonance. The optimal drive concentrates power at the resonance; the flat drive spreads it uniformly. Zoom in on 0.8–1.2 Hz to compare."
 #| code-summary: "Optimal vs flat excitation"
 import sys, pathlib
 _p = pathlib.Path.cwd()
@@ -120,7 +120,7 @@ sp.excitation_design(
 ::: {.callout-note}
 ## Reading the figure
 
-The optimal drive is **not** centred exactly at f₀ — it is shaped by both the
+The optimal drive is not centred exactly at f₀ — it is shaped by both the
 Jacobian ∂G/∂θ (which peaks near f₀ but is nonzero over a bandwidth set by 1/Q)
 and the readout noise PSD Pyy(f).  With flat white noise the result is nearly
 Lorentzian, but on real hardware where Pyy rises steeply below ~0.3 Hz,
@@ -131,9 +131,9 @@ the optimal drive shifts to higher frequencies where the SNR is better.
 
 The D-optimal fixed point is reached when the dispersion $\nu(f)$ equals the
 parameter count $n_\theta$ across the support of the drive. Below, the flat drive
-leaves $\nu$ sharply peaked at the resonance (information left on the table), while
-the optimal drive has **flattened $\nu$ to $n_\theta$** there — the signature of
-convergence.
+leaves $\nu$ sharply peaked at the resonance, meaning available information is not
+collected, while the optimal drive has flattened $\nu$ to $n_\theta$ there, which is
+the signature of convergence.
 
 ```{python}
 #| label: fig-dispersion
@@ -161,16 +161,16 @@ sp.style(fig, height=360).show()
 
 ## The information ellipse
 
-"Maximise $\log\det I(\theta)$" has a picture. The Cramér–Rao covariance
+"Maximise $\log\det I(\theta)$" has a geometric reading. The Cramér–Rao covariance
 $\mathrm{Cov}(\hat\theta) = I(\theta)^{-1}$ defines a **confidence ellipse** in parameter
 space, centred on the truth; its area is $\propto \sqrt{\det\mathrm{Cov}} =
-1/\sqrt{\det I}$. So **D-optimal design literally shrinks the ellipse.** Below, the joint
+1/\sqrt{\det I}$. D-optimal design therefore shrinks the ellipse. Below, the joint
 $(f_0, Q)$ region for the same 1 Hz / Q = 20 resonance under the flat drive (gray) and the
 Fisher-optimal drive (gold), both of equal total power. The flat drive puts almost no power
-at the resonance, so it barely constrains $Q$ — its ellipse sloshes far up the $Q$ axis;
+at the resonance, so it barely constrains $Q$ and its ellipse extends far up the $Q$ axis;
 the optimal drive concentrates there and collapses the region. The covariance is computed in
 physical $(f_0, Q)$ coordinates — gain marginalised out — from the same Fisher integral, so
-the axes are the parameters you care about.
+the axes are the reported parameters.
 
 ```{python}
 #| label: fig-info-ellipse
@@ -204,12 +204,12 @@ sp.info_ellipse(
           color=sp.GRAY, width=2.4, dash="dash"),
      dict(mean=(f0_t, Q_t), cov=cov_opt_fq, label="optimal drive",
           color=sp.GOLD, width=3.0)],
-    title=f"1σ (f₀, Q) confidence ellipse — the optimal drive shrinks its area "
+    title=f"1σ (f₀, Q) confidence ellipse — the optimal drive reduces its area "
           f"{area_ratio:.0f}× (D-optimal minimises det Cov)").show()
 ```
 
 The fixed-point iteration reaches this optimum in a few passes (the same 3–5 iterations that
-flatten $\nu$ above); the payoff is the many-fold smaller region in the figure title — the
+flatten $\nu$ above); the result is the smaller region in the figure title — the
 $\sqrt{\det\mathrm{Cov}}$ the D-optimal criterion is defined to minimise.
 
 ## Variance reduction in numbers
@@ -227,8 +227,8 @@ print(f"{'Optimal (Fisher-matched)':<28} {np.max(np.diag(cov_opt)):>24.3e}   {1/
 ## How the iteration converges
 
 `optimal_excitation(freq, model, Pyy, Px_tot, n_iter=3)` runs three rounds of the
-fixed-point update.  In practice 3–6 iterations are enough; you can verify
-convergence by comparing the output ASD across successive calls.
+fixed-point update.  In practice 3–6 iterations are enough; convergence can be
+verified by comparing the output ASD across successive calls.
 The API is:
 
 ```python
@@ -266,22 +266,22 @@ ramp. Because the waveform is periodic over the analysis window, the response DF
 is leakage-free — see [the method overview](overview.qmd) and the
 [worked examples](../examples/01-single-resonance.qmd).
 
-## When are two modes resolvable?
+## Resolvability of two modes {#when-are-two-modes-resolvable}
 
-A non-parametric habit says two resonances closer than **one linewidth**
-`Γ = f₀/Q` (or one DFT bin `1/T`) are "unresolvable" — merged under a single peak.
-That is a statement about *peak-picking*, not about *information*. A parametric
+A non-parametric habit holds that two resonances closer than one linewidth
+`Γ = f₀/Q` (or one DFT bin `1/T`) are unresolvable — merged under a single peak.
+That is a statement about peak-picking, not about information. A parametric
 maximum-likelihood fit does not read peaks; it fits the whole complex FRF, and the
-Fisher information about the mode **separation** `Δf` is finite for any `Δf > 0`.
-The right question is therefore never "is this doublet resolvable?" but "**at what
-measurement budget?**" — and the CRB answers it with a number.
+Fisher information about the mode separation `Δf` is finite for any `Δf > 0`.
+The question is therefore not whether a doublet is resolvable but at what
+measurement budget, and the CRB answers that with a number.
 
 Take two resonances of equal linewidth `Γ` separated by `Δf`, and treat the pair as
 resolved when the CRB on the separation drops below the separation itself,
 `σ(Δf) < Δf` (the modes are more than 1σ apart). Because the Fisher information is
 linear in the budget `∝ SNR·N`, `σ(Δf)² ∝ 1/(SNR·N)`, so the budget needed to reach
-`σ(Δf) = Δf` is a pure function of `Δf/Γ`. We compute it straight from the two-mode
-Jacobian — the same `2T·Pₓₓ/P_yy · Re[∂G*∂G]` Fisher used above:
+`σ(Δf) = Δf` is a pure function of `Δf/Γ`. It is computed here directly from the
+two-mode Jacobian — the same `2T·Pₓₓ/P_yy · Re[∂G*∂G]` Fisher used above:
 
 ```{python}
 #| label: fig-resolvability
@@ -331,16 +331,16 @@ display(Markdown(
     f"**SNR·N ≳ (Γ/Δf)⁴** rule of thumb. The SRM within-plane 1.512/1.527 Hz pair sits at "
     f"**Δf/Γ ≈ {r_wp:.2f}** (sub-linewidth): resolving it by frequency alone costs **≈ "
     f"{b_wp:.0f}×** the budget of a one-linewidth pair — a finite record-length / SNR price, "
-    f"not a physical wall. (In the plant it is cheaper still to sidestep: the 0.67 Hz doublet "
-    f"is *spatial* and resolves for free by "
+    f"not a physical wall. (In the plant it is cheaper to sidestep: the 0.67 Hz doublet "
+    f"is spatial and resolves at no extra budget by "
     f"[plane decoupling](../examples/10-srm-hsts.qmd), while the 1.51 pair shares one plane "
     f"and is the genuine frequency-super-resolution case.)"))
 ```
 
-This is the feasibility gate in one figure: **"resolution-limited" is a budget
-statement, not a boundary.** Never quote a one-linewidth / one-bin / Rayleigh limit
-against a parametric fit — compute `σ(Δf)` from the CRB, and if a doublet is truly
-sub-linewidth, report the SNR·N (record length or drive) that would resolve it.
+This is the feasibility gate in one figure: "resolution-limited" is a budget
+statement, not a boundary. A one-linewidth / one-bin / Rayleigh limit should never be
+quoted against a parametric fit — compute `σ(Δf)` from the CRB, and if a doublet is
+genuinely sub-linewidth, report the SNR·N (record length or drive) that would resolve it.
 
 ## References
 

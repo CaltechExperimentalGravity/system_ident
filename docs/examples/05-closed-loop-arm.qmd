@@ -6,7 +6,7 @@ categories: [closed-loop]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - Identifying with the damping loop **closed**, using no controller model.
 - How the reference-based FRF cancels the controller — see [closing the loop](../tutorial/closing-the-loop.qmd#identifying-in-closed-loop-controller-aware).
 :::
@@ -14,15 +14,15 @@ categories: [closed-loop]
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/05-closed-loop-arm.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The most realistic case: a suspension identified **with its damping loop closed**. The
-feedback fights the very resonance we are measuring, so the instrument shows the
-*closed-loop* response $T = P/(1+PC)$, whose peak is suppressed by the loop gain $1+PC$.
+feedback acts on the resonance being measured, so the instrument shows the
+closed-loop response $T = P/(1+PC)$, whose peak is suppressed by the loop gain $1+PC$.
 Fitting $T$ and calling it the plant is **biased**.
 
 The Pintelon–Schoukens **reference-based FRF** — the ratio of period-averaged spectra
 $\overline{Y}/\overline{X}$ off the drive monitor and the response — cancels the controller
 automatically and returns the **open-loop plant directly**: no controller object, no
 $1/(1-TC)$ division. We run the full diagnostic set with the loop genuinely closed in the
-twin, and use `python-control` only to *draw* the suppressed $T$ for the bias story —
+twin, and use `python-control` only to draw the suppressed $T$ for the bias story —
 never in the fit.
 
 Closed loop is a **first-class, declarable mode**: a config names the digital controller
@@ -194,7 +194,7 @@ sp.bode(freq, [
 ::: {.callout-important}
 ## The bias is cancelled, not corrected
 Near 1 Hz the loop suppresses the closed-loop peak by $1+PC$. The old remedy measured $T$
-and *divided* the controller back out by hand. Here the reference-based ratio-of-averages
+and divided the controller back out by hand. Here the reference-based ratio-of-averages
 **cancels the loop in the measurement itself** — the grey points already lie on $P$, so
 $\hat P$ is unbiased without ever naming $C$ in the fit. At LIGO, where control gain can be
 40 dB near a pendulum resonance, cancelling at the measurement is far more robust than a
@@ -250,6 +250,6 @@ sp.pass_overlay(freq,
     np.abs(P_TRUE.eval(freq))).show()
 ```
 
-**You've reached the end of the SISO examples.** Continue to the
+**This is the last of the SISO examples.** Continue to the
 [2×2 coupled MIMO example](06-two-by-two-coupled.qmd), or return to the
 [Tutorial](../tutorial/overview.qmd).

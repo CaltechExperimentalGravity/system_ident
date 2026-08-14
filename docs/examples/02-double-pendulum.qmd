@@ -6,8 +6,8 @@ categories: [SISO, multi-mode]
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
-- How the optimal drive splits a *fixed* power budget across two resonances (the idea the [landing-page game](../index.qmd) makes interactive).
+## Contents
+- How the optimal drive splits a fixed power budget across two resonances (the idea the [landing-page game](../index.qmd) makes interactive).
 - Recovering both modes (0.6 Hz / 1.5 Hz) jointly, each with its own CRB.
 :::
 
@@ -18,7 +18,7 @@ The canonical two-mode plant: a double pendulum with modes at 0.6 Hz (Q = 20) an
 [example 01](01-single-resonance.qmd) — excitation design, time series, a
 magnitude/phase/coherence Bode stack, residuals, parameter recovery, drive safety,
 convergence, and the pass-by-pass view — now with the optimal drive splitting its power
-across *two* resonances. The Fisher iteration finds the split automatically; the narrower,
+across two resonances. The Fisher iteration finds the split automatically; the narrower,
 higher-Q mode gets a sharper, taller peak.
 
 ```{python}

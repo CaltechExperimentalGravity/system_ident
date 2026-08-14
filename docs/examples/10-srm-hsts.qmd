@@ -7,7 +7,7 @@ freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
-## What you'll learn
+## Contents
 - The joint modal fit on the **real L1-SRM** through its production damping loops.
 - τ-driven resolution design and resolving the spatial doublet — grounded in [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
@@ -102,7 +102,7 @@ display(Markdown(
 ```
 
 The nonparametric `Y·X⁻¹` (grey markers) scatters near the resonances where the drive monitors
-are small; the rank-1 joint fit (gold) threads cleanly through, sitting on the oracle (blue
+are small; the rank-1 joint fit (gold) passes through, sitting on the oracle (blue
 dashed) through every mode and anti-resonance.
 
 ## The rank-1 joint MIMO modal fit
@@ -132,12 +132,12 @@ display(Markdown(
     f"within a few % of the oracle's ~50."))
 ```
 
-## What this shows — a resolved doublet and an honest CRB
+## What this shows — a resolved doublet and a calibrated CRB
 
 Through the **real** production L1-SRM damping loops on the compiled twin, the open-loop coupled
 plant comes back to 0.11% median diagonal error, and the joint fit returns 13 shared modal poles
-with most Qs recovered to a few percent against a CRB. Two features deserve a careful,
-feasibility-gate-honest reading — the first is a resolved doublet, the second an honest bound.
+with most Qs recovered to a few percent against a CRB. Two features warrant a careful reading
+under the feasibility gate: the first is a resolved doublet, the second a calibrated bound.
 
 ### 1 · The tight 0.67 Hz "doublet" is spatial — and it resolves
 
@@ -147,7 +147,7 @@ fit returns one blended, biased fundamental (flagged in the table above). It is 
 this a resolution limit. **It is not.** The HSTS plant **block-diagonalizes exactly** into two
 orthogonal DOF planes — {L,P,V} and {T,R,Y} — with cross-plane FRF coupling ~1e-13 (machine
 zero). The 0.6725 Hz mode lives purely in {L,P,V}; the 0.6758 Hz mode purely in {T,R,Y}. They are
-near-coincident in *frequency* but separated by *which sensors see them*: a **spatial** doublet,
+near-coincident in frequency but separated by which sensors see them: a **spatial** doublet,
 not a frequency split.
 
 So we fit each plane alone. `mimo_fit.fit_block_decoupled` runs one rank-1 modal fit per plane;
@@ -182,10 +182,10 @@ modes — precisely the failure mode `CLAUDE.md`'s feasibility gate names — no
 data. This exact resolution also runs **portably, without the compiled twin** — on the committed
 reduced HSTS model (`system_ident/models/hsts_reduced_50hz.npz`, numpy-only): the same
 `fit_block_decoupled` splits the 0.672/0.676 pair across the same two planes, guarded by
-`tests/test_reduced_hsts_oracle.py`. (The one genuinely *within-plane* near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
+`tests/test_reduced_hsts_oracle.py`. (The one genuinely within-plane near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
 not resolved by the plane split; parametric ML super-resolves it given `SNR·N ≳ (Γ/Δf)⁴`, a finite
 record-length/SNR cost, or a per-plane two-mode fit — see
-[*When are two modes resolvable?*](../tutorial/fisher.qmd#when-are-two-modes-resolvable), which
+[*Resolvability of two modes*](../tutorial/fisher.qmd#when-are-two-modes-resolvable), which
 computes that cost from the CRB. That, too, is a cost to pay, not a wall.)
 
 ### 2 · The CRB is a process-disturbance bound

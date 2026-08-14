@@ -32,7 +32,7 @@ for any well-excited measurement.
 
 ## Construction
 
-Construct a `TFModel` however is natural for your system:
+A `TFModel` can be constructed in whichever form is natural for the system at hand:
 
 ```python
 from system_ident.model import TFModel
@@ -70,21 +70,21 @@ J = g2.jacobian(freq)
 `g.jacobian(freq)` returns ∂G/∂θ — the per-parameter sensitivity of the response
 at every frequency. It is evaluated by **central finite differences** on the
 stacked `[num, den]` parameter vector (validated bit-for-bit against the legacy
-`sysIDlib` engine), and it is the critical quantity feeding both the Fisher
-calculation and the Gauss-Newton step of the maximum-likelihood fit. Where a
-parameter spans orders of magnitude, a per-parameter `logflag` switches the column
-to the derivative with respect to a *fractional* change, which keeps the
-information matrix well conditioned near sharp resonances.
+`sysIDlib` engine), and it feeds both the Fisher calculation and the Gauss-Newton
+step of the maximum-likelihood fit. Where a parameter spans orders of magnitude, a
+per-parameter `logflag` switches the column to the derivative with respect to a
+fractional change, which keeps the information matrix well conditioned near sharp
+resonances.
 
 ::: {.callout-note}
 ## Fitting in physical parameters: `ResonatorModel`
 
-`TFModel` is the canonical representation, but mechanical resonances are far
-better conditioned when estimated as **physical** `(f0, Q, gain)` parameters
-rather than expanded polynomial coefficients.  `ResonatorModel` provides exactly
-that: a product of second-order resonances whose gradient `∂H/∂f0` *directly*
+`TFModel` is the canonical representation, but mechanical resonances are better
+conditioned when estimated as **physical** `(f0, Q, gain)` parameters
+rather than expanded polynomial coefficients.  `ResonatorModel` provides that:
+a product of second-order resonances whose gradient `∂H/∂f0`
 moves a peak in frequency, so a Gauss-Newton / MAP step can relocate a resonance
-that sits away from the prior — which coefficient-space fitting cannot.  It
+that sits away from the prior, which coefficient-space fitting cannot.  It
 exposes the same four-method protocol (`params`, `jacobian`, `eval`,
 `with_params`) and a `to_tf()` bridge back to `TFModel` for discretisation,
 so the Fisher, estimator, and designer machinery is unchanged.

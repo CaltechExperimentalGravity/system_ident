@@ -18,17 +18,17 @@ $$
 
 to convergence by **Gauss-Newton / Levenberg–Marquardt**, holding the model order
 fixed at the prior's.  Each residual is weighted by its own measured variance
-$\sigma^2(f_k)$, so the fit trusts the well-measured resonance bins and discounts
+$\sigma^2(f_k)$, so the fit weights the well-measured resonance bins above
 the noisy ones.  This estimator is **asymptotically unbiased** and **efficient**:
 when the per-bin noise is correct it attains the Cramér–Rao bound, and the inverse
-of the Gauss-Newton (Fisher) Hessian at the optimum *is* the parameter covariance.
+of the Gauss-Newton (Fisher) Hessian at the optimum is the parameter covariance.
 
 ::: {.callout-note}
 ## Two parameterisations, one objective
 
 For a physical [`ResonatorModel`](model.qmd) in `(f0, Q, gain)` the gradient
-`∂H/∂f0` directly *relocates* a resonance, so the Gauss-Newton step can move a peak
-that sits away from the prior — and the fit is naturally multi-mode.  For a
+`∂H/∂f0` relocates a resonance directly, so the Gauss-Newton step can move a peak
+that sits away from the prior, and the fit is multi-mode by construction.  For a
 polynomial `TFModel`, a linear least-squares stage (a Sanathanan–Koerner
 re-weighting that updates the denominator each iterate, rather than freezing it at
 the prior) gives a well-conditioned starting point, then the exact ML objective is
@@ -44,19 +44,19 @@ denominator parameters enter `G(f;θ)` nonlinearly.
 ## Why fixed order?
 
 Fixing the model order at the prior's prevents spurious modes from appearing
-during convergence.  The prior encodes our physical knowledge of the plant's
-pole/zero structure; the estimator refines the *locations*, not the *number* of
+during convergence.  The prior encodes the available physical knowledge of the
+plant's pole/zero structure; the estimator refines the locations, not the number of
 modes.  Adding modes is a modelling decision made at campaign setup time,
 not an automatic step.
 :::
 
-## Does the fit actually reach the bound?
+## Attaining the bound
 
-"Efficient" is a claim you can test. Run the fit on many independent noisy measurements of the
-same plant at a fixed optimal drive, and normalise each recovered parameter's error by its
-**predicted** Cramér–Rao σ. If the estimator is efficient and the bound honest, those normalised
-errors — the *pulls* $(\hat\theta - \theta_0)/\sigma$ — are standard normal: no bias (centred on
-zero) and no over-optimism (unit width).
+Efficiency is a testable claim. Running the fit on many independent noisy measurements of
+the same plant at a fixed optimal drive, and normalising each recovered parameter's error by
+its **predicted** Cramér–Rao σ, gives the pulls $(\hat\theta - \theta_0)/\sigma$. If the
+estimator is efficient and the bound correct, those normalised errors are standard normal:
+no bias (centred on zero) and no over-optimism (unit width).
 
 ```{python}
 #| code-summary: "Setup — import the presentation glue"
@@ -71,17 +71,17 @@ import method_demo as md
 
 ```{python}
 #| label: fig-crb-pull
-#| fig-cap: "Normalised parameter errors (fit − true)/σ_CRB, pooled over Q and gain across 140 independent noisy measurements, against the standard normal. Landing on 𝒩(0,1) means the ML fit attains the Cramér–Rao bound and the reported σ is the real one."
+#| fig-cap: "Normalised parameter errors (fit − true)/σ_CRB, pooled over Q and gain across 140 independent noisy measurements, against the standard normal. Landing on 𝒩(0,1) means the ML fit attains the Cramér–Rao bound and the reported σ is the realised one."
 #| code-summary: "Monte-Carlo pull test against the CRB"
 c = md.crb_pull_campaign()
 md.crb_pull_fig(c)
 ```
 
-The pulls fall on $\mathcal{N}(0,1)$: the ML fit **sits on the Cramér–Rao bound**, and the σ it
-reports is the real one — not an over-optimistic underestimate. (Shown for $Q$ and the gain, the
-noise-limited parameters here; $f_0$ is pinned so tightly by the resonance's phase crossing that
-its error is numerical, not statistical — a happy problem.) The slight residual width above 1 is
-finite-sample inflation, which shrinks toward 1 as the period count grows.
+The pulls fall on $\mathcal{N}(0,1)$: the ML fit attains the Cramér–Rao bound, and the σ it
+reports is the realised one rather than an over-optimistic underestimate. (Shown for $Q$ and
+the gain, the noise-limited parameters here; $f_0$ is pinned so tightly by the resonance's
+phase crossing that its error is numerical rather than statistical.) The slight residual
+width above 1 is finite-sample inflation, which shrinks toward 1 as the period count grows.
 
 ## Inverse-variance accumulation
 
@@ -97,7 +97,7 @@ H_{\text{acc}}(f) = \frac{\sum_n H^{(n)}(f) / [\sigma^{(n)}(f)]^2}
 $$
 
 This **inverse-variance weighting** is optimal (minimum-variance) when measurement
-errors are Gaussian and independent across passes.  The crucial consequence:
+errors are Gaussian and independent across passes.  The consequence:
 pass 1 (prior-robust, spread across the plausible band) contributes broadly; later
 optimal passes contribute most near the resonances they targeted.  Neither is
 discarded.
@@ -161,8 +161,8 @@ plots — see the [multi-DoF suspension example](../examples/04-suspension-multi
 ## Identifying in closed loop (controller-aware)
 
 A suspension is usually held by a **digital damping loop**, and the reference-based FRF
-makes closed-loop identification a *first-class, declarable* mode — no controller-division.
-Picture the digital controller `C` with four access points per DoF:
+makes closed-loop identification a declarable mode with no controller-division. The
+digital controller `C` has four access points per DoF:
 
 ```
                        ┌─────────── inject (before C) ───────────┐
@@ -177,10 +177,11 @@ Picture the digital controller `C` with four access points per DoF:
 The open-loop plant FRF uses **X = the after-controller drive `u`** (the plant input) and
 **Y = the response `y`**; the ratio of period-averaged spectra projects onto the
 deterministic multisine and yields `G` for **either injection point** (the controller
-cancels). The after-controller drive must be its own channel: under *before-controller*
-injection the injected signal is **not** `u`. See [the recovered open-loop plant through a
+cancels). The after-controller drive must be its own channel: under before-controller
+injection the injected signal is not `u`. See [the recovered open-loop plant through a
 live damping loop](why-optimal-excitation.qmd#a-closed-loop-is-not-an-obstacle) for this
-cancellation shown on a real closed-loop measurement — controller *cancelled, not fit*.
+cancellation shown on a real closed-loop measurement — the controller is cancelled rather
+than fitted.
 
 Declare it in the config:
 
