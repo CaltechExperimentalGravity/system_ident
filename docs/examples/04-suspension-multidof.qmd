@@ -2,6 +2,7 @@
 title: "04 — Multi-DoF suspension (full campaign)"
 description: "A 3-DoF POS/PIT/YAW campaign, the same path the CLI runs, with per-DoF diagnostics in tabs."
 image: thumbnails/04.svg
+image-alt: "Convergence curves of the worst fractional uncertainty per pass for the POS, PIT and YAW degrees of freedom."
 categories: [multi-DoF, campaign]
 ---
 
@@ -11,13 +12,13 @@ categories: [multi-DoF, campaign]
 - Reading per-DoF convergence and the standard diagnostics across a suspension.
 :::
 
-> **On a real reduced plant:** the same multi-DoF MIMO campaign runs on the committed 59-state reduced aLIGO **quad** (numpy-only, CI/Binder) in [example 11](11-reduced-quad.qmd) — lumped teaching plant here, real reduced dynamics there.
+> On a real reduced plant: the same multi-DoF MIMO campaign runs on the committed 59-state reduced aLIGO quad (numpy-only, CI/Binder) in [example 11](11-reduced-quad.qmd) — lumped teaching plant here, real reduced dynamics there.
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/04-suspension-multidof.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
-A 3-DoF suspension (POS / PIT / YAW) identified the **Pintelon–Schoukens** way — the same
+A 3-DoF suspension (POS / PIT / YAW) identified the Pintelon–Schoukens way — the same
 sequential, one-DoF-at-a-time campaign the CLI runs. Each degree of freedom gets the
-**full diagnostic set**: excitation design, the measurement time series, a
+full diagnostic set: excitation design, the measurement time series, a
 magnitude/phase/coherence Bode stack, residuals, parameter recovery against the
 Cramér–Rao bound, drive-safety margins, convergence, and the pass-by-pass view. The
 combined convergence and recovered-vs-true panels are up top; the per-DoF detail is in the
@@ -109,6 +110,8 @@ The worst $\sigma/\theta$ for each DoF (the stop criterion). Every individual pa
 convergence is in the per-DoF tabs below.
 
 ```{python}
+#| label: fig-mdof-convergence
+#| fig-cap: "Worst fractional uncertainty σ/θ per pass, for each of POS, PIT, and YAW, against the 5 % stop target."
 #| code-summary: "worst σ/θ vs pass, all DoFs"
 sp.convergence([dict(name=d, x=[h["pass"] for h in H[d]], y=[h["frac"] for h in H[d]],
                      color=COLORS[d]) for d in DOFS], target=0.05,
@@ -118,6 +121,8 @@ sp.convergence([dict(name=d, x=[h["pass"] for h in H[d]], y=[h["frac"] for h in 
 ## Recovered vs true — all DoFs
 
 ```{python}
+#| label: fig-mdof-overlay
+#| fig-cap: "Recovered plant (dashed) against the true plant (solid) for all three DoFs, on shared log axes."
 #| code-summary: "Magnitude overlay, recovered (dashed) vs true (solid)"
 fig = go.Figure()
 for d in DOFS:
@@ -194,6 +199,16 @@ def show_dof(d):
 ## POS
 
 ```{python}
+#| label: fig-mdof-pos
+#| fig-cap:
+#|   - "POS: prior-robust optimal drive against a flat drive of equal total power, over the true plant and the prior."
+#|   - "POS: first ~60 s of pass 1 — the Schroeder multisine at the actuator and the motion it produces."
+#|   - "POS: magnitude, phase, and coherence after the final pass, with the measured points carrying their per-bin ±σ."
+#|   - "POS: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "POS: prior, ML fit, and true value for every mode and the gain, with the Cramér–Rao σ as the error bar."
+#|   - "POS: drive peak and RMS per pass against the actuator limit and the RMS ceiling."
+#|   - "POS: fractional parameter uncertainty σᵢ/θᵢ per pass, against the 5 % stop target."
+#|   - "POS: measured FRF and ML fit at each pass, overlaid on the true plant."
 #| code-summary: "POS — full diagnostic set"
 show_dof("POS")
 ```
@@ -201,6 +216,16 @@ show_dof("POS")
 ## PIT
 
 ```{python}
+#| label: fig-mdof-pit
+#| fig-cap:
+#|   - "PIT: prior-robust optimal drive against a flat drive of equal total power, over the true plant and the prior."
+#|   - "PIT: first ~60 s of pass 1 — the Schroeder multisine at the actuator and the motion it produces."
+#|   - "PIT: magnitude, phase, and coherence after the final pass, with the measured points carrying their per-bin ±σ."
+#|   - "PIT: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "PIT: prior, ML fit, and true value for every mode and the gain, with the Cramér–Rao σ as the error bar."
+#|   - "PIT: drive peak and RMS per pass against the actuator limit and the RMS ceiling."
+#|   - "PIT: fractional parameter uncertainty σᵢ/θᵢ per pass, against the 5 % stop target."
+#|   - "PIT: measured FRF and ML fit at each pass, overlaid on the true plant."
 #| code-summary: "PIT — full diagnostic set"
 show_dof("PIT")
 ```
@@ -208,6 +233,16 @@ show_dof("PIT")
 ## YAW
 
 ```{python}
+#| label: fig-mdof-yaw
+#| fig-cap:
+#|   - "YAW: prior-robust optimal drive against a flat drive of equal total power, over the true plant and the prior."
+#|   - "YAW: first ~60 s of pass 1 — the Schroeder multisine at the actuator and the motion it produces."
+#|   - "YAW: magnitude, phase, and coherence after the final pass, with the measured points carrying their per-bin ±σ."
+#|   - "YAW: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "YAW: prior, ML fit, and true value for every mode and the gain, with the Cramér–Rao σ as the error bar."
+#|   - "YAW: drive peak and RMS per pass against the actuator limit and the RMS ceiling."
+#|   - "YAW: fractional parameter uncertainty σᵢ/θᵢ per pass, against the 5 % stop target."
+#|   - "YAW: measured FRF and ML fit at each pass, overlaid on the true plant."
 #| code-summary: "YAW — full diagnostic set"
 show_dof("YAW")
 ```

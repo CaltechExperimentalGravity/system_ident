@@ -6,8 +6,8 @@ listing: false
 ---
 
 One resonant plant, one fixed drive-power budget, and each excitation in common use:
-the **Fisher-optimal multisine**, a naive **cophased** multisine, a **swept sine**, and
-**broadband and shaped noise**. Selecting any of them updates two figures of merit, and the
+the Fisher-optimal multisine, a naive cophased multisine, a swept sine, and
+broadband and shaped noise. Selecting any of them updates two figures of merit, and the
 full comparison table, in the browser with no install.
 
 ```{=html}
@@ -20,7 +20,7 @@ full comparison table, in the browser with no install.
 Every drive here spends the same total power. What differs is how it is distributed, and that
 separates into two independent quantities:
 
-- **Time to identify to 5%** — set by the drive's **power spectrum** $P_{xx}(f)$ alone. This is
+- **Time to identify to 5%** — set by the drive's power spectrum $P_{xx}(f)$ alone. This is
   the Cramér–Rao bound (the same Fisher kernel as the [landing-page game](index.qmd) and the
   [`system_ident` pipeline](examples/interactive.qmd)). Concentrating power where the plant's
   modal parameters are least certain shortens the time by roughly 40× relative to a flat
@@ -30,15 +30,15 @@ separates into two independent quantities:
 - **Crest factor** — the peakiness of the drive, `max|x|/rms`. It matters because the actuator's
   DAC has a fixed range: a peaky drive clips, or forces the whole drive to be scaled down,
   discarding SNR. The Fisher-optimal drive is low-crest as a by-product — it collapses onto
-  ~2 tones, so its crest is ~2 with nothing to tune. A **swept sine** is lowest (~$\sqrt2$, a
-  constant-envelope sine); broadband **noise** sits ~3.4; and a naively **cophased** multisine
+  ~2 tones, so its crest is ~2 with nothing to tune. A swept sine is lowest (~$\sqrt2$, a
+  constant-envelope sine); broadband noise sits ~3.4; and a naively cophased multisine
   reaches ~15, an impulse that would clip immediately. The lever for headroom is therefore the
   same as the lever for speed — concentrate the spectrum — rather than any phase adjustment
   (see the caveat below).
 
 ## Why the optimal spectrum is fastest
 
-The best performer (★) is the **Fisher-optimal spectrum**. It collapses almost entirely onto
+The best performer (★) is the Fisher-optimal spectrum. It collapses almost entirely onto
 two tones (the whole budget sits on the two resonances — effective line count ≈ 2), and that
 single property accounts for both results: it identifies the plant ~40× faster than any flat
 drive, and two tones are intrinsically low-crest (~2), so it stays inside the actuator range
@@ -49,7 +49,7 @@ interactively rather than algebraically.
 
 ::: {.callout-note appearance="simple"}
 ## A caveat on crest, and on phase adjustment
-Crest is the quantity the **DAC** sees, and this page measures it on the raw synthesized
+Crest is the quantity the DAC sees, and this page measures it on the raw synthesized
 samples. In a real actuator the drive is shaped by the whitening / actuation chain on its way
 to the DAC, which reassigns the per-frequency phases — so a crest minimized at synthesis (for
 example by a Schroeder phase schedule) does not survive to where the range limit applies. The
@@ -60,7 +60,7 @@ optimal design does regardless; phase-shaping is not a dependable lever here.
 ::: {.callout-tip appearance="simple"}
 ## Running the real package
 This page is a JavaScript approximation for interactive exploration. The
-[**Run it live**](examples/interactive.qmd) page executes the actual `system_ident` package —
+[Run it live](examples/interactive.qmd) page executes the actual `system_ident` package —
 the real `optimal_excitation`, `TFModel`, and Cramér–Rao code, on a reduced aLIGO
 suspension — in the browser through WebAssembly.
 :::

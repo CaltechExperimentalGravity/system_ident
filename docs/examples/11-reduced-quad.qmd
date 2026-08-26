@@ -1,13 +1,14 @@
 ---
 title: "11 — Reduced aLIGO QUAD (modal fit, no twin)"
-description: "The joint-MIMO rank-1 modal fit on a REAL reduced aLIGO quadruple suspension — the 59-state modal-truncation model committed in the package — identified end to end in pure numpy. The four yaw rigid-body modes come back to a part in 10⁵ with a Cramér–Rao bound, and the whole page runs in CI and in the browser, no compiled twin required."
+description: "The rank-1 joint modal fit on the committed 59-state reduced aLIGO quad, in pure numpy: four yaw modes to a part in 10⁵ with a Cramér–Rao bound."
 image: thumbnails/11.svg
+image-alt: "Per-mode frequency residuals of the reduced aLIGO quad against the model's exact eigenfrequencies."
 categories: [MIMO, modal, reduced-plant]
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- The flagship rank-1 modal fit (examples [09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) run on a **real reduced aLIGO quad** — realistic multi-stage dynamics between the lumped teaching plants and the heavy compiled twin.
+- The rank-1 modal fit (examples [09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) run on a real reduced aLIGO quad — realistic multi-stage dynamics between the lumped teaching plants and the heavy compiled twin.
 - That the whole pipeline is numpy-only: it runs unfrozen in CI and in [Binder](interactive.qmd)/the [in-browser demo](interactive.qmd), no twin.
 :::
 
@@ -15,11 +16,11 @@ categories: [MIMO, modal, reduced-plant]
 
 The earlier MIMO examples fit a lumped teaching plant ([09](09-rank1-modal-mimo.qmd)) or the
 compiled-CDS twin through its real loops ([10](10-srm-hsts.qmd), `freeze: true`, local-only).
-This page runs the same method on the **realistic middle**: the digital twin's **modal-truncation
-reduced** aLIGO quadruple suspension — the full 1483-state state-space cut to a faithful
-**59-state** model over the control band — committed in the package as
+This page runs the same method on the realistic middle: the digital twin's modal-truncation
+reduced aLIGO quadruple suspension — the full 1483-state state-space cut to a faithful
+59-state model over the control band — committed in the package as
 `system_ident/models/quad_reduced_50hz.npz`. Because the reduced model is only `(A,B,C,D)`, the
-plant FRF `G(f)=C(2πif·I−A)⁻¹B+D` and the whole campaign are **pure numpy** — so, unlike the
+plant FRF `G(f)=C(2πif·I−A)⁻¹B+D` and the whole campaign are pure numpy — so, unlike the
 compiled-twin pages, this one is not frozen: it re-runs in CI and in Binder.
 
 ```{python}
@@ -38,7 +39,7 @@ h = rq.headline()
 
 ## The plant and the campaign
 
-The reduced quad has four stages (M0 → L1 → L2 → L3). We identify its **yaw chain** — drive the
+The reduced quad has four stages (M0 → L1 → L2 → L3). We identify its yaw chain — drive the
 yaw actuator of each stage, read the yaw displacement of each — a 4×4 open-loop MIMO with four
 well-separated rigid-body modes (0.6–3.0 Hz). One Pintelon–Schoukens multisine per actuator is
 driven through the numpy-only `ReducedPlantBackend`; the per-bin matrix recovery `G = Y·X⁻¹`
@@ -62,6 +63,8 @@ off-diagonal (`G[0,3]`, L3→M0) element, with the fit's ±1σ band and the redu
 truth:
 
 ```{python}
+#| label: fig-rq-through
+#| fig-cap: "Through-resonance recovery on the reduced aLIGO quad: the rank-1 joint modal fit against the measured FRF on a diagonal element G[0,0] and an off-diagonal element G[0,3]."
 #| code-summary: "Through-resonance recovery — G[0,0] and G[0,3]"
 rq.through_resonance_fig()
 ```
@@ -72,6 +75,8 @@ The reduced model's own eigen-modes are the ground truth. The recovered `(f₀, 
 a Cramér–Rao envelope:
 
 ```{python}
+#| label: fig-rq-modes
+#| fig-cap: "Per-mode frequency residual (fit − truth) with the Cramér–Rao σ, against the 59-state model's exact eigenfrequencies."
 #| code-summary: "Modal frequency recovery — fit − truth with the CRB"
 rq.modal_recovery_fig()
 ```
@@ -92,11 +97,11 @@ display(Markdown(
 
 ## What this shows
 
-The flagship joint-MIMO modal method, unchanged, on a **real reduced aLIGO quad** rather than a
+The joint-MIMO modal method, unchanged, on a real reduced aLIGO quad rather than a
 lumped teaching plant or the local-only compiled twin. The frequencies of the four yaw
 rigid-body modes come back to a part in 10⁵ and their (model-set) Q to a percent, all in portable
 numpy — the realistic, reproducible middle the reduced models were brought in to provide. The
 same machinery drives the [SRM demo](10-srm-hsts.qmd) through real production loops on the twin;
-here it runs anywhere. For the **closed-loop** version — the same reduced quad identified through
+here it runs anywhere. For the closed-loop version — the same reduced quad identified through
 its damping loops with the controller cancelled (via `python-control`), see
 [example 12](12-reduced-quad-closed.qmd).

@@ -1,7 +1,8 @@
 ---
 title: "06 — Two-by-two coupled suspension (MIMO)"
-description: "A genuine coupled longitudinal/pitch 2×2 plant from a modal expansion — shared normal modes, diagonal notches, real cross-coupling."
+description: "A coupled longitudinal/pitch 2×2 plant from a modal expansion: shared normal modes, diagonal notches, and genuine cross-coupling."
 image: thumbnails/06.svg
+image-alt: "The 2x2 FRF matrix of a coupled longitudinal and pitch suspension, diagonal and cross terms."
 categories: [MIMO, coupling]
 ---
 
@@ -11,12 +12,12 @@ categories: [MIMO, coupling]
 - Element-by-element recovery — the step before the joint modal fit of examples 09–10.
 :::
 
-> **On a real reduced plant:** for genuine coupled aLIGO dynamics (a 4×4 reduced-quad yaw chain, not a lumped 2×2), see [example 11](11-reduced-quad.qmd) — the same rank-1 modal recovery, numpy-only.
+> On a real reduced plant: for genuine coupled aLIGO dynamics (a 4×4 reduced-quad yaw chain, not a lumped 2×2), see [example 11](11-reduced-quad.qmd) — the same rank-1 modal recovery, numpy-only.
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/06-two-by-two-coupled.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 Real suspensions do not move one degree of freedom at a time, and the cross-coupling is
-**not** a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
+not a rescaled copy of the diagonal. A length (POS) drive and a pitch (PIT) drive share
 the same normal modes, so the correct model is a coupled 2×2 matrix
 
 $$
@@ -28,7 +29,7 @@ H(s) = \bigl(M s^2 + C s + K\bigr)^{-1},
 \begin{bmatrix} u_{\text{POS}} \\ u_{\text{PIT}} \end{bmatrix}.
 $$
 
-Every element shares the normal-mode **poles**; what differs is the **numerator**:
+Every element shares the normal-mode poles; what differs is the numerator:
 the diagonals carry an anti-resonance notch at the partner DoF's mode, while the
 off-diagonals are notch-free and set by the coupling. We build that from a modal
 expansion (`plant.coupled_suspension`) using representative Advanced-LIGO quad
@@ -36,15 +37,15 @@ rigid-body frequencies, then identify the whole matrix one input column at a tim
 
 ::: {.callout-note appearance="simple"}
 ## Modeling note
-This is a **simplified, physically-motivated** model — a coupled 2-DoF normal-mode
-expansion with a single longitudinal↔pitch coupling — **not** a validated full Advanced-LIGO
+This is a simplified, physically-motivated model — a coupled 2-DoF normal-mode
+expansion with a single longitudinal↔pitch coupling — not a validated full Advanced-LIGO
 suspension state-space model. The mode frequencies are representative values from the
 aLIGO quad rigid-body modes (longitudinal ≈ 0.43, 1.00, 2.01, 3.42 Hz; pitch ≈ 0.56, 1.31,
 2.81 Hz), of which we use the two lowest of each here. Sources:
-Aston *et al.*, *Quadruple suspension design for Advanced LIGO*, Class. Quantum Grav. **29**
+Aston *et al.*, *Quadruple suspension design for Advanced LIGO*, Class. Quantum Grav. 29
 (2012) 235004 ([DCC P1200056](https://dcc.ligo.org/LIGO-P1200056)); Sauter *et al.*,
 *Identification of Resonant Frequencies in LIGO-like Suspension with FEM*, Phys. Rev. D
-**109** (2024) 064033 ([arXiv:2306.13755](https://arxiv.org/abs/2306.13755)).
+109 (2024) 064033 ([arXiv:2306.13755](https://arxiv.org/abs/2306.13755)).
 :::
 
 ```{python}
@@ -159,6 +160,8 @@ sp.param_table(["normal mode", "prior f₀/Q", "fit f₀/Q", "true f₀/Q"], row
 ```
 
 ```{python}
+#| label: fig-mimo-modes
+#| fig-cap: "Prior, fit, and true value for the four normal-mode frequencies, read off the POS←POS diagonal element, with the Cramér–Rao σ as the error bar on each fit."
 #| code-summary: "Normal-mode frequency recovery with CRB error bars"
 hpp = hist[("POS", "POS")][-1]
 tgt = [f"f0_{n}" for n in range(4)]
@@ -171,6 +174,8 @@ sp.parameter_recovery([
 ## Is the drive gentle? — time series (POS driven)
 
 ```{python}
+#| label: fig-mimo-timeseries
+#| fig-cap: "First ~64 s of pass 1 with only POS driven. Both POS and PIT respond, which is the coupling this plant is built to have."
 #| code-summary: "Drive (POS) + both outputs, first ~64 s of pass 1"
 c0 = col["POS"][0]
 t = np.arange(int(64 * FS)) / FS
@@ -183,11 +188,13 @@ sp.timeseries(t, [("drive (POS)", c0["drive"], sp.SKY)],
 
 ## The 2×2 matrix — magnitude, phase, coherence
 
-Note the **notch** between the peaks on the diagonals (`H[POS←POS]`, `H[PIT←PIT]`) and its
+Note the notch between the peaks on the diagonals (`H[POS←POS]`, `H[PIT←PIT]`) and its
 absence on the off-diagonals — the signature of a genuinely coupled system, not a scaled
 diagonal.
 
 ```{python}
+#| label: fig-mimo-mag
+#| fig-cap: "Magnitude of the 2×2 FRF matrix. The off-diagonal elements are the cross-coupling; the diagonal notches are where a normal mode is absent from that input–output pair."
 #| code-summary: "Helper: a 2×2 matrix of any per-element quantity"
 def matrix(kind_, height=580):
     fig = make_subplots(rows=2, cols=2, shared_xaxes=True,
@@ -231,11 +238,15 @@ matrix("mag").show()
 ```
 
 ```{python}
+#| label: fig-mimo-phase
+#| fig-cap: "Phase of the 2×2 FRF matrix."
 #| code-summary: "Phase matrix"
 matrix("phase").show()
 ```
 
 ```{python}
+#| label: fig-mimo-coh
+#| fig-cap: "Coherence of the 2×2 FRF matrix. Coherence falls where an element carries little power, which is also where its error bar widens."
 #| code-summary: "Coherence matrix"
 matrix("coh", height=480).show()
 ```
@@ -243,6 +254,8 @@ matrix("coh", height=480).show()
 ## Convergence — every normal mode (from the diagonal) + per-element overview
 
 ```{python}
+#| label: fig-mimo-convergence
+#| fig-cap: "Fractional uncertainty σᵢ/θᵢ per pass for the four normal-mode frequencies, against the 5 % stop target."
 #| code-summary: "σᵢ/θᵢ vs pass for the 4 normal modes"
 sp.convergence(param_convergence_series(hist[("POS", "POS")],
     [f"f0_{n}" for n in range(4)], [f"f{n+1}" for n in range(4)]),
@@ -250,6 +263,8 @@ sp.convergence(param_convergence_series(hist[("POS", "POS")],
 ```
 
 ```{python}
+#| label: fig-mimo-elements
+#| fig-cap: "Worst fractional uncertainty σ/θ per pass for each element of the 2×2 matrix."
 #| code-summary: "worst σ/θ vs pass, per element"
 sp.convergence([dict(name=f"H[{k[0]}←{k[1]}]", x=[h["pass"] for h in hist[k]],
                      y=[h["frac"] for h in hist[k]], color=ECOLOR[k]) for k in ELEMS],
@@ -259,6 +274,10 @@ sp.convergence([dict(name=f"H[{k[0]}←{k[1]}]", x=[h["pass"] for h in hist[k]],
 ## Drive-safety margins (per input column)
 
 ```{python}
+#| label: fig-mimo-saturation
+#| fig-cap:
+#|   - "Drive peak and RMS per pass for the POS input column, against the actuator limit."
+#|   - "Drive peak and RMS per pass for the PIT input column, against the actuator limit."
 #| code-summary: "Drive peak & RMS vs the actuator limit, per column"
 for j in INPUTS:
     sp.saturation([{"pass": c["pass"], "peak": c["peak"], "rms": c["rms"]} for c in col[j]],
@@ -290,6 +309,11 @@ def show_elem(key):
 ## H[POS←POS]
 
 ```{python}
+#| label: fig-mimo-elem-ll
+#| fig-cap:
+#|   - "H[POS←POS]: magnitude, phase, and coherence — true plant, measured ±σ, prior, and ML fit."
+#|   - "H[POS←POS]: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "H[POS←POS]: measured FRF and ML fit at each pass, overlaid on the true element."
 #| code-summary: "Length → length (direct, with pitch-mode notch)"
 show_elem(("POS", "POS"))
 ```
@@ -297,6 +321,11 @@ show_elem(("POS", "POS"))
 ## H[PIT←POS]
 
 ```{python}
+#| label: fig-mimo-elem-pl
+#| fig-cap:
+#|   - "H[PIT←POS]: magnitude, phase, and coherence — true plant, measured ±σ, prior, and ML fit."
+#|   - "H[PIT←POS]: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "H[PIT←POS]: measured FRF and ML fit at each pass, overlaid on the true element."
 #| code-summary: "Length → pitch (cross-coupling)"
 show_elem(("PIT", "POS"))
 ```
@@ -304,6 +333,11 @@ show_elem(("PIT", "POS"))
 ## H[POS←PIT]
 
 ```{python}
+#| label: fig-mimo-elem-lp
+#| fig-cap:
+#|   - "H[POS←PIT]: magnitude, phase, and coherence — true plant, measured ±σ, prior, and ML fit."
+#|   - "H[POS←PIT]: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "H[POS←PIT]: measured FRF and ML fit at each pass, overlaid on the true element."
 #| code-summary: "Pitch → length (cross-coupling)"
 show_elem(("POS", "PIT"))
 ```
@@ -311,6 +345,11 @@ show_elem(("POS", "PIT"))
 ## H[PIT←PIT]
 
 ```{python}
+#| label: fig-mimo-elem-pp
+#| fig-cap:
+#|   - "H[PIT←PIT]: magnitude, phase, and coherence — true plant, measured ±σ, prior, and ML fit."
+#|   - "H[PIT←PIT]: normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
+#|   - "H[PIT←PIT]: measured FRF and ML fit at each pass, overlaid on the true element."
 #| code-summary: "Pitch → pitch (direct, with length-mode notch)"
 show_elem(("PIT", "PIT"))
 ```
@@ -321,7 +360,7 @@ show_elem(("PIT", "PIT"))
 ## Shared poles, different zeros
 Driving one input column and reading both outputs gives that column of the matrix. Because
 all four elements come from the same $(Ms^2+Cs+K)^{-1}$, they share the normal-mode poles —
-the diagonals add an anti-resonance **zero** at the partner mode (the notch), the
+the diagonals add an anti-resonance zero at the partner mode (the notch), the
 off-diagonals do not. The reference-based, leakage-free FRF resolves every element, so even
 the coupling terms are recovered; the off-diagonals are intrinsically lower-SNR (coupling
 sets their level), so they carry the larger residuals.

@@ -2,6 +2,7 @@
 title: "02 — Double pendulum"
 description: "Two modes (0.6 Hz Q20, 1.5 Hz Q30): the optimal drive splits its power across both resonances."
 image: thumbnails/02.svg
+image-alt: "Bode magnitude of a two-mode plant with drive power split between the 0.6 and 1.5 Hz resonances."
 categories: [SISO, multi-mode]
 ---
 
@@ -14,7 +15,7 @@ categories: [SISO, multi-mode]
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/02-double-pendulum.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The canonical two-mode plant: a double pendulum with modes at 0.6 Hz (Q = 20) and
-1.5 Hz (Q = 30), gain 300. We run the **identical full diagnostic set** as
+1.5 Hz (Q = 30), gain 300. We run the identical full diagnostic set as
 [example 01](01-single-resonance.qmd) — excitation design, time series, a
 magnitude/phase/coherence Bode stack, residuals, parameter recovery, drive safety,
 convergence, and the pass-by-pass view — now with the optimal drive splitting its power
@@ -69,6 +70,8 @@ sp.param_table(
 ## 1 — Design the excitation
 
 ```{python}
+#| label: fig-dp-excitation
+#| fig-cap: "Prior-robust optimal drive and a flat drive of equal total power, over the true two-mode plant and the prior. The optimal drive splits its power between the 0.6 Hz and 1.5 Hz resonances rather than favouring either."
 #| code-summary: "Prior-robust two-mode drive; variance win vs flat"
 Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
@@ -117,6 +120,8 @@ sp.param_table(["step", "f₁ [Hz]", "Q₁", "f₂ [Hz]", "Q₂", "σ/θ (CRB)"]
 ## 3 — Is the drive gentle? The measurement time series
 
 ```{python}
+#| label: fig-dp-timeseries
+#| fig-cap: "First ~64 s of pass 1: the Schroeder multisine at the actuator (top) and the mirror motion it produces (bottom)."
 #| code-summary: "Drive + mirror motion, first ~64 s of pass 1"
 crest = np.max(np.abs(hist[0]["drive"])) / np.std(hist[0]["drive"])
 t = np.arange(int(64 * FS)) / FS
@@ -130,6 +135,8 @@ sp.timeseries(
 ## 4 — Bode: magnitude, phase, and coherence
 
 ```{python}
+#| label: fig-dp-bode
+#| fig-cap: "Magnitude, phase, and coherence after the final pass. Measured points carry their per-bin ±σ; the prior is dotted, the ML fit dashed, the true plant solid."
 #| code-summary: "Magnitude / phase / coherence stack"
 mask = hist[-1]["mask"]
 sp.bode(freq, [
@@ -144,6 +151,8 @@ sp.bode(freq, [
 ## 5 — Fit residuals
 
 ```{python}
+#| label: fig-dp-residuals
+#| fig-cap: "Normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
 #| code-summary: "Normalized residual + histogram"
 resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
 sp.residuals(freq, resid, mask).show()
@@ -152,6 +161,8 @@ sp.residuals(freq, resid, mask).show()
 ## 6 — Parameter recovery against the Cramér–Rao bound
 
 ```{python}
+#| label: fig-dp-recovery
+#| fig-cap: "Prior, ML fit, and true value for both mode frequencies, both Qs, and the DC gain, with the Cramér–Rao σ as the error bar on each fit."
 #| code-summary: "Parameter recovery, both modes, with CRB error bars"
 (f0f1, Qf1), (f0f2, Qf2) = sp.modes(final)
 sig = param_sigmas(final, hist[-1]["cov"], targets=("f0_0", "Q_0", "f0_1", "Q_1", "gain"))
@@ -168,6 +179,8 @@ sp.parameter_recovery([
 ## 7 — Drive-safety margins
 
 ```{python}
+#| label: fig-dp-saturation
+#| fig-cap: "Drive peak and RMS per pass against the 1000-count actuator limit."
 #| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
 sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
               limit=ACT_LIMIT).show()
@@ -175,10 +188,12 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
 
 ## 8 — Convergence — every parameter
 
-Fractional uncertainty for **each** of the four modal parameters (plus gain), pass by
+Fractional uncertainty for each of the four modal parameters (plus gain), pass by
 pass — both modes tracked independently, not collapsed to the worst.
 
 ```{python}
+#| label: fig-dp-convergence
+#| fig-cap: "Fractional parameter uncertainty σᵢ/θᵢ per pass for both modes and the gain, against the 5 % stop target."
 #| code-summary: "σᵢ/θᵢ vs pass, per parameter"
 sp.convergence(param_convergence_series(hist,
     ["f0_0", "Q_0", "f0_1", "Q_1", "gain"], ["f₁", "Q₁", "f₂", "Q₂", "gain"]),
@@ -188,6 +203,8 @@ sp.convergence(param_convergence_series(hist,
 ## 9 — Pass-by-pass: the measurement sharpening
 
 ```{python}
+#| label: fig-dp-passes
+#| fig-cap: "Measured FRF and ML fit at each pass, overlaid on the true plant."
 #| code-summary: "Measured FRF + fit, overlaid per pass"
 sp.pass_overlay(freq,
     [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),

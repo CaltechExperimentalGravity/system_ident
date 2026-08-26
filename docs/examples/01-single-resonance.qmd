@@ -2,6 +2,7 @@
 title: "01 — Single resonance (SHO)"
 description: "The smallest complete experiment: a 1 Hz, Q = 20 oscillator, end to end through the full diagnostic set."
 image: thumbnails/01.svg
+image-alt: "Bode magnitude of a single 1 Hz resonance with the optimal drive concentrated on it."
 categories: [SISO, resonance]
 ---
 
@@ -13,9 +14,9 @@ categories: [SISO, resonance]
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/01-single-resonance.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
-The smallest complete **Pintelon–Schoukens** experiment: a simple harmonic oscillator
-at 1 Hz with Q = 20, identified end-to-end and shown through the **full diagnostic
-set** every example in this book uses — excitation design, the measurement time series,
+The smallest complete Pintelon–Schoukens experiment: a simple harmonic oscillator
+at 1 Hz with Q = 20, identified end-to-end and shown through the full diagnostic
+set every example in this book uses — excitation design, the measurement time series,
 a magnitude/phase/coherence Bode stack, fit residuals, parameter recovery against the
 Cramér–Rao bound, drive-safety margins, convergence, and a pass-by-pass view of the
 measurement sharpening.
@@ -71,7 +72,7 @@ Px_tot = 1.0                         # fixed drive-power budget
 ## The parameters being recovered
 
 Every step below reprints this table, so the numbers can be followed pass by pass. The
-campaign starts from the **prior** alone — deliberately wrong by 5 % in $f_0$, 10 % in $Q$.
+campaign starts from the prior alone — deliberately wrong by 5 % in $f_0$, 10 % in $Q$.
 
 ```{python}
 #| code-summary: "Prior vs true parameters"
@@ -87,11 +88,13 @@ sp.param_table(
 
 The optimal drive is the fixed point of the Pintelon–Schoukens dispersion function:
 it pours power into the bins that carry the most Fisher information about $(f_0, Q)$ —
-the resonance and its skirts — instead of spreading it flat. **Same total power, sharper
-parameters.** The first pass uses a prior-robust drive (spread over $f_0(1\pm u)$) so a
+the resonance and its skirts — instead of spreading it flat. Same total power, sharper
+parameters. The first pass uses a prior-robust drive (spread over $f_0(1\pm u)$) so a
 far prior still covers the true resonance.
 
 ```{python}
+#| label: fig-sho-excitation
+#| fig-cap: "Prior-robust optimal drive and a flat drive of equal total power, over the true plant magnitude and the prior. The drive is spread across f₀(1 ± 0.5), wide enough to cover the resonance even though the prior is only 5 % off in f₀."
 #| code-summary: "Design the prior-robust drive; quantify the variance win"
 Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
@@ -107,8 +110,8 @@ sp.excitation_design(
 ```
 
 ::: {.callout-note}
-The variance reduction above yields tighter parameters at **no extra measurement time or
-drive power**, from a different allocation of the same budget. That is what optimal
+The variance reduction above yields tighter parameters at no extra measurement time or
+drive power, from a different allocation of the same budget. That is what optimal
 experiment design provides.
 :::
 
@@ -145,11 +148,13 @@ sp.param_table(["step", "f₀ [Hz]", "Q", "DC gain |G(0)|", "σ/θ (CRB)"], rows
 
 ## ▶ The loop converging
 
-Press **Play** for six passes of the loop: the drive ASD (bottom) reallocates power
+Press Play for six passes of the loop: the drive ASD (bottom) reallocates power
 toward the resonance while the maximum-likelihood fit (top, gold dashed) tightens onto the
 true plant. The slider steps through the passes individually.
 
 ```{python}
+#| label: fig-sho-animation
+#| fig-cap: "Six passes of the loop, animated. Each frame shows the measured FRF, the ML fit, and the drive ASD for that pass; the drive narrows onto the resonance as the model improves."
 #| code-summary: "Animated convergence over passes"
 anim = run_siso_passes(tw, "C1:EXC", "C1:RSP", prior, fs=FS, nperseg=NPERSEG,
                        n_periods=N_PERIODS, band=band, freq=freq, Pyy=Pyy,
@@ -167,6 +172,8 @@ rather than an impulsive kick. The mirror settles into a steady bounded oscillat
 suspension is driven smoothly rather than stepped.
 
 ```{python}
+#| label: fig-sho-timeseries
+#| fig-cap: "First ~64 s of pass 1: the Schroeder multisine requested at the POS actuator (top) and the mirror motion it produces (bottom)."
 #| code-summary: "Drive + mirror motion, first ~64 s of pass 1"
 t = np.arange(int(64 * FS)) / FS
 sp.timeseries(
@@ -185,6 +192,8 @@ concentrated at the resonance, so that is where the measurement is densest, the 
 is highest, and the fit is pinned.
 
 ```{python}
+#| label: fig-sho-bode
+#| fig-cap: "Magnitude, phase, and coherence after the final pass. Measured points carry their per-bin ±σ; the prior is dotted, the ML fit dashed, the true plant solid."
 #| code-summary: "Magnitude / phase / coherence stack"
 mask = hist[-1]["mask"]
 sp.bode(freq, [
@@ -203,6 +212,8 @@ in $\pm\sim$2 with no frequency structure, and a near-standard-normal histogram.
 here would betray an unmodeled mode or a wrong noise model.
 
 ```{python}
+#| label: fig-sho-residuals
+#| fig-cap: "Normalised fit residuals (measured − fit)/σ against frequency, with their histogram. A zero-centred, unit-width distribution indicates the per-bin error bars are the realised ones."
 #| code-summary: "Normalized residual + histogram"
 resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
 sp.residuals(freq, resid, mask).show()
@@ -211,10 +222,12 @@ sp.residuals(freq, resid, mask).show()
 ## 6 — Parameter recovery against the Cramér–Rao bound
 
 Prior → fit → true for each parameter, with the error bar on the fit taken from the
-**accumulated CRB covariance** (propagated to $f_0$, $Q$, gain). The fit lands on the
+accumulated CRB covariance (propagated to $f_0$, $Q$, gain). The fit lands on the
 truth well inside its uncertainty.
 
 ```{python}
+#| label: fig-sho-recovery
+#| fig-cap: "Prior, ML fit, and true value for f₀, Q, and the DC gain. The error bar on each fit is its Cramér–Rao σ."
 #| code-summary: "Parameter recovery with CRB error bars"
 f0f, Qf = sp.f0_q(final)
 sig = param_sigmas(final, hist[-1]["cov"])
@@ -233,6 +246,8 @@ The peak drive and readback RMS at each pass, against the actuator-saturation li
 optimal excitation stays far inside the limit — safe to run on real hardware.
 
 ```{python}
+#| label: fig-sho-saturation
+#| fig-cap: "Drive peak and RMS per pass against the 1000-count actuator limit."
 #| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
 sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
               limit=ACT_LIMIT).show()
@@ -241,9 +256,11 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
 ## 8 — Convergence — every parameter
 
 Fractional uncertainty $\sigma_i/\theta_i$ from the accumulated CRB, pass by pass, for
-**each** parameter — not just the worst. The loop stops when all of them clear target.
+each parameter — not just the worst. The loop stops when all of them clear target.
 
 ```{python}
+#| label: fig-sho-convergence
+#| fig-cap: "Fractional parameter uncertainty σᵢ/θᵢ per pass for f₀, Q, and gain, against the 5 % stop target."
 #| code-summary: "σᵢ/θᵢ vs pass, per parameter"
 sp.convergence(param_convergence_series(hist, ["f0", "Q", "gain"], ["f₀", "Q", "gain"]),
                target=0.05).show()
@@ -256,6 +273,8 @@ the inverse-variance accumulator. The measured points and the fit tighten onto t
 plant as passes accumulate (color ramps blue → gold).
 
 ```{python}
+#| label: fig-sho-passes
+#| fig-cap: "Measured FRF and ML fit at each pass, overlaid on the true plant."
 #| code-summary: "Measured FRF + fit, overlaid per pass"
 sp.pass_overlay(freq,
     [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),

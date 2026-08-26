@@ -1,24 +1,25 @@
 ---
 title: "12 — Reduced aLIGO QUAD, closed-loop (controller cancelled)"
-description: "The companion to example 11: the same real 59-state reduced aLIGO quad, now run THROUGH its damping loops. The yaw chain is closed around velocity dampers with python-control (time-domain state-space simulation), and the leakage-free reference-based FRF cancels the controller to recover the open-loop plant — the flagship closed-loop method on a real reduced suspension, in CI and Binder."
+description: "The same 59-state reduced quad as example 11, run through its damping loops, with the leakage-free reference-based FRF cancelling the controller."
 image: thumbnails/12.svg
+image-alt: "The open-loop quad plant recovered through closed velocity-damper loops."
 categories: [MIMO, modal, reduced-plant, closed-loop]
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- The **closed-loop** flagship (examples [05](05-closed-loop-arm.qmd)/[09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) on a **real reduced aLIGO quad**: identify through the live dampers, with the reference-based FRF **cancelling the controller**, not fitting it.
-- That the natural tool for a state-space plant closed around controllers — **python-control** (time-domain simulation) — runs the whole thing in CI and Binder.
+- The closed-loop method (examples [05](05-closed-loop-arm.qmd)/[09](09-rank1-modal-mimo.qmd)/[10](10-srm-hsts.qmd)) on a real reduced aLIGO quad: identify through the live dampers, with the reference-based FRF cancelling the controller, not fitting it.
+- That the natural tool for a state-space plant closed around controllers — python-control (time-domain simulation) — runs the whole thing in CI and Binder.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/12-reduced-quad-closed.ipynb)  ·  runs live in Binder (python-control, no twin)
 
-[Example 11](11-reduced-quad.qmd) identifies the reduced quad **open loop** (numpy-only). Real
-suspensions run under **damping loops**, though — so this page closes the same yaw chain around
+[Example 11](11-reduced-quad.qmd) identifies the reduced quad open loop (numpy-only). Real
+suspensions run under damping loops, though — so this page closes the same yaw chain around
 velocity dampers and identifies it through them. The plant is the committed 59-state reduced
-model as a **`python-control` state space**; the loop (`CoupledLoop` + `MIMOTwinBackend`) is
-simulated in the **time domain**; and the leakage-free reference-based FRF `G = Y·X⁻¹` returns the
-**open-loop** plant even though the data were taken closed — the controller is *cancelled, not
+model as a `python-control` state space; the loop (`CoupledLoop` + `MIMOTwinBackend`) is
+simulated in the time domain; and the leakage-free reference-based FRF `G = Y·X⁻¹` returns the
+open-loop plant even though the data were taken closed — the controller is *cancelled, not
 fit*. It is the same method as the [SRM demo](10-srm-hsts.qmd), on a portable reduced plant.
 
 ```{python}
@@ -58,11 +59,15 @@ the rank-1 fit (gold) threads through it, and the analytic open-loop truth (dash
 controller is gone:
 
 ```{python}
+#| label: fig-rqc-through
+#| fig-cap: "The open-loop plant recovered through closed velocity-damper loops, on a diagonal element G[0,0] and an off-diagonal element G[0,3]. The controller cancels in the reference-based ratio rather than being fitted."
 #| code-summary: "Open-loop plant recovered through the damping loops — G[0,0] and G[0,3]"
 rc.through_resonance_fig()
 ```
 
 ```{python}
+#| label: fig-rqc-modes
+#| fig-cap: "Per-mode yaw frequency residual (fit − truth) with the Cramér–Rao σ, recovered through the loops."
 #| code-summary: "Yaw-mode recovery through the loops — fit − truth with the CRB"
 rc.modal_recovery_fig()
 ```
@@ -87,6 +92,6 @@ display(Markdown(
 
 Example 11 (open loop, numpy) and this page (closed loop, python-control) identify the same
 reduced quad. Open loop, the modes come back to a part in 10⁵; closed loop, the reference-based
-FRF still returns them to a percent **while the dampers are running** — the property that makes
+FRF still returns them to a percent while the dampers are running — the property that makes
 in-situ identification of a live suspension possible. The method is unchanged from the
 [compiled-twin SRM demo](10-srm-hsts.qmd); only here it runs anywhere.

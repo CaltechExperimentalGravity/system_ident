@@ -48,6 +48,8 @@ hard amplitude limit, often inside a closed loop, and allotted only so much obse
 before the instrument must go back to work.
 
 ```{python}
+#| label: fig-why-problem
+#| fig-cap: "A representative suspension plant over its readout noise floor. The resonances are where the plant is measurable and where its parameters are informative; the floor is what sets the achievable error bar."
 #| code-summary: "A representative suspension plant over its readout floor"
 md.problem_fig()
 ```
@@ -76,6 +78,8 @@ All three put energy into the plant and observe the response. They differ in how
 is distributed in frequency and time, and that difference accounts for the rest.
 
 ```{python}
+#| label: fig-why-excitations
+#| fig-cap: "The same in-band power delivered three ways: a swept sine, broadband random noise, and a periodic multisine."
 #| code-summary: "The same in-band power as swept sine, random noise, and a multisine"
 md.excitations_fig()
 ```
@@ -110,6 +114,8 @@ actuator carries more power" — holds only in a reference frame this simulation
 The gap is real and grows with the number of lines:
 
 ```{python}
+#| label: fig-why-crest
+#| fig-cap: "Measured crest factor against the number of lines, for Schroeder and random phasing on a flat broadband drive. These are plant-referred: peak/RMS of the requested waveform, not of the signal at the actuator."
 #| code-summary: "Real crest factors: Schroeder vs random, vs number of lines (flat broadband)"
 ph = md.phasing_crest_campaign()
 md.phasing_crest_fig(ph)
@@ -169,6 +175,8 @@ sharp mode leaks its power into neighbouring bins. The leakage-free multisine, g
 plant, the same power, and the same wall-clock, does not.
 
 ```{python}
+#| label: fig-why-leakage
+#| fig-cap: "The same high-Q mode at the same power and the same record length, measured leakage-free and with windowed random noise. Leakage broadens the apparent linewidth, which biases Q."
 #| code-summary: "Same high-Q mode, same power, same time: leakage-free vs windowed random"
 c_leak = md.leakage_campaign(seed=0)
 md.leakage_bode_fig(c_leak)
@@ -207,6 +215,8 @@ every bin in one window; in that same wall-clock the sweep reaches only a handfu
 frequencies, each of them tight, because it spends full power there.
 
 ```{python}
+#| label: fig-why-sweep
+#| fig-cap: "Fractional FRF uncertainty σ(FRF)/|FRF| for a whole-band multisine against a swept sine of equal wall-clock. The sweep spends its time serially; the multisine spends it on every line at once."
 #| code-summary: "σ(FRF)/|FRF| — whole-band multisine vs equal-wall-clock swept sine"
 c_sweep = md.sweep_campaign(seed=0)
 md.sweep_fig(c_sweep)
@@ -234,6 +244,8 @@ the Fisher information is. `design.pintelon.optimal_excitation` solves for that 
 the dispersion-function fixed point (see [Fisher & excitation](fisher.qmd)).
 
 ```{python}
+#| label: fig-why-design
+#| fig-cap: "The optimal drive against a flat drive of equal power, with the Cramér–Rao variance-reduction factor F it buys."
 #| code-summary: "The optimal drive concentrates power at the modes; CRB variance-reduction F"
 head = md.headline_campaign()
 md.headline_design_fig(head)
@@ -245,6 +257,8 @@ Cramér–Rao variance-reduction factor `F` — worst-parameter, at equal power 
 the optimal design has to spend, and it can be taken in either of two forms:
 
 ```{python}
+#| label: fig-why-convergence
+#| fig-cap: "Three campaigns run for real: flat drive, optimal drive at the same power, and optimal drive at matched σ. The third reaches the flat drive's precision in less time."
 #| code-summary: "Three real campaigns: flat, optimal (same power), optimal (matched σ)"
 md.headline_convergence_fig(head)
 ```
@@ -284,6 +298,8 @@ monitor, which is the true plant input — cancels the controller and returns th
 plant, with no controller model.
 
 ```{python}
+#| label: fig-why-closedloop
+#| fig-cap: "A high-Q mode under a velocity damper. The open-loop plant is recovered through the live loop by the reference-based FRF, with no division by the controller."
 #| code-summary: "A high-Q mode under a velocity damper: recover the open-loop plant through the live loop"
 cl = md.closed_loop_campaign(seed=0)
 md.closed_loop_fig(cl)

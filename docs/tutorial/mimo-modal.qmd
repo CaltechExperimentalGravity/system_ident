@@ -4,8 +4,8 @@ title: "MIMO & joint modal identification"
 
 The [closing-the-loop](closing-the-loop.qmd) page fits one transfer function per
 degree of freedom. A suspension is not one transfer function — it is a coupled,
-multi-input / multi-output (MIMO) system whose degrees of freedom **share the same
-resonances**. The longitudinal, pitch and yaw responses of a single stage all ring at
+multi-input / multi-output (MIMO) system whose degrees of freedom share the same
+resonances. The longitudinal, pitch and yaw responses of a single stage all ring at
 the same modal frequencies; what differs between elements is how strongly each
 mode couples in and out. This page is the theory home for the joint fit that uses
 that structure — the parametric step on top of the ordinary Pintelon–Schoukens
@@ -15,9 +15,9 @@ measurement that the [worked example 09](../examples/09-rank1-modal-mimo.qmd) an
 ## Shared poles, coupled elements
 
 For an $n_y \times n_u$ mechanical system (here $n_y$ sensors, $n_u$ actuators), every
-element $G_{ij}(s)$ of the response matrix is a ratio of polynomials that **share one
-denominator** — the characteristic polynomial whose roots are the modal poles. Pintelon
-& Schoukens call this the **common-denominator model** (§6.6):
+element $G_{ij}(s)$ of the response matrix is a ratio of polynomials that share one
+denominator — the characteristic polynomial whose roots are the modal poles. Pintelon
+& Schoukens call this the common-denominator model (§6.6):
 
 $$
 G(s;\theta) = \frac{B(s;\theta)}{A(s;\theta)}
@@ -25,8 +25,8 @@ G(s;\theta) = \frac{B(s;\theta)}{A(s;\theta)}
 \qquad B_r \in \mathbb{R}^{n_y \times n_u},\quad a_r \in \mathbb{R}.
 $$
 
-The **scalar** denominator $A$ carries the shared poles (the modes); the
-**matrix** numerator $B$ carries the coupling, one free polynomial per I/O element.
+The scalar denominator $A$ carries the shared poles (the modes); the
+matrix numerator $B$ carries the coupling, one free polynomial per I/O element.
 This is the book's default because the rational $B/A$ form has good linear-least-squares
 starting values and avoids the local minima of a partial-fraction parameterization.
 
@@ -36,7 +36,7 @@ starting values and avoids the local minima of a partial-fraction parameterizati
 At MIMO scale the free-per-element numerator $B$ has enough freedom to absorb pole
 errors — the shared denominator drifts while the numerators compensate, and the modal
 frequencies come out biased. For a proportionally-damped, reciprocal mechanical structure
-the residue of each mode is **rank one**, so the physics can be parameterized directly and
+the residue of each mode is rank one, so the physics can be parameterized directly and
 that freedom removed. `mimo_modal.Rank1ModalModel` implements
 
 $$
@@ -45,7 +45,7 @@ G_{ij}(s) = \sum_{k=1}^{n_\text{modes}}
 \qquad s_n = \frac{s}{s_\text{ref}},
 $$
 
-with shared poles $(a_k, b_k)$ and a **rank-1 real residue** $R_k = \varphi_k\,\psi_k^{\!\top}$
+with shared poles $(a_k, b_k)$ and a rank-1 real residue $R_k = \varphi_k\,\psi_k^{\!\top}$
 per mode — a sensor mode shape $\varphi_k$ times an actuator mode shape $\psi_k$. All the
 coupling lives in the mode shapes, not in the residue rank. Frequencies are normalized
 by $s_\text{ref} = 2\pi\,\text{median}(f)$ so the high-order evaluation stays conditioned.
@@ -67,11 +67,11 @@ $$
 The measurement is the ordinary campaign: drive each actuator in turn with a periodic
 multisine (P&S's robust method, $n_\text{exp} = n_u$ uncorrelated experiments), observe
 $M$ steady-state periods, and DFT each period on the excited-line grid. From the periods,
-per experiment $l$ and excited bin $k$, come the **sample-mean** input/output spectra
-$\hat U^{[l]},\hat Y^{[l]}$ and their **sample covariance** $\hat C_Z^{[l]}$ (the
+per experiment $l$ and excited bin $k$, come the sample-mean input/output spectra
+$\hat U^{[l]},\hat Y^{[l]}$ and their sample covariance $\hat C_Z^{[l]}$ (the
 period-to-period scatter — the same period-variance machinery the SISO path uses).
 
-The fit minimizes a **sample-ML equation-error cost** directly on those spectra:
+The fit minimizes a sample-ML equation-error cost directly on those spectra:
 
 $$
 V(\theta) = \sum_{l}\sum_{k\in\mathbb{K}}
@@ -102,19 +102,19 @@ Two properties follow from this structure:
   weighting handles resonances without it. This is why the parametric fit predicts
   cleanly through the peaks where the nonparametric $Y\!\cdot\!X^{-1}$ overlay scatters —
   see example 09's through-resonance figure. The recovered $\hat G$ is kept only as a
-  nonparametric **overlay for validation** and to seed starting values.
+  nonparametric overlay for validation and to seed starting values.
 
 The minimization is Gauss–Newton on a pseudo-Jacobian (the weighting is $\theta$-dependent,
 so the step keeps the $\tfrac12(\partial\hat C_\varepsilon/\partial\theta)$ term); the model
-supplies an **analytic** $\partial G/\partial\theta$ that feeds both the step and the CRB.
+supplies an analytic $\partial G/\partial\theta$ that feeds both the step and the CRB.
 `mimo_fit.MIMOModalEstimator.fit` is the implementation.
 
 ## Starting values without an oracle
 
-The fit is seeded from the **data**, not a prior. `mimo_fit.find_modes` searches the summed
+The fit is seeded from the data, not a prior. `mimo_fit.find_modes` searches the summed
 FRF power $\sum_{ij}|\hat G_{ij}(f)|^2$ for prominent, well-separated peaks (with a
 prominence gate and a minimum modal separation), estimates each peak's $Q$ from its width,
-and returns a mode set and count — a data-driven **model order**. Those seed the poles;
+and returns a mode set and count — a data-driven model order. Those seed the poles;
 `init_residues` then solves a linear least squares for the rank-1 shapes. Because the modes
 are found from the recovered FRF, the recovery is the same whether the design prior was
 right or badly wrong — the property example 09 demonstrates and example 10 relies on to fit
@@ -160,7 +160,7 @@ $f_0$) the fit needs several bins across each resonance, $df \le \Gamma / (\text
 bins})$; since $df = 1/T$, that sets a minimum record length $T \gtrsim Q/f_0$.
 `design.resolution.recommend_resolution` turns the prior modes into the concrete
 $(n_\text{fft}, df, n_\text{transient})$ campaign knobs. Resolution and record length are
-**controlled variables set from the math**, not fixed limits — see
+controlled variables set from the math, not fixed limits — see
 [Fisher & excitation](fisher.qmd) for the CRB behind them.
 
 ## Near-degenerate modes: spatial vs frequency
@@ -173,7 +173,7 @@ feasibility gate requires distinguishing them:
   suspension whose dynamics split into, say, the $\{L,P,V\}$ and $\{T,R,Y\}$ planes), two
   modes coincident in frequency can live in different blocks. A single shared-pole fit
   collapses the pair — one pole set forced across two orthogonal modes makes $J^{\mathsf H}J$
-  ill-conditioned — but that is a **parameterization** artifact, not a data limit.
+  ill-conditioned — but that is a parameterization artifact, not a data limit.
   `mimo_fit.fit_block_decoupled` fits each block alone, where only one of the pair appears,
   and recovers both with no finer $df$ and no super-resolution. This is the
   0.67 Hz doublet resolved in [example 10](../examples/10-srm-hsts.qmd).
@@ -187,10 +187,10 @@ feasibility gate requires distinguishing them:
 
 ## Worked examples
 
-- [**09 — Joint MIMO modal identification**](../examples/09-rank1-modal-mimo.qmd): the full
+- [09 — Joint MIMO modal identification](../examples/09-rank1-modal-mimo.qmd): the full
   step run on a six-mode teaching plant under closed-loop damping — through-resonance
   recovery, the data-driven peak-pick init, and the per-mode CRB.
-- [**10 — SRM modal identification**](../examples/10-srm-hsts.qmd): the same step on the real
+- [10 — SRM modal identification](../examples/10-srm-hsts.qmd): the same step on the real
   L1-SRM HSTS suspension through its production damping loops on the compiled RTSfreerun
   twin, including the $\tau$-driven resolution design and the spatial-doublet resolution.
 

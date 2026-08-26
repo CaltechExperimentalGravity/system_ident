@@ -6,7 +6,7 @@ title: "Fisher information & optimal excitation"
 ## Prerequisites
 Assumes [The method](overview.qmd) (the loop) and [The model](model.qmd) (how a plant is
 parameterized). This page uses Fisher information and the Cramér–Rao bound throughout — see
-the [glossary](glossary.qmd) for **CRB**, **dispersion**, and **D-optimal** if they are new.
+the [glossary](glossary.qmd) for CRB, dispersion, and D-optimal if they are new.
 :::
 
 ## From model to measurement budget
@@ -16,7 +16,7 @@ drive power (bounded by actuator saturation) and a finite measurement time (boun
 by how long an interferometer can be held in a non-standard state).  The question
 is not how much to drive, but where.
 
-The **Fisher information matrix** `I(θ)` is the bridge.
+The Fisher information matrix `I(θ)` is the bridge.
 It quantifies, for a given model θ and experimental design (Pxx, T, Pyy),
 how many nats of information the experiment carries about each parameter
 and each pair of parameters.  Its inverse is the Cramér–Rao lower bound — the best
@@ -42,7 +42,7 @@ removed and the matrix is full-rank for any well-excited measurement.
 
 ## The dispersion function
 
-Let $M(f)$ be the **marginal Fisher information per unit drive power** at
+Let $M(f)$ be the marginal Fisher information per unit drive power at
 frequency $f$ — the per-Hz integrand of $I(\theta)$ with the $P_{xx}(f)$ factor
 stripped out:
 
@@ -54,7 +54,7 @@ M(f) = \frac{2\,T}{P_{yy}(f)}
 I(\theta) = \int P_{xx}(f)\, M(f)\, df .
 $$
 
-The **dispersion function** (Pintelon & Schoukens §5.4.2) is the scalar
+The dispersion function (Pintelon & Schoukens §5.4.2) is the scalar
 
 $$
 \nu(f) = P_{\text{tot}} \,\operatorname{tr}\!\left[\, I(\theta)^{-1}\, M(f)\,\right] ,
@@ -67,7 +67,7 @@ each extra Hz of drive returns the most parameter information.
 
 By construction the power-weighted average of $\nu$ is the parameter count,
 $\int P_{xx}(f)\,\nu(f)\,df / P_{\text{tot}} = \operatorname{tr}[I^{-1}I] = n_\theta$.
-The **equivalence theorem** of D-optimal design (Kiefer–Wolfowitz) then says the
+The equivalence theorem of D-optimal design (Kiefer–Wolfowitz) then says the
 information-maximising spectrum is the one for which $\nu(f) = n_\theta$ on the
 support of $P_{xx}$ and $\nu(f) \le n_\theta$ elsewhere. Reweighting drive power
 toward high-$\nu$ bins under a fixed total-power budget is the Pintelon–Schoukens
@@ -162,7 +162,7 @@ sp.style(fig, height=360).show()
 ## The information ellipse
 
 "Maximise $\log\det I(\theta)$" has a geometric reading. The Cramér–Rao covariance
-$\mathrm{Cov}(\hat\theta) = I(\theta)^{-1}$ defines a **confidence ellipse** in parameter
+$\mathrm{Cov}(\hat\theta) = I(\theta)^{-1}$ defines a confidence ellipse in parameter
 space, centred on the truth; its area is $\propto \sqrt{\det\mathrm{Cov}} =
 1/\sqrt{\det I}$. D-optimal design therefore shrinks the ellipse. Below, the joint
 $(f_0, Q)$ region for the same 1 Hz / Q = 20 resonance under the flat drive (gray) and the
@@ -259,9 +259,9 @@ multiplicative dispersion reweighting of `design.pintelon.optimal_excitation`:
 4. Repeat. Two or three iterations usually suffice — pushing further makes the
    design lean too heavily on the (still imperfect) prior model.
 
-After convergence the excitation is synthesised as a **periodic multisine** via
+After convergence the excitation is synthesised as a periodic multisine via
 `excitation.multisine_from_psd`: lines placed on the synchronous bin grid at
-amplitudes `√(2·Pxx·df)`, with low-crest **Schroeder phases** and a leading Tukey
+amplitudes `√(2·Pxx·df)`, with low-crest Schroeder phases and a leading Tukey
 ramp. Because the waveform is periodic over the analysis window, the response DFT
 is leakage-free — see [the method overview](overview.qmd) and the
 [worked examples](../examples/01-single-resonance.qmd).

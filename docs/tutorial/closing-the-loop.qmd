@@ -6,8 +6,8 @@ title: "Closing the loop"
 
 With a leakage-free, reference-based frequency response `H_meas(f)` and its
 measured per-bin standard error `σ(f) = |H_err(f)|` in hand — both produced by the
-periodic-multisine measurement of the previous step — the **estimator** re-fits the
-model by **maximum likelihood**.
+periodic-multisine measurement of the previous step — the estimator re-fits the
+model by maximum likelihood.
 
 The estimator is `GMLEstimator`, the Pintelon–Schoukens Gaussian
 maximum-likelihood fit. It minimises the negative-log-likelihood
@@ -16,10 +16,10 @@ $$
 \mathcal{C}(\theta) = \sum_k \frac{|H_{\text{meas}}(f_k) - G(f_k;\theta)|^2}{\sigma^2(f_k)}
 $$
 
-to convergence by **Gauss-Newton / Levenberg–Marquardt**, holding the model order
+to convergence by Gauss-Newton / Levenberg–Marquardt, holding the model order
 fixed at the prior's.  Each residual is weighted by its own measured variance
 $\sigma^2(f_k)$, so the fit weights the well-measured resonance bins above
-the noisy ones.  This estimator is **asymptotically unbiased** and **efficient**:
+the noisy ones.  This estimator is asymptotically unbiased and efficient:
 when the per-bin noise is correct it attains the Cramér–Rao bound, and the inverse
 of the Gauss-Newton (Fisher) Hessian at the optimum is the parameter covariance.
 
@@ -54,7 +54,7 @@ not an automatic step.
 
 Efficiency is a testable claim. Running the fit on many independent noisy measurements of
 the same plant at a fixed optimal drive, and normalising each recovered parameter's error by
-its **predicted** Cramér–Rao σ, gives the pulls $(\hat\theta - \theta_0)/\sigma$. If the
+its predicted Cramér–Rao σ, gives the pulls $(\hat\theta - \theta_0)/\sigma$. If the
 estimator is efficient and the bound correct, those normalised errors are standard normal:
 no bias (centred on zero) and no over-optimism (unit width).
 
@@ -96,7 +96,7 @@ H_{\text{acc}}(f) = \frac{\sum_n H^{(n)}(f) / [\sigma^{(n)}(f)]^2}
 \sigma_{\text{acc}}(f) = \left[\sum_n \frac{1}{[\sigma^{(n)}(f)]^2}\right]^{-1/2}
 $$
 
-This **inverse-variance weighting** is optimal (minimum-variance) when measurement
+This inverse-variance weighting is optimal (minimum-variance) when measurement
 errors are Gaussian and independent across passes.  The consequence:
 pass 1 (prior-robust, spread across the plausible band) contributes broadly; later
 optimal passes contribute most near the resonances they targeted.  Neither is
@@ -160,7 +160,7 @@ plots — see the [multi-DoF suspension example](../examples/04-suspension-multi
 
 ## Identifying in closed loop (controller-aware)
 
-A suspension is usually held by a **digital damping loop**, and the reference-based FRF
+A suspension is usually held by a digital damping loop, and the reference-based FRF
 makes closed-loop identification a declarable mode with no controller-division. The
 digital controller `C` has four access points per DoF:
 
@@ -174,9 +174,9 @@ digital controller `C` has four access points per DoF:
    read: e (before C)                          read: u (after C)   read: y (response)
 ```
 
-The open-loop plant FRF uses **X = the after-controller drive `u`** (the plant input) and
-**Y = the response `y`**; the ratio of period-averaged spectra projects onto the
-deterministic multisine and yields `G` for **either injection point** (the controller
+The open-loop plant FRF uses X = the after-controller drive `u` (the plant input) and
+Y = the response `y`; the ratio of period-averaged spectra projects onto the
+deterministic multisine and yields `G` for either injection point (the controller
 cancels). The after-controller drive must be its own channel: under before-controller
 injection the injected signal is not `u`. See [the recovered open-loop plant through a
 live damping loop](why-optimal-excitation.qmd#a-closed-loop-is-not-an-obstacle) for this
@@ -200,12 +200,12 @@ twin:
 `SysIDLoop` then reads `channels.drive` as X (falling back to the excitation channel when
 absent); everything downstream — the leakage-free FRF, the ML fit, the accumulation — is
 unchanged. See the [closed-loop example](../examples/05-closed-loop-arm.qmd) for a full run
-and the bias story, and `configs/closed_loop_demo.yml` to run it from the CLI.
+and the bias story, and `src/system_ident/configs/closed_loop_demo.yml` to run it from the CLI.
 
 ::: {.callout-warning}
 ## The drive monitor is not the reference
 On the digital twin, reading the excitation channel already returns `u`, so a `drive`
-channel is optional. On **real hardware** under before-controller injection the excitation
+channel is optional. On real hardware under before-controller injection the excitation
 point carries the bare reference `r`, not `u` — name the after-controller drive in
 `channels.drive`, or the fit is biased toward the closed-loop response `T`.
 :::

@@ -2,32 +2,33 @@
 title: "05 — Closed-loop suspension (loop-bias, cancelled)"
 description: "Identified with the damping loop closed — the reference-based FRF cancels the controller."
 image: thumbnails/05.svg
+image-alt: "The suppressed closed-loop response against the recovered open-loop plant."
 categories: [closed-loop]
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- Identifying with the damping loop **closed**, using no controller model.
+- Identifying with the damping loop closed, using no controller model.
 - How the reference-based FRF cancels the controller — see [closing the loop](../tutorial/closing-the-loop.qmd#identifying-in-closed-loop-controller-aware).
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/05-closed-loop-arm.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
-The most realistic case: a suspension identified **with its damping loop closed**. The
+The most realistic case: a suspension identified with its damping loop closed. The
 feedback acts on the resonance being measured, so the instrument shows the
 closed-loop response $T = P/(1+PC)$, whose peak is suppressed by the loop gain $1+PC$.
-Fitting $T$ and calling it the plant is **biased**.
+Fitting $T$ and calling it the plant is biased.
 
-The Pintelon–Schoukens **reference-based FRF** — the ratio of period-averaged spectra
+The Pintelon–Schoukens reference-based FRF — the ratio of period-averaged spectra
 $\overline{Y}/\overline{X}$ off the drive monitor and the response — cancels the controller
-automatically and returns the **open-loop plant directly**: no controller object, no
+automatically and returns the open-loop plant directly: no controller object, no
 $1/(1-TC)$ division. We run the full diagnostic set with the loop genuinely closed in the
 twin, and use `python-control` only to draw the suppressed $T$ for the bias story —
 never in the fit.
 
-Closed loop is a **first-class, declarable mode**: a config names the digital controller
+Closed loop is a first-class, declarable mode: a config names the digital controller
 `C(s)`, where the excitation is injected (before or after the controller), and the
-after-controller **drive monitor** channel used as the FRF input — so the same campaign runs
+after-controller drive monitor channel used as the FRF input — so the same campaign runs
 straight from `SysIDLoop` / the CLI ([§ run it as a declared campaign](#run-it-as-a-declared-campaign)).
 
 ```{python}
@@ -85,6 +86,8 @@ sp.param_table(
 ## 1 — Design the excitation
 
 ```{python}
+#| label: fig-cl-excitation
+#| fig-cap: "Prior-robust optimal drive and a flat drive of equal total power, over the true open-loop plant and the prior."
 #| code-summary: "Prior-robust drive; variance win vs flat"
 Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
@@ -122,10 +125,10 @@ sp.param_table(["step", "f₀ [Hz]", "Q", "DC gain |G(0)|", "σ/θ (CRB)"], rows
 
 ## Run it as a declared campaign {#run-it-as-a-declared-campaign}
 
-The closed loop is **declarable** — no ad-hoc driver code. A config names the controller
+The closed loop is declarable — no ad-hoc driver code. A config names the controller
 `C(s)`, the `injection_point`, and the after-controller `drive` channel; `SysIDLoop` reads
 that drive monitor as the FRF input X and recovers the open-loop plant. This is exactly what
-`system_ident run configs/closed_loop_demo.yml --twin` executes.
+`system_ident run src/system_ident/configs/closed_loop_demo.yml --twin` executes.
 
 ```{python}
 #| code-summary: "Declare the closed loop in a config and run SysIDLoop"
@@ -159,6 +162,8 @@ print(f"config-driven closed-loop fit:  f0 = {f0_cfg:.3f} Hz, Q = {q_cfg:.1f}"
 ## 3 — Is the drive gentle? The measurement time series
 
 ```{python}
+#| label: fig-cl-timeseries
+#| fig-cap: "First ~64 s of pass 1 with the damping loop closed: the after-controller drive monitor (top) and the suspension motion the loop leaves (bottom)."
 #| code-summary: "Drive monitor + response, first ~64 s of pass 1"
 t = np.arange(int(64 * FS)) / FS
 sp.timeseries(
@@ -170,11 +175,13 @@ sp.timeseries(
 
 ## 4 — Bode: the bias story, magnitude / phase / coherence
 
-The closed-loop $T$ (grey dotted) has a **suppressed** resonance — fitting it would
+The closed-loop $T$ (grey dotted) has a suppressed resonance — fitting it would
 understate the plant. The reference-based measurement (grey points) instead lands on the
 true open-loop $P$, and the fit recovers it.
 
 ```{python}
+#| label: fig-cl-bode
+#| fig-cap: "The bias story. The closed-loop response T (dotted) is suppressed away from the true open-loop plant P (solid); the reference-based FRF measures P directly, and the ML fit (dashed) lands on it — with no division by the controller."
 #| code-summary: "Draw the suppressed T, then the full Bode stack"
 P_ct = ct.tf(list(P_TRUE.num), list(P_TRUE.den))
 T_ct = ct.minreal(ct.feedback(P_ct, ct.tf(*C)))
@@ -195,7 +202,7 @@ sp.bode(freq, [
 ## The bias is cancelled, not corrected
 Near 1 Hz the loop suppresses the closed-loop peak by $1+PC$. The old remedy measured $T$
 and divided the controller back out by hand. Here the reference-based ratio-of-averages
-**cancels the loop in the measurement itself** — the grey points already lie on $P$, so
+cancels the loop in the measurement itself — the grey points already lie on $P$, so
 $\hat P$ is unbiased without ever naming $C$ in the fit. At LIGO, where control gain can be
 40 dB near a pendulum resonance, cancelling at the measurement is far more robust than a
 post-hoc division.
@@ -204,6 +211,8 @@ post-hoc division.
 ## 5 — Fit residuals
 
 ```{python}
+#| label: fig-cl-residuals
+#| fig-cap: "Normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
 #| code-summary: "Normalized residual + histogram"
 resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
 sp.residuals(freq, resid, mask).show()
@@ -212,6 +221,8 @@ sp.residuals(freq, resid, mask).show()
 ## 6 — Parameter recovery against the Cramér–Rao bound
 
 ```{python}
+#| label: fig-cl-recovery
+#| fig-cap: "Prior, ML fit, and true value for f₀, Q, and the DC gain of the open-loop plant, with the Cramér–Rao σ as the error bar on each fit."
 #| code-summary: "Parameter recovery with CRB error bars"
 f0f, Qf = sp.f0_q(final)
 sig = param_sigmas(final, hist[-1]["cov"])
@@ -227,6 +238,8 @@ print(f"recovered open-loop P̂:  f0 = {f0f:.3f} Hz, Q = {Qf:.1f}  (no controlle
 ## 7 — Drive-safety margins
 
 ```{python}
+#| label: fig-cl-saturation
+#| fig-cap: "Drive peak and RMS per pass against the actuator limit."
 #| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
 sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
               limit=ACT_LIMIT).show()
@@ -235,6 +248,8 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
 ## 8 — Convergence — every parameter
 
 ```{python}
+#| label: fig-cl-convergence
+#| fig-cap: "Fractional parameter uncertainty σᵢ/θᵢ per pass for f₀, Q, and gain, against the 5 % stop target."
 #| code-summary: "σᵢ/θᵢ vs pass, per parameter"
 sp.convergence(param_convergence_series(hist, ["f0", "Q", "gain"], ["f₀", "Q", "gain"]),
                target=0.05).show()
@@ -243,6 +258,8 @@ sp.convergence(param_convergence_series(hist, ["f0", "Q", "gain"], ["f₀", "Q",
 ## 9 — Pass-by-pass: the measurement sharpening
 
 ```{python}
+#| label: fig-cl-passes
+#| fig-cap: "Measured FRF and ML fit at each pass, overlaid on the true open-loop plant."
 #| code-summary: "Measured FRF + fit, overlaid per pass"
 sp.pass_overlay(freq,
     [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),
@@ -250,6 +267,6 @@ sp.pass_overlay(freq,
     np.abs(P_TRUE.eval(freq))).show()
 ```
 
-**This is the last of the SISO examples.** Continue to the
+This is the last of the SISO examples. Continue to the
 [2×2 coupled MIMO example](06-two-by-two-coupled.qmd), or return to the
 [Tutorial](../tutorial/overview.qmd).

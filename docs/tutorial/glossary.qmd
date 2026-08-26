@@ -10,7 +10,7 @@ used. If a tutorial or example page drops a term cold, it is defined here.
 Periodic multisine
 :   The excitation waveform: a sum of harmonically related sinusoids whose period is exactly
     the analysis window, tiled over the record and Tukey-ramped at the leading edge. Because
-    it is periodic over the window, the response DFT is **leakage-free**.
+    it is periodic over the window, the response DFT is leakage-free.
     See [The method](overview.qmd#why-a-periodic-multisine).
 
 Excited lines / synchronous bins
@@ -26,9 +26,9 @@ Leakage-free FRF
 
 Reference-based FRF (ratio-of-averages)
 :   The estimator $\hat H = \overline{Y}/\overline{X}$ — the ratio of the period-averaged
-    output and input spectra, **not** the cross-/auto-spectrum $S_{yx}/S_{xx}$. Averaging the
+    output and input spectra, not the cross-/auto-spectrum $S_{yx}/S_{xx}$. Averaging the
     complex spectra projects onto the deterministic multisine, which cancels loop and sensor
-    noise; in **closed loop** it returns the open-loop plant with no controller model.
+    noise; in closed loop it returns the open-loop plant with no controller model.
     See [The method](overview.qmd#why-a-reference-based-frf).
 
 Schroeder phases
@@ -38,7 +38,7 @@ Schroeder phases
 
 Crest factor
 :   Peak-to-RMS ratio of a waveform. Low crest = more RMS (in-band) power under a hard peak
-    limit. Note the crest that matters is the one **at the DAC/actuator node**, after any
+    limit. Note the crest that matters is the one at the DAC/actuator node, after any
     whitening or coil-driver filtering — not the plant-referred waveform.
 
 ## Design & Fisher information
@@ -51,7 +51,7 @@ Fisher information $I(\theta)$
 Cramér–Rao bound (CRB)
 :   $I(\theta)^{-1}$ — the smallest parameter covariance any unbiased estimator can achieve.
     The ML fit attains it asymptotically, so the CRB is both the design target and the reported
-    error bar. **Compute it before calling anything a limit.**
+    error bar. Compute it before calling anything a limit.
 
 Dispersion function $\nu(f)$
 :   $\nu(f) = P_\text{tot}\,\mathrm{tr}[I(\theta)^{-1} M(f)]$, the sensitivity of the
@@ -65,7 +65,7 @@ D-optimal design / Kiefer–Wolfowitz equivalence
     converges to.
 
 Prior-robust excitation
-:   The **first pass** drive: the optimal spectrum averaged over the prior's plausible
+:   The first pass drive: the optimal spectrum averaged over the prior's plausible
     resonance band $f_0(1\pm u)$, so even a far (±50 %) prior still puts power where the true
     resonance is. Later passes concentrate once the model is trusted.
     See [The method](overview.qmd#the-loop).
@@ -89,7 +89,7 @@ Fractional uncertainty (stop criterion)
 Sample-ML / equation error / errors-in-variables (EIV)
 :   The MIMO estimator's cost: it fits the equation error $e = \hat Y - G\,\hat U$ weighted by
     the projected input/output sample covariance. Because it carries the noise on both $Y$
-    and the measured input $U$, it is unbiased in closed loop and needs **no** FRF matrix
+    and the measured input $U$, it is unbiased in closed loop and needs no FRF matrix
     inverse. See [MIMO & joint modal](mimo-modal.qmd#the-estimator-sample-ml-no-matrix-inverse).
 
 dof (degrees of freedom)
@@ -127,7 +127,7 @@ Spatial doublet
 :   Two modes coincident in frequency but living in orthogonal DOF subspaces (e.g. the
     $\{L,P,V\}$ vs $\{T,R,Y\}$ planes of a suspension). A shared-pole fit collapses them —
     a parameterization artifact — but `fit_block_decoupled` resolves both by fitting each
-    block alone, with **no** finer $df$. See [example 10](../examples/10-srm-hsts.qmd).
+    block alone, with no finer $df$. See [example 10](../examples/10-srm-hsts.qmd).
 
 Super-resolution
 :   Parametric ML resolving two modes closer than one linewidth, which non-parametric
@@ -137,7 +137,7 @@ Super-resolution
 
 Rayleigh limit (non-parametric)
 :   The classical "can't resolve closer than one bin / one linewidth" rule. It applies to
-    peak-picking, **not** to a parametric fit — never quote it against ML. It is the vertical
+    peak-picking, not to a parametric fit — never quote it against ML. It is the vertical
     line the resolvability map crosses.
 
 ## Safety & operations

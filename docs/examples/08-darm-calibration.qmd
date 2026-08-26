@@ -1,20 +1,21 @@
 ---
 title: "08 — DARM calibration via Pintelon–Schoukens"
-description: "Applying the periodic-multisine, leakage-free, Cramér–Rao-driven identification pipeline to the DARM loop: recover the sensing function C, the per-stage hierarchical actuation strengths κ, and the response R(f) with a measured CRB envelope, against the real Advanced-LIGO O4 noise floor (LIGO-T2000012), and compare head-to-head with a swept sine on the same twin."
+description: "The P&S pipeline on the DARM loop: sensing C, the per-stage actuation strengths κ, and the response R(f) with a measured CRB envelope, against the O4 noise floor."
 image: thumbnails/08.svg
+image-alt: "Recovered DARM response function with its Cramer-Rao envelope."
 categories: [calibration, closed-loop, DARM]
 freeze: true
 ---
 
 ::: {.callout-important appearance="simple"}
 ## Abstract
-This page identifies the **gravitational-wave readout itself** — the DARM loop — with the same
+This page identifies the gravitational-wave readout itself — the DARM loop — with the same
 Pintelon–Schoukens pipeline the earlier examples use on suspensions: a periodic multisine, a
 leakage-free reference FRF, a per-bin noise model, and a Cramér–Rao envelope. On a closed-loop twin
 with a sensing function `C`, hierarchical three-stage actuation `A`, and a digital servo `D`, driven
 by both process disturbance and readout noise, it recovers the response `R(f)`, the sensing
 parameters (optical gain, coupled-cavity pole, delay), and the per-stage actuation strengths `κ`
-leakage-free, each with its Cramér–Rao bound — measured against the **real O4 noise floor**
+leakage-free, each with its Cramér–Rao bound — measured against the real O4 noise floor
 ([`aligo_O4high` from LIGO-T2000012](https://dcc.ligo.org/LIGO-T2000012/public)). It shows the
 per-stage estimates converging as `1/√T` onto the CRB, the hierarchical M0/PUM/ESD actuation and its
 inter-stage crossovers, the calibration lines standing at their SNR above the DARM floor, and a
@@ -25,26 +26,26 @@ the Sun 2020 O3 parameterisation.
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- The multisine pipeline applied to the **gravitational-wave readout** (DARM): recovering `C` and the per-stage actuation `κ` leakage-free, with `1/√T` convergence onto the Cramér–Rao bound.
-- **Hierarchical actuation across the quad** (M0/PUM/ESD), the inter-stage crossovers, and the **calibration lines at their SNR height in the DARM spectrum**.
-- The **response `R(f)` recovered model-free** with a measured CRB envelope, against the real Advanced-LIGO O4 noise floor.
-- A **swept-sine head-to-head** on the same twin, same noise, equal wall-clock.
+- The multisine pipeline applied to the gravitational-wave readout (DARM): recovering `C` and the per-stage actuation `κ` leakage-free, with `1/√T` convergence onto the Cramér–Rao bound.
+- **Hierarchical actuation across the quad** (M0/PUM/ESD), the inter-stage crossovers, and the calibration lines at their SNR height in the DARM spectrum.
+- The response `R(f)` recovered model-free with a measured CRB envelope, against the real Advanced-LIGO O4 noise floor.
+- A swept-sine head-to-head on the same twin, same noise, equal wall-clock.
 :::
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/08-darm-calibration.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
-The earlier examples identify suspensions. This one identifies the **gravitational-wave
-readout itself** — the DARM loop a LIGO calibration group characterises every run. The
+The earlier examples identify suspensions. This one identifies the gravitational-wave
+readout itself — the DARM loop a LIGO calibration group characterises every run. The
 method does not change: a periodic multisine, a leakage-free reference FRF, a measured
 per-bin noise model, and a Cramér–Rao envelope. Only the plant is new: a closed loop with
-a sensing function `C`, three-stage actuation `A`, and a digital servo `D`, under **both**
+a sensing function `C`, three-stage actuation `A`, and a digital servo `D`, under both
 process disturbance and readout noise.
 
 ::: {.callout-note appearance="simple"}
 ## Representative, not a specific interferometer
 The twin uses representative Advanced-LIGO numbers — a coupled-cavity pole near 360 Hz, a
-~77 µs delay, three pendulum-stage actuators, and a UGF≈50 Hz loop — but the **noise floor is
-real**: the representative O4 sensitivity (`aligo_O4high`, LIGO-T2000012) × the 4 km arm, so the line
+~77 µs delay, three pendulum-stage actuators, and a UGF≈50 Hz loop — but the noise floor is
+real: the representative O4 sensitivity (`aligo_O4high`, LIGO-T2000012) × the 4 km arm, so the line
 SNRs and the CRB below are set against an actual O4 DARM floor. The injected drive magnitude is a
 representative choice (not a measured value), so absolute σ levels are illustrative while the
 demonstrated shapes (the `1/√T` scaling, the CRB tracking) do not depend on it. It is a
@@ -72,6 +73,8 @@ The calibration job is to know `R(f)` — and, underneath it, the sensing `C` an
 actuation strengths — to ~1 % in magnitude and ~1° in phase across the band.
 
 ```{python}
+#| label: fig-darm-truth
+#| fig-cap: "The twin's ground truth: the sensing function C, the hierarchical actuation A, the open-loop gain G, and the response function R that calibration has to deliver."
 #| code-summary: "The twin's truth — C, A, G, R"
 dd.truth_fig()
 ```
@@ -82,6 +85,8 @@ A single periodic multisine injected at Pcal, ramped on and off over 3 s, with t
 error read out under the loop's real disturbance and readout noise.
 
 ```{python}
+#| label: fig-darm-timeseries
+#| fig-cap: "One Pcal multisine measurement: the injected drive and the DARM error signal it produces, against the Advanced-LIGO O4 noise floor (LIGO-T2000012)."
 #| code-summary: "Raw Pcal measurement — drive in, d_err out"
 a = dd.pcal_audit(seed=1)
 dd.pcal_timeseries_fig(a)
@@ -90,6 +95,8 @@ dd.pcal_timeseries_fig(a)
 The leakage-free FRF `d_err/x_pc = C/(1+G)` with its per-line coherence, on the analytic truth:
 
 ```{python}
+#| label: fig-darm-bode
+#| fig-cap: "The leakage-free FRF from the Pcal injection, with per-line coherence beneath."
 #| code-summary: "Leakage-free FRF + coherence"
 dd.pcal_bode_fig(a)
 ```
@@ -100,6 +107,8 @@ Because `d_err/x_pc = C/(1+G)`, the response is its reciprocal — `R(f) = 1/FRF
 no model in the loop. Its CRB envelope falls straight out of the FRF's per-bin error.
 
 ```{python}
+#| label: fig-darm-response
+#| fig-cap: "Recovered response function R(f) with its Cramér–Rao envelope, against the twin's truth. The envelope is measured from the data, not assumed."
 #| code-summary: "Recovered R(f) ± CRB vs truth"
 dd.response_envelope_fig(a)
 ```
@@ -131,7 +140,7 @@ display(dd.actuation_table(d))
 
 The number a calibration group actually plans around is exposure — how long a measurement must
 run to pin each parameter to a target. Because the estimator is period-averaged, every parameter's
-variance falls as `1/P` (equivalently `1/T`), and the fit / period-to-period-variance σ **is** the
+variance falls as `1/P` (equivalently `1/T`), and the fit / period-to-period-variance σ is the
 Cramér–Rao bound — so the recovered 1σ tracks the `1/√T` law with no free knob. Below, the six core
 calibration parameters — sensing `g_C`, `f_cc`, `τ` and the three actuator strengths `κ_UIM`,
 `κ_PUM`, `κ_TST` — are recovered at `P = 16…128` periods and their fractional 1σ plotted against
@@ -140,20 +149,22 @@ per-parameter SNR (`κ_TST`, the weakest actuator, sits highest). The `1/√T` s
 and is independent of the (representative) drive; only the absolute vertical level scales with it.
 
 ```{python}
+#| label: fig-darm-convergence
+#| fig-cap: "Fractional uncertainty σ(θ)/θ against record length for every calibration parameter, with the Cramér–Rao prediction. Each parameter's curve tracks its own bound."
 #| code-summary: "σ(θ)/θ vs record length for every cal parameter, against the CRB"
 dd.convergence_fig()
 ```
 
 ## Hierarchical actuation and the crossovers the cal lines measure
 
-DARM is actuated on all four quad masses hierarchically: the fast, weak ESD (**TST**) takes the
+DARM is actuated on all four quad masses hierarchically: the fast, weak ESD (TST) takes the
 command directly, and two nested offload filters push the low-frequency drive up the chain to the
-**PUM** and the strong, slow **M0** (top mass). Each stage's DARM-referred authority is
+PUM and the strong, slow M0 (top mass). Each stage's DARM-referred authority is
 `A_i = κ_i · D_i(f) · N_i(f)` — the M0-damped reduced-QUAD compliance `N_i` shaped by the
 distribution filter `D_M0 = O_A·O_B`, `D_PUM = O_A`, `D_TST = 1`. The offload runs in force units,
 so the compliances carry the hierarchy and `κ_i = 1`. M0 owns the lowest frequencies and hands off
-up the chain, so adjacent stages cross where their authority is equal — **M0/PUM near
-`F_PT ≈ 0.5 Hz`, PUM/TST near `F_EP ≈ 10 Hz`**. Those crossovers are exactly what a per-stage
+up the chain, so adjacent stages cross where their authority is equal — M0/PUM near
+`F_PT ≈ 0.5 Hz`, PUM/TST near `F_EP ≈ 10 Hz`. Those crossovers are exactly what a per-stage
 calibration line on each actuator measures (see `darm_tv.cal_line_response`). The 0.4–3 Hz peaks are
 the L1/L2/L3 forest, undamped by the M0-only local loop — the twin's real L1 ETMX damping, faithful
 to the plant.
@@ -165,8 +176,8 @@ dd.hierarchical_actuation()
 
 ::: {.callout-note title="Future upgrade — damped quad plants from `ssprescale`"}
 The M0-damped compliances here are built from the reduced QUAD plus a reproduction of the twin's
-L1 ETMX M0-only velocity damping. A future upgrade will instead use the **new damped quad plants
-vendored by the `ssprescale` package** (work in progress) — a properly-scaled, multi-loop
+L1 ETMX M0-only velocity damping. A future upgrade will instead use the new damped quad plants
+vendored by the `ssprescale` package (work in progress) — a properly-scaled, multi-loop
 (M0 + L1 + L2) damped suspension model — so the in-band compliances and the exact crossover
 frequencies come from the production damping design rather than a single-loop M0 stand-in.
 :::
@@ -179,12 +190,14 @@ stands above the DARM noise, because the per-record strength precision is `σκ/
 one line per stage (M0 low, PUM mid, TST in-band) is injected on the hierarchical twin, the loop is
 simulated under its length-disturbance + readout floor, and the DARM error is deconvolved back to
 displacement `x = d_err·(1+G)/C`. The spectrum is a full-record periodogram (resolution `df = 1/T`),
-so **each line stands exactly its SNR above the floor** — the number read straight off the plot.
+so each line stands exactly its SNR above the floor — the number read straight off the plot.
 The floor is `√(disturbance² + (readout/|C|)²)`: flat length noise at low frequency, rising above
 the cavity pole where readout noise divided by the shrinking `|C|` takes over. Longer integration
 lifts every line as `√T`.
 
 ```{python}
+#| label: fig-darm-callines
+#| fig-cap: "Per-stage calibration lines injected into the DARM spectrum, and the calibrated spectrum recovered by deconvolving them."
 #| code-summary: "Inject per-stage cal lines; simulate + deconvolve to a calibrated DARM spectrum"
 cs = dd.cal_line_spectrum()
 dd.cal_line_spectrum_fig(cs)
@@ -204,6 +217,8 @@ and covering the whole band to the same uncertainty costs it ~100× longer. Show
 twin, not asserted.
 
 ```{python}
+#| label: fig-darm-vs-swept
+#| fig-cap: "Fractional response uncertainty σ(R)/|R| for the multisine, which covers the whole band at once, against a swept sine of equal wall-clock, which covers a few points."
 #| code-summary: "σ(R)/|R| — multisine (whole band) vs swept sine (few points), equal wall-clock"
 c = dd.comparison(seed=0)
 dd.comparison_fig(c)
@@ -245,7 +260,7 @@ toward a real DARM calibration, keeping that one method.
 1. **Realistic drift** — replace the deterministic profile with a stochastic (GP) wander at a
    physical correlation time; score the recovery statistically.
 2. **SRC-detuning optical spring** — replace the single real sensing pole with an optical biquad
-   parametrized on the physical detuning `φ`, so the DARM pole migrates **real → complex** as `φ`
+   parametrized on the physical detuning `φ`, so the DARM pole migrates real → complex as `φ`
    drifts (the crossing stays analytic in `φ`).
 3. **Several parameters at once** — the optical gain, the cavity-pole / detuning, and the stage
    `κ_i` drifting jointly, not one scalar in isolation.

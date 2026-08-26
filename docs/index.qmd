@@ -31,9 +31,9 @@ toc: false
 
 ::: {.column-screen-inset style="max-width:1080px; margin:1.5rem auto 0;"}
 
-**Drag the gold curve** to redistribute the drive energy across frequency; the readout gives the
+Drag the gold curve to redistribute the drive energy across frequency; the readout gives the
 time to identify the plant to 5%. Two resonances share one power budget, and the shortest time
-comes from allocating power to the mode whose **Q** is least certain. A single tall peak and a
+comes from allocating power to the mode whose Q is least certain. A single tall peak and a
 flat sweep are both slower than the Fisher-optimal allocation, which the par line marks.
 
 ```{=html}

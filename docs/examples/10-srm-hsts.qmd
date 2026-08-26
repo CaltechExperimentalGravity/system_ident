@@ -1,20 +1,21 @@
 ---
 title: "10 — SRM modal identification (RTSfreerun)"
-description: "The L1-SRM HSTS suspension identified through its real production damping loops on the compiled RTSfreerun twin: one Pintelon–Schoukens multisine per DoF recovers the open-loop coupled plant, and a rank-1 joint MIMO modal fit returns the shared modal table with a Cramér–Rao bound. The campaign resolution is sized by the prior's ringdown, not guessed."
+description: "The L1-SRM HSTS identified through its production damping loops on the compiled RTSfreerun twin, at a resolution sized by the prior's ringdown."
 image: thumbnails/10.svg
+image-alt: "Recovered diagonal FRF of the L1-SRM suspension measured through its production damping loops."
 categories: [twin, closed-loop, MIMO, modal]
 freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- The joint modal fit on the **real L1-SRM** through its production damping loops.
+- The joint modal fit on the real L1-SRM through its production damping loops.
 - τ-driven resolution design and resolving the spatial doublet — grounded in [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
 
 Example [09](09-rank1-modal-mimo.qmd) demonstrates the joint-MIMO modal fit on a teaching
-plant. This page runs the same step on the **real thing**: the SRM is an HSTS suspension, and
-it is identified here through its **real production L1-SRM top-mass dampers** — the foton
+plant. This page runs the same step on the real thing: the SRM is an HSTS suspension, and
+it is identified here through its real production L1-SRM top-mass dampers — the foton
 `SRM_M1_DAMP_<dof>` banks (from `L1SUSSRM.txt`, engaged FMs from the archived L1 SDF) — closed
 around the shared bare-M1 6×6 HSTS plant on the compiled [`rtsfreerun`](https://controlsystems.docs.ligo.org/rtsfreerun)
 twin. No hardware; no method change. One Pintelon–Schoukens multisine is driven through each
@@ -24,9 +25,9 @@ rank-1 modal fit returns the shared modal table.
 ::: {.callout-note appearance="simple"}
 ## What makes this page different from 09
 The plant is the compiled `x1hsts6dof` CDS composite, not a Python lumped model, and the loops
-are the **real** L1-SRM damping banks — not idealized velocity dampers. Because the compiled
+are the real L1-SRM damping banks — not idealized velocity dampers. Because the compiled
 model is not installed in CI, this page is `freeze: true`: the slow MIMO campaign (one multisine
-per DoF through the closed loops, ~13 min on the twin) runs **once** and is cached locally; the
+per DoF through the closed loops, ~13 min on the twin) runs once and is cached locally; the
 figures below re-run only the fast offline fit against that cache and are scored against an
 analytic state-space oracle derived from the twin's own filter definitions.
 :::
@@ -48,10 +49,10 @@ h = srm.headline()
 
 ## The measurement design — resolution is set by the ringdown
 
-The method point of this page comes **before** any fitting: the campaign's frequency
+The method point of this page comes before any fitting: the campaign's frequency
 resolution was not guessed, it was derived from the prior. A mode `(f₀, Q)` has FWHM
 `Δf = f₀/Q` and a ringdown time constant `τ = Q/(π f₀)`. To resolve `Q` — not just `f₀` — the
-parametric fit needs several frequency bins **across** each resonance, i.e.
+parametric fit needs several frequency bins across each resonance, i.e.
 `df ≤ Δf / (a few bins)`. Since `df = 1/T`, that demands a period `T ≳ (bins)·Q/f₀`. This is
 just the Pintelon–Schoukens rule that the segment length must exceed the plant time constant
 for a leakage-free FRF, read through the prior's slowest-ringing mode.
@@ -72,6 +73,8 @@ display(Markdown(
 ```
 
 ```{python}
+#| label: fig-srm-resolution
+#| fig-cap: "Mode separation Δf and ringdown time τ for each prior mode, with the achieved and recommended frequency resolution df. The record length is set from τ rather than guessed."
 #| code-summary: "Δf and ringdown τ per prior mode, with the achieved and recommended df"
 srm.resolution_design_fig()
 ```
@@ -86,10 +89,12 @@ pin their `Q`.
 The campaign drives each `DRIVE_EXC_<dof>` with a P&S multisine and reads all six reconstructed
 plant inputs (`X = drive − damper feedback`) and all six readouts (`Y`) through the live loops.
 Because the simulation is consistent, the per-bin matrix recovery `G = Y·X⁻¹` returns the
-**open-loop** coupled plant even though the data were taken closed — the controller is cancelled,
+open-loop coupled plant even though the data were taken closed — the controller is cancelled,
 not fit. The diagonal FRF lands on the analytic oracle to a part in a thousand:
 
 ```{python}
+#| label: fig-srm-diag
+#| fig-cap: "Recovered diagonal element L→L of the open-loop plant, measured through the production damping loops: the rank-1 joint fit against the non-parametric estimate and the analytic oracle."
 #| code-summary: "Recovered diagonal FRF (L→L) — fit vs nonparametric vs analytic oracle"
 srm.diag_recovery_fig("L")
 ```
@@ -117,6 +122,8 @@ display(srm.modal_table())
 ```
 
 ```{python}
+#| label: fig-srm-modes
+#| fig-cap: "Per-mode modal frequency residual (fit − oracle) with the Cramér–Rao σ."
 #| code-summary: "Modal frequency recovery — fit − oracle with the CRB"
 srm.modal_recovery_fig()
 ```
@@ -134,7 +141,7 @@ display(Markdown(
 
 ## What this shows — a resolved doublet and a calibrated CRB
 
-Through the **real** production L1-SRM damping loops on the compiled twin, the open-loop coupled
+Through the real production L1-SRM damping loops on the compiled twin, the open-loop coupled
 plant comes back to 0.11% median diagonal error, and the joint fit returns 13 shared modal poles
 with most Qs recovered to a few percent against a CRB. Two features warrant a careful reading
 under the feasibility gate: the first is a resolved doublet, the second a calibrated bound.
@@ -142,20 +149,22 @@ under the feasibility gate: the first is a resolved doublet, the second a calibr
 ### 1 · The tight 0.67 Hz "doublet" is spatial — and it resolves
 
 The HSTS has a 0.672/0.676 Hz fundamental pair (~3 mHz, 0.5% apart). Under the shared-pole 6×6
-model this pair **collapses to a single pole** — one pole set is forced across both modes, so the
+model this pair collapses to a single pole — one pole set is forced across both modes, so the
 fit returns one blended, biased fundamental (flagged in the table above). It is tempting to call
-this a resolution limit. **It is not.** The HSTS plant **block-diagonalizes exactly** into two
+this a resolution limit. It is not. The HSTS plant block-diagonalizes exactly into two
 orthogonal DOF planes — {L,P,V} and {T,R,Y} — with cross-plane FRF coupling ~1e-13 (machine
 zero). The 0.6725 Hz mode lives purely in {L,P,V}; the 0.6758 Hz mode purely in {T,R,Y}. They are
-near-coincident in frequency but separated by which sensors see them: a **spatial** doublet,
+near-coincident in frequency but separated by which sensors see them: a spatial doublet,
 not a frequency split.
 
 So we fit each plane alone. `mimo_fit.fit_block_decoupled` runs one rank-1 modal fit per plane;
-each plane contains only ONE fundamental near 0.674 Hz, so there is no pair to collapse — and both
-members come back on the oracle with a tight CRB, using **no finer `df`** and **no**
+each plane contains only one fundamental near 0.674 Hz, so there is no pair to collapse — and both
+members come back on the oracle with a tight CRB, using no finer `df` and no
 doublet-concentrated drive:
 
 ```{python}
+#| label: fig-srm-doublet
+#| fig-cap: "The 0.672/0.676 Hz pair in the (f₀, Q) plane. Under the shared-pole 6×6 model the pair collapses to one pole; the plane-decoupled fit separates it."
 #| code-summary: "Shared-pole collapse vs the plane-decoupled fit, in the (f₀, Q) plane"
 srm.doublet_resolved_fig()
 ```
@@ -177,9 +186,9 @@ display(Markdown(
     f"Q≈50, split by only Δf₀ ≈ {b.df_hz * 1e3:.1f} mHz."))
 ```
 
-The collapse was a **parameterization** artifact of sharing one pole set across two orthogonal
+The collapse was a parameterization artifact of sharing one pole set across two orthogonal
 modes — precisely the failure mode `CLAUDE.md`'s feasibility gate names — not a property of the
-data. This exact resolution also runs **portably, without the compiled twin** — on the committed
+data. This exact resolution also runs portably, without the compiled twin — on the committed
 reduced HSTS model (`system_ident/models/hsts_reduced_50hz.npz`, numpy-only): the same
 `fit_block_decoupled` splits the 0.672/0.676 pair across the same two planes, guarded by
 `tests/test_reduced_hsts_oracle.py`. (The one genuinely within-plane near-degeneracy — 1.512 & 1.527 Hz, both in {T,R,Y} — is
@@ -191,11 +200,11 @@ computes that cost from the CRB. That, too, is a cost to pay, not a wall.)
 ### 2 · The CRB is a process-disturbance bound
 
 The compiled 6-DoF model exposes only
-`DRIVE_EXC_<dof>` injection ports — there is **no per-sensor readout-noise port** like the
+`DRIVE_EXC_<dof>` injection ports — there is no per-sensor readout-noise port like the
 single-DoF `x1hsts`. A noise-free twin gives identical periods, so the P&S sample covariance
 collapses to the floating-point floor and the bound is meaningless. To define a real CRB a small
 broadband ground/actuator disturbance is injected on the non-driven drive ports; it propagates
 through the real plant and dampers, making the spectra genuinely stochastic. The bound is
-therefore self-consistent for the **injected** statistics — a process-disturbance CRB, not a
+therefore self-consistent for the injected statistics — a process-disturbance CRB, not a
 physical sensor-noise floor. The disturbance is small enough that the diagonal FRF still recovers
 to 0.11%.

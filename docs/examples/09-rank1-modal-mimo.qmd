@@ -1,23 +1,24 @@
 ---
 title: "09 — Joint MIMO modal identification"
-description: "A coupled 6-DoF suspension under closed-loop damping, identified jointly through the live loops: one Pintelon–Schoukens multisine per actuator recovers the open-loop coupled FRF, and a rank-1 modal fit (shared poles, per-mode rank-1 mode shapes) returns every modal frequency and Q with a Cramér–Rao envelope. The init is data-driven, so it needs no accurate prior."
+description: "A coupled 6-DoF suspension identified through its live damping loops; a rank-1 modal fit returns every modal frequency and Q with a Cramér–Rao envelope."
 image: thumbnails/09.svg
+image-alt: "Per-mode modal frequency residuals with Cramer-Rao error bars from a rank-1 joint MIMO fit."
 categories: [MIMO, closed-loop, modal]
 freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- The rank-1 **joint MIMO modal fit**: shared poles, per-mode rank-1 residues, data-driven mode-finding.
+- The rank-1 joint MIMO modal fit: shared poles, per-mode rank-1 residues, data-driven mode-finding.
 - The theory behind it: [MIMO & joint modal](../tutorial/mimo-modal.qmd).
 :::
 
-> **On real reduced plants:** the identical rank-1 joint modal fit runs on a real reduced aLIGO **quad** in [example 11](11-reduced-quad.qmd) (CI/Binder, no twin), and the reduced **HSTS** reproduces the SRM spatial-doublet resolution portably (`tests/test_reduced_hsts_oracle.py`).
+> On real reduced plants: the identical rank-1 joint modal fit runs on a real reduced aLIGO quad in [example 11](11-reduced-quad.qmd) (CI/Binder, no twin), and the reduced HSTS reproduces the SRM spatial-doublet resolution portably (`tests/test_reduced_hsts_oracle.py`).
 
 [![Launch in Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples/09-rank1-modal-mimo.ipynb)  ·  run this page live (no install; the [in-browser demo](interactive.qmd) is instant)
 
 The earlier MIMO example identifies a 2×2 plant element by element. This one fits the whole
-coupled plant **jointly**: a six-degree-of-freedom suspension running in a closed damping
+coupled plant jointly: a six-degree-of-freedom suspension running in a closed damping
 loop, where every transfer-function element shares the same modal poles. The measurement is
 the same Pintelon–Schoukens recipe — one periodic multisine per actuator, a leakage-free
 reference FRF, a per-bin noise model — and the new piece is a parametric step on top of it
@@ -56,7 +57,7 @@ monitors and sensors through the live loops.
 ## Step 1 — the open-loop coupled FRF
 
 Because the twin simulates consistently (`u_drive = S·u_exc`, then `y_sens = G·u_drive`), the
-per-bin matrix recovery `G = Y·X⁻¹` returns the **open-loop** coupled FRF even though the data
+per-bin matrix recovery `G = Y·X⁻¹` returns the open-loop coupled FRF even though the data
 were taken closed. That inverse is exact off-resonance but noisy near the resonances, where
 the drive monitors are small.
 
@@ -74,6 +75,8 @@ and the analytic truth. The parametric fit predicts through the resonances where
 the per-bin inverse scatters.
 
 ```{python}
+#| label: fig-r1-through
+#| fig-cap: "Through-resonance recovery on a diagonal element G[0,0] and an off-diagonal element G[0,3]: the rank-1 joint modal fit against the measured FRF and the oracle."
 #| code-summary: "Through-resonance recovery — G[0,0] and G[0,3]"
 rm.through_resonance_fig()
 ```
@@ -84,6 +87,8 @@ All six modal frequencies come back through the loops to ~0.15 %, and the deviat
 inside the Cramér–Rao bars — the recovered `(fit − truth)` residual and its ±1σ envelope:
 
 ```{python}
+#| label: fig-r1-modes
+#| fig-cap: "Per-mode modal frequency residual (fit − oracle) with the Cramér–Rao σ. Residuals inside the band indicate the bound is the realised one."
 #| code-summary: "Modal frequency residual ± CRB, per mode"
 rm.modal_recovery_fig()
 ```
@@ -102,6 +107,8 @@ No accurate prior is used — the modes are found from the data — which is why
 the same whether the design model was right or badly wrong.
 
 ```{python}
+#| label: fig-r1-peakpick
+#| fig-cap: "The data-driven initialisation: a peak-pick on the recovered FRF power supplies the starting modal frequencies, so the fit needs no accurate prior."
 #| code-summary: "Peak-pick on the recovered FRF power"
 rm.peak_pick_fig()
 ```

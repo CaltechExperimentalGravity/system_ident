@@ -14,7 +14,7 @@ listing:
 page-layout: full
 ---
 
-A set of end-to-end **Pintelon–Schoukens** campaigns, ordered from the simplest single
+A set of end-to-end Pintelon–Schoukens campaigns, ordered from the simplest single
 resonance through a coupled 2×2 MIMO suspension, a DARM calibration loop, and a joint
 6-DoF modal identification through live damping loops. The single-plant examples run the
 same full diagnostic set — excitation design, measurement time series,
@@ -25,9 +25,9 @@ leakage-free FRF and Cramér–Rao machinery on their own plants.
 
 ::: {.callout-note appearance="simple"}
 ## A note on the plant models
-These are **simplified, physically-motivated** teaching plants — lumped resonances and, in
+These are simplified, physically-motivated teaching plants — lumped resonances and, in
 the [MIMO example](06-two-by-two-coupled.qmd), a coupled longitudinal/pitch normal-mode
-expansion — **not** validated full Advanced-LIGO suspension state-space models. Where used,
+expansion — not validated full Advanced-LIGO suspension state-space models. Where used,
 mode frequencies are representative aLIGO quad rigid-body values (longitudinal ≈ 0.43,
 1.00, 2.01, 3.42 Hz; pitch ≈ 0.56, 1.31, 2.81 Hz; Aston *et al.* 2012,
 [DCC P1200056](https://dcc.ligo.org/LIGO-P1200056); Sauter *et al.* 2024,
@@ -37,13 +37,15 @@ method rather than the plant; it applies unchanged to a measured or higher-fidel
 
 ::: {.callout-tip appearance="simple"}
 ## Two ways to run these
-- [**In the browser, immediately**](interactive.qmd) — a WebAssembly (Pyodide) cell running the
+- [In the browser, immediately](interactive.qmd) — a WebAssembly (Pyodide) cell running the
   real `system_ident`. No install; edit and re-run.
 - [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/CaltechExperimentalGravity/system_ident/HEAD?urlpath=lab/tree/docs/examples)
-  **the full examples in a live Jupyter** — each pip-runnable example (01–06, 08, 09, and the
-  reduced-quad [11](11-reduced-quad.qmd)/[12](12-reduced-quad-closed.qmd)) carries a *Launch in Binder* badge that opens it as an
-  executable notebook (first build ~5–10 min). The compiled-twin pages (07, 10) need the
-  RTSfreerun model and don't run in Binder.
+  the full examples in a live Jupyter — each pip-runnable example (01–06, 08, 09, the
+  reduced-quad pair [11](11-reduced-quad.qmd)/[12](12-reduced-quad-closed.qmd), and the
+  drift-tracking page [13](13-darm-drift-tracking.qmd)) carries a *Launch in Binder* badge
+  that opens it as an executable notebook (first build ~5–10 min). Only the compiled-twin
+  pages (07, 10) are excluded: they need the RTSfreerun model, which is not installable
+  from PyPI.
 :::
 
 ::: {#examples-gallery}

@@ -3,13 +3,13 @@ title: "The method"
 ---
 
 System identification here is an iterative, information-optimal loop built on the
-**Pintelon–Schoukens frequency-domain method**. Two facts drive the design:
+Pintelon–Schoukens frequency-domain method. Two facts drive the design:
 measurement time on a real interferometer is expensive, and drive amplitude
 is bounded by actuator saturation, so both have to be allocated deliberately. Rather
 than sweeping uniformly across frequency, `system_ident` solves
 the inverse problem — given a prior model and a fixed drive-power budget, where
 should the excitation energy go to extract the most information about the model
-parameters? — then measures **leakage-free** and fits by **maximum likelihood**.
+parameters? — then measures leakage-free and fits by maximum likelihood.
 
 The answer to where comes from Fisher information theory; the answer to how to
 measure and fit comes from the periodic-multisine, leakage-free FRF and the
@@ -71,19 +71,19 @@ Each iteration does five things:
    Pintelon–Schoukens fixed-point iteration to obtain the optimal excitation PSD
    $P_{xx}(f)$. (See [Fisher & excitation](fisher.qmd).)
 
-2. **Inject** — realise $P_{xx}(f)$ as a **periodic multisine**: a sum of
+2. **Inject** — realise $P_{xx}(f)$ as a periodic multisine: a sum of
    harmonically related sinusoids whose period is exactly the analysis window,
    tiled over the record and Tukey-ramped at the leading edge. The phases are
-   the deterministic **Schroeder phases**, which minimise the crest factor so a
+   the deterministic Schroeder phases, which minimise the crest factor so a
    saturation-limited actuator carries the most in-band power for a fixed peak.
    Inject through the backend (twin or CDS hardware) and read both the drive
    monitor and the response.
 
 3. **Measure (leakage-free)** — because the drive is periodic over the window, a
-   synchronous (integer-period) DFT of the response is **leakage-free**. The FRF
+   synchronous (integer-period) DFT of the response is leakage-free. The FRF
    is the reference-based, ratio-of-averages estimate
    $\hat H = \overline{Y}/\overline{X}$ (period-averaged spectra), and the per-bin
-   noise covariance comes from the **period-to-period scatter** of the residual.
+   noise covariance comes from the period-to-period scatter of the residual.
    Leading periods that still carry the start transient are dropped.
 
 4. **Accumulate** — inverse-variance-weight the new FRF estimate with all previous
@@ -103,8 +103,8 @@ Each iteration does five things:
 A one-off random record is not periodic over the analysis window, so its DFT
 leaks: a sharp resonance smears its power into neighbouring bins, biasing the
 near-peak measurement where the information is densest. Windowing reduces
-the leakage but distorts the bin shape and discards record. A **periodic
-multisine** avoids the problem: over an integer number of periods the
+the leakage but distorts the bin shape and discards record. A periodic
+multisine avoids the problem: over an integer number of periods the
 synchronous DFT is leakage-free by construction, so a high-$Q$ mode is measured at
 its true peak with no near-resonance bias (Pintelon & Schoukens, *System
 Identification: A Frequency Domain Approach*, 2nd ed., Wiley-IEEE Press, 2012 —
@@ -115,7 +115,7 @@ about the noise shape. See [the same high-Q mode measured with and without
 leakage](why-optimal-excitation.qmd#broadband-random-noise-leaks-and-is-variance-inefficient),
 side by side, for the size of the difference.
 
-The **Schroeder phases** (P&S §4) set the relative phase of each line so the
+The Schroeder phases (P&S §4) set the relative phase of each line so the
 waveform's peak-to-RMS ratio (crest factor) is near-minimal. Under a hard actuator
 limit this is what allows the drive to deliver substantial in-band power without
 clipping; a random-phase multisine of the same RMS would saturate sooner.
@@ -126,7 +126,7 @@ The estimate is the ratio of period-averaged spectra
 $\hat H = \overline{Y}/\overline{X}$, not the average of per-period ratios and
 not the cross-/auto-spectrum estimator $S_{yx}/S_{xx}$. Averaging the complex
 spectra projects the response onto the known, deterministic multisine, which is
-uncorrelated with the loop and sensor noise. In **closed loop** this is the
+uncorrelated with the loop and sensor noise. In closed loop this is the
 governing property: the controller feeds sensor noise back onto the drive, so
 $S_{yx}/S_{xx}$ is biased, but the reference-based ratio cancels the controller and
 returns the open-loop plant — with no controller model and no division by a fed-back
@@ -135,8 +135,8 @@ the drive monitor itself supplies $X$, no separate reference channel is needed.
 
 ## Why maximum likelihood?
 
-Once the FRF and its per-bin noise covariance are in hand, the **Gaussian
-maximum-likelihood** estimator turns them into model parameters. Minimising
+Once the FRF and its per-bin noise covariance are in hand, the Gaussian
+maximum-likelihood estimator turns them into model parameters. Minimising
 
 $$
 \mathcal{C}(\theta) \;=\; \sum_k
@@ -144,8 +144,8 @@ $$
 $$
 
 (the $\sigma(f_k)$ are the measured per-bin standard errors) is the
-Pintelon–Schoukens Gaussian maximum-likelihood estimator: **asymptotically
-unbiased** and **efficient**, attaining the Cramér–Rao bound when the noise
+Pintelon–Schoukens Gaussian maximum-likelihood estimator: asymptotically
+unbiased and efficient, attaining the Cramér–Rao bound when the noise
 weights are correct. Weighting each residual by its own measured variance is what
 makes the fit weight the well-measured resonance bins above the noisy ones, instead
 of the uniform weighting an unweighted least-squares fit would impose.
@@ -168,9 +168,9 @@ I_{ij}(\theta) = 2\,T \int
 $$
 
 The optimal $P_{xx}(f)$ maximises $\log\det I(\theta)$ — the log-volume of the
-information ellipsoid, the **D-optimal** design criterion — subject to
+information ellipsoid, the D-optimal design criterion — subject to
 $\int P_{xx}(f)\,df = \text{const}$ (fixed power budget). Its fixed point is the
-**dispersion-function** reweighting implemented in `design.pintelon`
+dispersion-function reweighting implemented in `design.pintelon`
 (P&S §5.4.2); see [Fisher & excitation](fisher.qmd) for the construction.
 
 ## Why iterative?
@@ -184,7 +184,7 @@ been measured.
 ::: {.callout-tip}
 ## The first pass uses a prior-robust drive
 
-`SysIDLoop` runs pass 1 with a **prior-robust** excitation: the optimal drive
+`SysIDLoop` runs pass 1 with a prior-robust excitation: the optimal drive
 averaged over the prior's plausible resonance band $f_0(1\pm u)$, so even a far
 (±50 %) prior still puts power where the true resonance is. This samples the
 transfer function broadly before later passes concentrate on the located

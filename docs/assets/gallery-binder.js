@@ -12,6 +12,7 @@
     "01-single-resonance", "02-double-pendulum", "03-fabry-perot-cavity",
     "04-suspension-multidof", "05-closed-loop-arm", "06-two-by-two-coupled",
     "08-darm-calibration", "09-rank1-modal-mimo", "11-reduced-quad", "12-reduced-quad-closed",
+    "13-darm-drift-tracking",
   ]);
 
   function init() {

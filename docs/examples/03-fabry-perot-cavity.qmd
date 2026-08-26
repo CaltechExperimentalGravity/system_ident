@@ -2,12 +2,13 @@
 title: "03 — Fabry–Pérot cavity"
 description: "A single-pole low-pass with no resonance to aim at — identification is SNR-limited."
 image: thumbnails/03.svg
+image-alt: "Bode magnitude of a single-pole cavity rolling off above its 100 Hz corner."
 categories: [SISO, SNR-limited]
 ---
 
 ::: {.callout-tip appearance="simple"}
 ## Contents
-- What identification looks like with **no resonance to aim at** — a plain low-pass.
+- What identification looks like with no resonance to aim at — a plain low-pass.
 - Why a flat in-band drive is the right design when there is nothing to concentrate on.
 :::
 
@@ -17,8 +18,8 @@ Different physics: an optical cavity is a single-pole low-pass,
 
 $$G(s) = \frac{\omega_c}{s + \omega_c},$$
 
-with the cavity pole $f_c$ setting the bandwidth (DC gain 1). There is **no sharp
-resonance** to aim at — the identification is **signal-to-noise limited**. We run the same
+with the cavity pole $f_c$ setting the bandwidth (DC gain 1). There is no sharp
+resonance to aim at — the identification is signal-to-noise limited. We run the same
 full diagnostic set as the resonance examples and recover the pole by maximum likelihood
 from a 30 %-wrong prior. The interesting twist: even with no peak, the optimal drive is
 not flat — the Fisher information about $f_c$ concentrates around the corner, and the
@@ -76,6 +77,8 @@ sp.param_table(
 ## 1 — Design the excitation
 
 ```{python}
+#| label: fig-fp-excitation
+#| fig-cap: "Optimal drive and a flat drive of equal total power for a single-pole cavity. With no resonance to aim at, the optimal drive concentrates around the corner frequency, where the pole location is most informative — a far weaker concentration than a resonant plant allows."
 #| code-summary: "Optimal drive for a single pole vs flat"
 Pxx_opt  = prior_robust_excitation(freq, prior, Pyy, Px_tot, 0.5, n_iter=6)
 Pxx_flat = np.full_like(freq, Px_tot / (freq[-1] - freq[0]))
@@ -115,6 +118,8 @@ sp.param_table(["step", "f_c [Hz]", "DC gain |G(0)|", "σ/θ (CRB)"], rows,
 ## 3 — Is the drive gentle? The measurement time series
 
 ```{python}
+#| label: fig-fp-timeseries
+#| fig-cap: "First ~8 s (two periods) of pass 1: the Schroeder multisine at the cavity actuator (top) and the low-pass output it produces (bottom)."
 #| code-summary: "Drive + cavity response, first ~8 s (2 periods)"
 idx = np.arange(0, int(8 * FS), 2)               # 2 periods, decimated 2x for display
 t = idx / FS
@@ -129,6 +134,8 @@ sp.timeseries(
 ## 4 — Bode: magnitude, phase, and coherence
 
 ```{python}
+#| label: fig-fp-bode
+#| fig-cap: "Magnitude, phase, and coherence after the final pass. The prior places the pole at 70 Hz against a true 100 Hz; the ML fit recovers it."
 #| code-summary: "Magnitude / phase / coherence stack"
 mask = hist[-1]["mask"]
 sp.bode(freq, [
@@ -151,6 +158,8 @@ down-weighted and the fit is dominated by the well-measured region around the co
 ## 5 — Fit residuals
 
 ```{python}
+#| label: fig-fp-residuals
+#| fig-cap: "Normalised fit residuals (measured − fit)/σ against frequency, with their histogram."
 #| code-summary: "Normalized residual + histogram"
 resid = ((hist[-1]["H_acc"] - final.eval(freq)) / hist[-1]["err_acc"]).real
 sp.residuals(freq, resid, mask).show()
@@ -159,6 +168,8 @@ sp.residuals(freq, resid, mask).show()
 ## 6 — Parameter recovery against the Cramér–Rao bound
 
 ```{python}
+#| label: fig-fp-recovery
+#| fig-cap: "Prior, ML fit, and true value for the cavity pole and the DC gain, with the Cramér–Rao σ as the error bar on each fit."
 #| code-summary: "Parameter recovery with CRB error bars"
 sig = param_sigmas(final, hist[-1]["cov"], targets=("fc", "gain"))
 sp.parameter_recovery([
@@ -174,6 +185,8 @@ print(f"cavity pole recovered: {fc_of(final):.2f} Hz "
 ## 7 — Drive-safety margins
 
 ```{python}
+#| label: fig-fp-saturation
+#| fig-cap: "Drive peak and RMS per pass against the actuator limit."
 #| code-summary: "Drive peak & RMS vs the actuator limit, per pass"
 sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in hist],
               limit=ACT_LIMIT).show()
@@ -182,6 +195,8 @@ sp.saturation([{"pass": h["pass"], "peak": h["peak"], "rms": h["rms"]} for h in 
 ## 8 — Convergence — every parameter
 
 ```{python}
+#| label: fig-fp-convergence
+#| fig-cap: "Fractional parameter uncertainty σᵢ/θᵢ per pass for the pole and the gain, against the 5 % stop target."
 #| code-summary: "σᵢ/θᵢ vs pass, per parameter"
 sp.convergence(param_convergence_series(hist, ["fc", "gain"], ["f_c", "gain"]),
                target=0.05).show()
@@ -190,6 +205,8 @@ sp.convergence(param_convergence_series(hist, ["fc", "gain"], ["f_c", "gain"]),
 ## 9 — Pass-by-pass: the measurement sharpening
 
 ```{python}
+#| label: fig-fp-passes
+#| fig-cap: "Measured FRF and ML fit at each pass, overlaid on the true cavity response."
 #| code-summary: "Measured FRF + fit, overlaid per pass"
 sp.pass_overlay(freq,
     [dict(meas_mag=np.abs(h["H"]), fit_mag=np.abs(h["model"].eval(freq)),
