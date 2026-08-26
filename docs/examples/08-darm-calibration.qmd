@@ -4,7 +4,6 @@ description: "The P&S pipeline on the DARM loop: sensing C, the per-stage actuat
 image: thumbnails/08.svg
 image-alt: "Recovered DARM response function with its Cramer-Rao envelope."
 categories: [calibration, closed-loop, DARM]
-freeze: true
 ---
 
 ::: {.callout-important appearance="simple"}
@@ -49,8 +48,7 @@ real: the representative O4 sensitivity (`aligo_O4high`, LIGO-T2000012) × the 4
 SNRs and the CRB below are set against an actual O4 DARM floor. The injected drive magnitude is a
 representative choice (not a measured value), so absolute σ levels are illustrative while the
 demonstrated shapes (the `1/√T` scaling, the CRB tracking) do not depend on it. It is a
-demonstration of the measurement, not a calibration of any real instrument. The page is rendered
-with `freeze: true`.
+demonstration of the measurement, not a calibration of any real instrument.
 :::
 
 ```{python}

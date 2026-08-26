@@ -4,7 +4,6 @@ description: "A coupled 6-DoF suspension identified through its live damping loo
 image: thumbnails/09.svg
 image-alt: "Per-mode modal frequency residuals with Cramer-Rao error bars from a rank-1 joint MIMO fit."
 categories: [MIMO, closed-loop, modal]
-freeze: true
 ---
 
 ::: {.callout-tip appearance="simple"}
@@ -29,7 +28,7 @@ that ties all the elements to a common set of modes.
 The twin is a coupled normal-mode plant with six shared modes (representative low-frequency
 suspension values), driven through six diagonal velocity dampers. It is a demonstration of
 the joint-fit measurement, not a validated suspension model, and six modes are not a proof
-that the method scales without limit. The page is rendered with `freeze: true`.
+that the method scales without limit.
 :::
 
 ```{python}

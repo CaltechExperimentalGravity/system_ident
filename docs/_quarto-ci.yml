@@ -2,16 +2,37 @@
 #
 # `freeze: auto` skips re-executing a page whose .qmd is unchanged, so CI can reuse the
 # _freeze cache instead of running every example on every push (the render step was 225 s
-# of a 290 s job). Pages that pin `freeze: true` in their own front matter (07/08/09/10/13,
-# which need hardware or are expensive) keep that — front matter wins over the profile.
+# of a 290 s job).
 #
 # This is deliberately NOT in _quarto.yml: freeze keys off the .qmd hash ALONE, so it would
 # not notice a change in src/system_ident/*.py and a local `quarto render` would quietly
 # serve stale figures while you edit the library. Two things keep CI honest instead:
 #   1. the workflow's cache key hashes src/**/*.py, docs/**/*.py, docs/**/*.qmd and
-#      docs/_freeze/** — any source change misses the cache and re-executes everything;
+#      docs/_freeze/** — any source change misses the cache, and a page with no committed
+#      _freeze entry then executes from scratch against the new source;
 #   2. no restore-keys, so a near-miss can never fall back to results computed from
 #      older source.
 # Locally, plain `quarto render docs` still executes every page, every time.
+#
+# THE EXCEPTION, stated plainly. Safeguard 1 only reaches pages CI is able to run. Three
+# pages pin `freeze: true` in their own front matter, which wins over this profile, and
+# ship a committed _freeze result. For them a cache miss changes nothing: CI serves the
+# committed output no matter what src/ now says.
+#
+#   07-rtsfreerun-twin, 10-srm-hsts  — need the compiled RTSfreerun twin (x1hsts), which
+#                                      is not installable from PyPI. CI cannot run them
+#                                      at any price.
+#   13-darm-drift-tracking           — runs anywhere, but measured at 569 s against 67 s
+#                                      for the next slowest page, so un-pinning it would
+#                                      roughly triple the docs job on every cache miss.
+#
+# What covers them instead: tests/test_docs_integrity.py fails when a pinned page's .qmd
+# has been edited without re-executing it, so prose and figures cannot silently diverge
+# from the repo. It does NOT detect drift from src/ — re-run those three by hand after a
+# change to the library code they exercise:
+#
+#     cd docs && conda run -n sysid quarto render examples/13-darm-drift-tracking.qmd
+#
+# Every other executed page carries no committed _freeze entry, so safeguard 1 covers it.
 execute:
   freeze: auto

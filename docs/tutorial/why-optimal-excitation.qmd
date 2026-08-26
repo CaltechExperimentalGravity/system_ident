@@ -1,7 +1,6 @@
 ---
 title: "Why optimal-excitation system ID"
 description: "An evidence-based comparison of optimal-excitation frequency-domain identification (Pintelon–Schoukens) against broadband random noise and swept sine — with head-to-head campaigns from the system_ident package, and an account of when each alternative is the appropriate choice."
-freeze: true
 ---
 
 This page sets out the measurement method `system_ident` implements — an
@@ -21,9 +20,8 @@ sine or random noise is the appropriate tool, this page says so.
 ## Everything below is a real package run
 Every number and figure comes from the glue module `docs/method_demo.py`, which runs the
 campaigns through the library internals (`SysIDLoop._estimate_tf_periodic`,
-`optimal_excitation`, `fisher.parameter_covariance`, `run_siso_passes`). The page is rendered
-with `freeze: true`. No number on this page is hand-entered; if a result is mixed, the text
-says so.
+`optimal_excitation`, `fisher.parameter_covariance`, `run_siso_passes`). No number on this
+page is hand-entered; if a result is mixed, the text says so.
 :::
 
 ```{python}

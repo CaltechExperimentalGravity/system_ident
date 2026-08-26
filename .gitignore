@@ -37,6 +37,21 @@ docs/reference/
 docs/objects.json
 .jupyter_cache/
 
+# Executed-page cache. A committed _freeze entry is what makes a page immune to the CI
+# cache key (see docs/_quarto-ci.yml): the results ship with the repo, so a change to
+# src/ can never force a re-run. Only pages CI genuinely cannot execute may ship one, so
+# deny by default and allow those explicitly — a new page cannot acquire the exemption by
+# accident, only by someone adding a line here and saying why.
+docs/_freeze/*
+!docs/_freeze/site_libs/
+# Need the compiled RTSfreerun twin (x1hsts); CI cannot run these at any price.
+!docs/_freeze/examples/
+docs/_freeze/examples/*
+!docs/_freeze/examples/07-rtsfreerun-twin/
+!docs/_freeze/examples/10-srm-hsts/
+# Runs anywhere, but 569 s against 67 s for the next slowest page.
+!docs/_freeze/examples/13-darm-drift-tracking/
+
 # Agent notes. Deny by default, then allow the durable ones — so new agent scratch
 # (plans, todos, shell snapshots, throwaway scripts, rendered mockups) can never be
 # committed by accident. See CLAUDE.md §"Agent memory and working notes".
