@@ -285,7 +285,7 @@ two-mode Jacobian — the same `2T·Pₓₓ/P_yy · Re[∂G*∂G]` Fisher used a
 
 ```{python}
 #| label: fig-resolvability
-#| fig-cap: "The CRB-computed resolvability boundary for a parametric two-mode fit. Below one linewidth (Δf/Γ < 1) — where non-parametric peak-picking gives up — the required budget rises as a steep but finite power of Γ/Δf. Sub-linewidth resolution is a cost, not a wall. The SRM within-plane 1.512/1.527 Hz pair (Q≈50) is marked."
+#| fig-cap: "The CRB-computed resolvability boundary for a parametric two-mode fit. Below one linewidth (Δf/Γ < 1) — where non-parametric peak-picking gives up — the required budget rises as a steep but finite power of Γ/Δf. Sub-linewidth resolution is a cost, not a wall. The SRM within-plane 1.512/1.527 Hz pair (Q≈50 — the real Qs are much larger, this uniform low Q being carried for ease of calculation) is marked."
 #| code-summary: "CRB on the mode separation vs Δf/Γ"
 from IPython.display import display, Markdown
 

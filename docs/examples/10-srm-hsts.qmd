@@ -58,7 +58,9 @@ just the Pintelon–Schoukens rule that the segment length must exceed the plant
 for a leakage-free FRF, read through the prior's slowest-ringing mode.
 
 `system_ident.design.resolution.recommend_resolution` formalizes this. Calling it on the prior
-HSTS modes (the resolvable design set, Q≈50) turns the physics into the concrete campaign knobs:
+HSTS modes (the resolvable design set, Q≈50 — the real SRM's Qs are much larger, and this
+uniform low Q is carried for ease of calculation) turns the physics into the concrete
+campaign knobs:
 
 ```{python}
 #| code-summary: "What resolution does the prior demand to resolve Q?"

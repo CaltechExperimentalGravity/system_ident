@@ -49,9 +49,11 @@ import rtsfreerun_demo as rd
 ## A1–A2 · Open-loop SISO under the twin's own noise
 
 The HSTS drive→sensor plant is the order-10 `HSTS_DRV_TF` cascade — five modes near
-0.67, 1.01, 1.52, 2.81 and 3.78 Hz, each $Q\!\approx\!50$, threaded with near-cancelling
-zeros. The multisine is injected at the coil-driver excitation port and the 16-bit sensor
-displacement read while the twin runs `ligo-india` seismic on the ISI and BOSEM readout noise.
+0.67, 1.01, 1.52, 2.81 and 3.78 Hz, each $Q\!\approx\!50$ (the real suspension's Qs are much
+larger; the model carries a uniform low $Q$ purely for ease of calculation, which keeps the
+ringdowns short and the records cheap), threaded with near-cancelling zeros. The multisine is
+injected at the coil-driver excitation port and the 16-bit sensor displacement read while the
+twin runs `ligo-india` seismic on the ISI and BOSEM readout noise.
 The FRF input is the after-actuator drive monitor, so the coil driver divides out and the
 recovered transfer is the bare suspension. (A1 — the wiring/oracle smoke test that gates this
 page — lives in the test suite; this page goes straight to recovery.)
