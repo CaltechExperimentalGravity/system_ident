@@ -252,3 +252,68 @@ Two root causes, both fixed:
    regression test. All 6 DoFs now recover parametrically (median <0.004), gated by
    test_rtsfreerun_6dof::test_a3_parametric_campaign_recovers_all_dofs. Helper:
    HSTS6DOF.parametric_recovery(dof). Suite 132 passed.
+
+### Docs audit + fixes (2026-08-25..30) — PARKED, resume here
+
+Full audit of the 25 hand-written docs pages, then fixes. Four commits, all on main
+and pushed: c147eb1, fcbf0df, 601f715 (and 1676038 from the prior register sweep).
+
+SHIPPED
+- Broken refs: `configs/*.yml` named as runnable paths on two pages; they live under
+  `src/system_ident/configs/`. Verified the bad path raises ConfigError.
+- Example 13 was pip-runnable but missing from all three Binder lists while the
+  gallery prose said only 07/10 are excluded. Added to binder/postBuild,
+  gallery-binder.js RUNNABLE, and the index prose.
+- Figure captions: 89 cells labelled -> 116 numbered figures on the site, was 6.
+  Tabset pages needed LIST-form `fig-cap` (show_dof/show_elem emit 8 and 3 figures
+  per call, so one caption cannot address them). Ex 04: 0 -> 26, ex 06 -> 21.
+  `image-alt` on all 13 examples: gallery went 13/74 imgs without alt -> 0/74.
+  NOTE: `fig-alt` is deliberately NOT set — verified it emits no a11y attribute on a
+  Plotly cell, only an echo in the visible source listing. The caption is the
+  accessible name (Quarto wraps it in figure/figcaption).
+- Register: 240 bold spans dropped, 290 -> 68, survivors all structural. 19 of them
+  wrapped ACROSS A LINE BREAK and are invisible to a single-line regex — remember
+  this when measuring emphasis. Gallery descriptions 178-315 chars -> 83-162.
+- Guards: tests/test_docs_integrity.py (pure stdlib, runs in the light CI test job) —
+  prose paths exist, links/anchors resolve, freeze:true pages match their source, and
+  the known-stale quarantine cannot outlive the problem. Each proven by deliberate
+  breakage.
+- Freeze policy: `_quarto-ci.yml` used to claim "any source change re-executes
+  everything" — FALSE for freeze:true pages (front matter beats the profile, and a
+  committed _freeze entry is what grants the immunity). Un-pinned the three that did
+  not need it: 08 (55 s), 09 (67 s), why-optimal-excitation (61 s), and deleted their
+  committed _freeze. Still pinned: 07/10 (need the compiled twin), 13 (569 s vs 67 s
+  for the next slowest). .gitignore now denies docs/_freeze and allows only those
+  three by name.
+- Planted-Q caveat at the first mention on each page that uses it (07, 10,
+  tutorial/fisher): the real Qs are much larger, the uniform low Q is for ease of
+  calculation. 11 already said "(model-set)"; 12 claims no Q recovery.
+
+OPEN — highest first
+1. CI WAS NEVER WATCHED for any of the four pushes. `gh` is not installed here and
+   the stay-in-project hook blocks looking for it, so I could not follow the standing
+   "watch CI after every push" rule. This matters MORE than usual: CI now executes
+   08/09/why-optimal-excitation itself instead of serving them from a committed
+   freeze, so a failure there is newly possible. CHECK THIS FIRST TOMORROW.
+2. Examples 07 and 10 are stale and cannot be re-executed without the compiled
+   x1hsts twin. Waiting in source for a render on a machine that has it: their figure
+   captions, the register pass, and the new planted-Q caveat. Both are listed in
+   _KNOWN_STALE in tests/test_docs_integrity.py; that list self-expires.
+3. Their two mixed table-plus-figure cells are the only uncaptioned figures left —
+   deliberately, since the output shape cannot be observed without the twin.
+4. Should the quad's model-set Q (Q = 628.3*f, from a uniform -0.005 1/s eigenvalue
+   shift on 24 of 28 modes) get the same "real Qs are larger" wording as the HSTS 50?
+   Left alone pending the user's call.
+5. Audit items reported but NOT fixed (user did not ask): why-optimal-excitation
+   asserts "No number on this page is hand-entered" but transcribes three results
+   (1.9, 2x, 1.4x — all verified correct today, so it is fragility not error);
+   python 3.9 badge while CI tests only 3.12; every figure loads Plotly from a CDN
+   and the two frozen pages pin an older version than the rest (3.6.0 vs 3.7.0);
+   one h2->h4 heading jump in 07.
+6. Unrelated leftover: the `slide-decks` skill written earlier in skill-skeleton was
+   never validated, installed, or committed — blocked by the stay-in-project hook.
+
+NO src-drift detection on the three pinned pages; the .qmd hash is all Quarto keys
+on. A source-fingerprint guard was considered and REJECTED: any src/ edit would fire
+it and it would get refreshed reflexively. _quarto-ci.yml states the gap and gives the
+re-run command instead.
