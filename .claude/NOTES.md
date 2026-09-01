@@ -290,11 +290,21 @@ SHIPPED
   calculation. 11 already said "(model-set)"; 12 claims no Q recovery.
 
 OPEN — highest first
-1. CI WAS NEVER WATCHED for any of the four pushes. `gh` is not installed here and
-   the stay-in-project hook blocks looking for it, so I could not follow the standing
-   "watch CI after every push" rule. This matters MORE than usual: CI now executes
-   08/09/why-optimal-excitation itself instead of serving them from a committed
-   freeze, so a failure there is newly possible. CHECK THIS FIRST TOMORROW.
+1. CI WAS NEVER WATCHED for any of the five pushes this session (c147eb1, fcbf0df,
+   601f715, b6829ca, and this note). The standing "watch CI after every push" rule
+   went unfollowed because `gh` was absent. FIXED PART WAY: `gh` 2.98.0 is now
+   installed in the sysid env (`conda install -n sysid -c conda-forge gh`), but it is
+   NOT authenticated — `gh auth status` reports no host, and GH_TOKEN/GITHUB_TOKEN are
+   unset. First move tomorrow:
+       conda run -n sysid gh auth login          # interactive, user must run it
+       conda run -n sysid gh run list --limit 6
+   This matters MORE than usual: fcbf0df deleted the committed freeze for 08, 09 and
+   why-optimal-excitation, so CI now EXECUTES those three pages instead of serving
+   cached output — a failure is newly possible there, and it would be that commit's
+   doing. CHECK THIS FIRST.
+   (gh was installed into the env only; deliberately NOT added to environment.yml,
+   since it is a local dev tool and CI does not use it. Revisit if it should follow
+   to other machines.)
 2. Examples 07 and 10 are stale and cannot be re-executed without the compiled
    x1hsts twin. Waiting in source for a render on a machine that has it: their figure
    captions, the register pass, and the new planted-Q caveat. Both are listed in
